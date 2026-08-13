@@ -1,0 +1,114 @@
+import time
+import traceback
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from app.routes.decisions import router as decisions_router
+from app.seed import ensure_demo_org_exists, run_migrations
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Applies any small, safe schema catch-up changes first, so an existing
+    # database (from an earlier build, before some column existed) stays in
+    # sync automatically -- no manual "docker compose down -v" reset needed
+    # every time the code changes going forward.
+    try:
+        run_migrations()
+    except Exception as e:
+        print(f"Warning: migrations step failed entirely ({e})")
+
+    # Creates a default demo org/user automatically, so the frontend works
+    # the moment you run it, with no manual database setup.
+    # Retries with backoff -- a real defense-in-depth layer alongside the
+    # docker-compose healthcheck, since even a "ready" database can briefly
+    # refuse a connection during its own final startup moment. Without this,
+    # a single failed attempt here used to mean the demo account silently
+    # never got created, and every single request afterward would crash.
+    for attempt in range(1, 6):
+        try:
+            ensure_demo_org_exists()
+            break
+        except Exception as e:
+            print(f"Demo org setup attempt {attempt}/5 failed ({e}); retrying...")
+            time.sleep(2)
+    else:
+        print(
+            "WARNING: could not set up the demo organisation after 5 attempts. "
+            "The app will start, but every request will fail until this is resolved -- "
+            "check that the database is reachable at the configured DATABASE_URL."
+        )
+    yield
+
+
+app = FastAPI(title="VendorEdge MVP", version="0.1.0", lifespan=lifespan)
+app.include_router(decisions_router)
+
+
+@app.middleware("http")
+async def no_cache_html_middleware(request: Request, call_next):
+    """
+    Real, permanent fix for a genuine production incident: with no
+    cache-control headers at all, a visitor's browser was free to cache the
+    main page indefinitely using its own default heuristics -- meaning a
+    real redeploy on the server could still leave real users stuck on an
+    old, buggy version of the page, since their browser might never even
+    ask the server for a newer one. This forces every HTML page load to
+    always fetch fresh from the server, every time -- static assets like
+    images could still cache safely, but the page itself never should,
+    given how frequently this project is actively being updated.
+    """
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.endswith(".html"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
+@app.exception_handler(Exception)
+async def catch_all_exception_handler(request: Request, exc: Exception):
+    """
+    The systemic safety net: without this, ANY unhandled error anywhere in
+    the app falls through to a generic plain-text 'Internal Server Error'
+    page that breaks the frontend's JSON parsing. Full detail is always
+    logged here, privately, for real debugging -- but what's RETURNED to
+    the caller is now a calm, generic message, not the raw exception text.
+    This was a genuine pre-pilot finding: showing a real external user a raw
+    Python exception string mid-demo is unprofessional and was fine only
+    during our own internal debugging, never for a real pilot user.
+    """
+    full_trace = traceback.format_exc()
+    print(f"\n===== UNHANDLED ERROR on {request.url.path} =====\n{full_trace}=====\n")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Something went wrong on our end. Please try again in a moment. "
+                      "If this keeps happening, let us know what you asked."
+        },
+    )
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.get("/validation")
+def validation_page():
+    """
+    The simple, non-technical validation page -- explicit route so the
+    exact URL the user is told to visit always works, rather than relying
+    on StaticFiles' html-mode extension-guessing behavior.
+    """
+    from fastapi.responses import FileResponse
+    return FileResponse("app/static/validation.html")
+
+
+# Serves the actual clickable screen at http://localhost:8000/
+app.mount("/", StaticFiles(directory="app/static", html=True), name="static")

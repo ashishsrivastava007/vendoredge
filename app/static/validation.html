@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VendorEdge — 2-Case Validation</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; max-width: 640px; margin: 60px auto; padding: 0 20px; color: #1a1a1a; }
+  h1 { font-size: 22px; }
+  p.explain { color: #444; line-height: 1.5; }
+  button { background: #111; color: white; border: none; padding: 14px 28px; border-radius: 8px; font-size: 15px; cursor: pointer; }
+  button:disabled { background: #999; cursor: not-allowed; }
+  .case { border: 1px solid #e2e2e2; border-radius: 10px; padding: 16px 20px; margin-top: 16px; background: #fafafa; }
+  .case h3 { margin: 0 0 8px 0; font-size: 15px; }
+  .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 14px; }
+  .row .label { color: #666; }
+  .ok { color: #0a7a2f; font-weight: 600; }
+  .warn { color: #b45309; font-weight: 600; }
+  #summary { margin-top: 20px; font-size: 15px; }
+  #status { margin-top: 20px; color: #666; }
+</style>
+</head>
+<body>
+  <h1>VendorEdge — 2-Case Real Validation</h1>
+  <p class="explain">
+    This runs 2 real, known test cases through VendorEdge's live AI reasoning
+    to confirm everything is working correctly end to end. This uses a small
+    amount of real API budget — typically well under $0.50 total for both
+    cases combined. It runs in a separate, dedicated workspace and will never
+    affect your real pilot cases or your monthly case limit.
+  </p>
+  <button id="run-btn" onclick="runValidation()">Run 2-Case Validation</button>
+  <div id="status"></div>
+  <div id="results"></div>
+
+<script>
+async function runValidation() {
+  const btn = document.getElementById("run-btn");
+  const statusEl = document.getElementById("status");
+  const resultsEl = document.getElementById("results");
+  btn.disabled = true;
+  resultsEl.innerHTML = "";
+  statusEl.innerText = "Running both cases through VendorEdge's real reasoning. This usually takes 30–90 seconds per case — please don't close this tab.";
+
+  try {
+    const res = await fetch("/api/v1/validation/run", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) {
+      statusEl.innerText = "Something went wrong: " + (data.detail || "please try again.");
+      btn.disabled = false;
+      return;
+    }
+    statusEl.innerText = "Done.";
+    renderResults(data);
+  } catch (err) {
+    statusEl.innerText = "Could not reach the server. Details: " + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderResults(data) {
+  const resultsEl = document.getElementById("results");
+  let html = "";
+  data.cases.forEach((c) => {
+    const completedOk = c.status === "completed";
+    html += `
+      <div class="case">
+        <h3>Case: ${escapeHtml(c.case_id)}</h3>
+        <div class="row"><span class="label">Result</span><span class="${completedOk ? "ok" : "warn"}">${completedOk ? "Completed successfully" : escapeHtml(c.status)}</span></div>
+        <div class="row"><span class="label">Time taken</span><span>${c.elapsed_seconds}s</span></div>
+        <div class="row"><span class="label">Confidence level</span><span>${escapeHtml(c.confidence_level || "—")}</span></div>
+        <div class="row"><span class="label">Financial figures produced</span><span>${c.financial_impact_present ? "Yes" : "No"}</span></div>
+        <div class="row"><span class="label">Safety-check retry fired</span><span>${c.retry_occurred ? "Yes" : "No"}</span></div>
+        <div class="row"><span class="label">Stayed healthy throughout</span><span class="${c.heartbeat_stayed_healthy ? "ok" : "warn"}">${c.heartbeat_stayed_healthy ? "Yes" : "No"}</span></div>
+        <div class="row"><span class="label">Real cost</span><span>$${c.estimated_cost_usd.toFixed(4)}</span></div>
+        <div class="row"><span class="label">Recommendation preview</span><span>${escapeHtml(c.recommendation_preview)}${c.recommendation_preview.length >= 200 ? "…" : ""}</span></div>
+      </div>`;
+  });
+  html += `<div id="summary"><strong>Total real cost for both cases: $${data.total_estimated_cost_usd.toFixed(4)}</strong></div>`;
+  resultsEl.innerHTML = html;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = String(text);
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>

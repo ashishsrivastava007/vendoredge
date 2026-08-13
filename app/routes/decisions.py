@@ -1,0 +1,1343 @@
+"""
+The core loop's actual endpoints. Deliberately just three: create, get, respond —
+plus feedback. Everything else from the full API spec (org/user admin, knowledge
+items, audit log) is out of scope for this first slice, per the lean roadmap.
+
+Rebuilt clean after a corruption incident. Full tracebacks are now printed to
+the server console on any pipeline failure (not hidden behind a generic 503),
+per explicit request — this makes real debugging possible instead of guessing.
+"""
+import json
+import traceback
+import time
+from collections import defaultdict
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
+from fastapi import APIRouter, HTTPException, Header, Request, UploadFile, File, BackgroundTasks
+
+from app.models import (
+    CreateDecisionRequest, RespondRequest, FeedbackRequest, ContinueCaseRequest,
+    CommercialDecisionResponse, WorkspaceResponse, WorkspaceInfoResponse, PilotLeadRequest,
+    GeneralFeedbackRequest,
+)
+from app.database import get_org_scoped_connection
+from app.pipeline.classifier import classify
+from app.pipeline.evidence import check_missing_evidence
+from app.pipeline.reasoner import generate_commercial_position
+from app.pipeline.financial import compute_financial_impact
+from app.pipeline.market_verification import verify_market_claim
+from app.pipeline.normalize import normalize_evidence
+from app.pipeline import attempt_fencing
+from app.pipeline.normalized_evidence import NormalizedEvidence, HistoryContext
+from app.pipeline.methodology_consistency import (
+    claims_tco_methodology, determine_relevant_tco_dimensions, check_tco_coverage,
+    claims_kraljic_methodology, check_kraljic_reasoning_coverage,
+)
+from app.pipeline.contradiction_check import check_all_contradictions
+from app.pipeline.claim_integrity import check_all_claim_overstatements
+from app.pipeline.confidence_gate import apply_confidence_ceiling
+from app.pipeline.file_extraction import (
+    extract_text_from_xlsx, extract_text_from_pdf, extract_text_from_eml,
+    extract_text_from_zip, FileExtractionError,
+)
+
+router = APIRouter(prefix="/api/v1")
+
+# Lightweight, in-memory rate limiting on workspace creation -- deliberately
+# simple, matching the lean philosophy held all night: this closes the
+# obvious gap (a script looping to spam-create free workspaces with real
+# Anthropic API cost behind each one) without building real rate-limiting
+# infrastructure (Redis, etc.) that isn't justified before real usage
+# volume exists. In-memory means this resets on a server restart, which is
+# an accepted, honest tradeoff for a single-instance free-tier deployment,
+# not a claim of bulletproof protection against a determined attacker.
+_workspace_creation_log: dict[str, list[float]] = defaultdict(list)
+_WORKSPACE_RATE_LIMIT_MAX = 20
+_WORKSPACE_RATE_LIMIT_WINDOW_SECONDS = 3600
+
+
+def _check_workspace_rate_limit(client_ip: str):
+    now = time.time()
+    recent = [t for t in _workspace_creation_log[client_ip] if now - t < _WORKSPACE_RATE_LIMIT_WINDOW_SECONDS]
+    if len(recent) >= _WORKSPACE_RATE_LIMIT_MAX:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many new workspaces created recently from this connection. "
+                   "Please wait a while before creating another, or use your existing "
+                   "workspace link if you already have one.",
+        )
+    recent.append(now)
+    _workspace_creation_log[client_ip] = recent
+
+
+@router.post("/extract-file")
+async def extract_file(file: UploadFile = File(...)):
+    """
+    Real document text extraction -- pure deterministic parsing, no AI call
+    involved. The extracted text is returned to the frontend to drop into
+    the question box, reusing the exact same, already-tested text
+    extraction pipeline rather than building a new one.
+    """
+    filename = file.filename.lower()
+    extractors = {
+        ".xlsx": extract_text_from_xlsx,
+        ".pdf": extract_text_from_pdf,
+        ".eml": extract_text_from_eml,
+        ".zip": extract_text_from_zip,
+    }
+    matched_ext = next((ext for ext in extractors if filename.endswith(ext)), None)
+    if not matched_ext:
+        raise HTTPException(
+            status_code=400,
+            detail="Only .xlsx, .pdf, .eml, and .zip files are supported right now. For other "
+                   "formats, please copy and paste the relevant details into the question box.",
+        )
+    file_bytes = await file.read()
+    if len(file_bytes) > 5_000_000:
+        raise HTTPException(status_code=400, detail="File is too large (max 5MB).")
+    try:
+        extracted_text = extractors[matched_ext](file_bytes)
+    except FileExtractionError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"extracted_text": extracted_text}
+
+
+@router.post("/general-feedback", status_code=201)
+def submit_general_feedback(body: GeneralFeedbackRequest, x_org_id: str = Header(...)):
+    """
+    Always-available, open-ended feedback -- not tied to any specific
+    moment or question, unlike the quick-feedback and outcome fields.
+    No reply mechanism, since there's no expectation of one for this.
+    """
+    import psycopg2
+    from app.database import _get_dsn
+
+    conn = psycopg2.connect(_get_dsn())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO general_feedback (organisation_id, message) VALUES (%s, %s)",
+                (x_org_id, body.message),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"received": True}
+
+
+@router.post("/pilot-lead", status_code=201)
+def submit_pilot_lead(body: PilotLeadRequest, x_org_id: str = Header(...)):
+    """
+    Only reached after a real "Notify me" click, which is already logged
+    separately (via interest-signal) the moment it happens -- so an
+    abandoned form here doesn't lose that signal. This captures the richer,
+    optional follow-through: enough to actually reach out to a real
+    interested person, nothing more.
+    """
+    import psycopg2
+    from app.database import _get_dsn
+
+    conn = psycopg2.connect(_get_dsn())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO pilot_leads
+                   (organisation_id, email, name, linkedin, next_case_category, comment)
+                   VALUES (%s, %s, %s, %s, %s, %s)""",
+                (x_org_id, body.email, body.name, body.linkedin, body.next_case_category, body.comment),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"received": True}
+
+
+@router.post("/interest-signal", status_code=201)
+def log_interest_signal(feature: str):
+    """
+    Fake-door demand test: logs a click on a not-yet-built feature (e.g. PDF
+    upload) without actually building it. Cheap, real signal on whether a
+    feature is worth the engineering cost, before committing to it.
+    """
+    import psycopg2
+    from app.database import _get_dsn
+
+    conn = psycopg2.connect(_get_dsn())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO interest_signals (feature) VALUES (%s)", (feature,)
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"logged": True}
+
+
+def _enforce_monthly_usage_limit(org_id: str):
+    """
+    Deterministic, real enforcement -- counts this org's actual decisions
+    created since the start of the current calendar month and compares
+    against monthly_decision_limit. Raises a clean 429 if exceeded, before
+    any real API cost is incurred. This is the actual protection behind the
+    pricing page's "15/month" claim, which previously enforced nothing.
+
+    STRESS_TEST_ORG_ID escape hatch: added specifically for the 10-case
+    manual validation exercise. Deliberately narrow -- bypasses the count
+    check ONLY for the single organisation ID named in this env var, which
+    is unset in production and must be set explicitly by whoever runs the
+    test. This does NOT change monthly_decision_limit's default (still 3
+    for every real org), does NOT touch authentication, tenant isolation,
+    or any other safety control -- it only skips this one count comparison,
+    for this one named org, for the duration this env var happens to be
+    set. Real API costs are still incurred per case, same as any other
+    decision; this does not bypass that, only the case-count gate.
+    """
+    import os
+    stress_test_org = os.environ.get("STRESS_TEST_ORG_ID")
+    if stress_test_org and stress_test_org == org_id:
+        return
+
+    with get_org_scoped_connection(org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT monthly_decision_limit FROM organisations WHERE id = %s",
+                (org_id,),
+            )
+            row = cur.fetchone()
+            limit = row["monthly_decision_limit"] if row else 15
+
+            cur.execute(
+                """SELECT count(*) AS n FROM commercial_decisions
+                   WHERE organisation_id = %s
+                   AND created_at >= date_trunc('month', now())""",
+                (org_id,),
+            )
+            used = cur.fetchone()["n"]
+
+    if used >= limit:
+        raise HTTPException(
+            status_code=429,
+            detail=f"This workspace has reached its {limit} decisions this month on the "
+                   f"free plan. It resets at the start of next month, or upgrade to "
+                   f"the Team plan for unlimited decisions.",
+        )
+
+
+def _log_unsupported_category(category: str):
+    """
+    Same real-demand-evidence pattern as log_interest_signal, applied to
+    unsupported question types instead of a feature button. Reuses the same
+    table (interest_signals) rather than building new infrastructure --
+    querying `SELECT feature, count(*) FROM interest_signals GROUP BY
+    feature` after the pilot shows real, ranked demand across BOTH unbuilt
+    features and unsupported question categories in one place.
+    """
+    import psycopg2
+    from app.database import _get_dsn
+
+    conn = psycopg2.connect(_get_dsn())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO interest_signals (feature) VALUES (%s)",
+                (f"unsupported:{category}",),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@router.post("/workspaces/invite", response_model=WorkspaceResponse)
+def invite_teammate(x_org_id: str = Header(...)):
+    """
+    Creates a new user identity within the SAME organisation -- not a new
+    workspace. This is the actual missing piece behind "Team -- up to 15
+    users, shared learning": previously there was no way for a colleague to
+    join an existing organisation at all, only to create their own new,
+    isolated one. This closes that gap using the exact same private-link
+    model already in place, just scoped to an existing org_id instead of a
+    fresh one.
+    """
+    import psycopg2
+    from app.database import _get_dsn
+
+    new_user_id = uuid4()
+    conn = psycopg2.connect(_get_dsn())
+    try:
+        with conn.cursor() as cur:
+            # Confirm the org genuinely exists before inviting into it.
+            cur.execute("SELECT id FROM organisations WHERE id = %s", (x_org_id,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Workspace not found")
+            cur.execute("SET app.current_org_id = %s", (x_org_id,))
+            cur.execute(
+                "INSERT INTO users (id, organisation_id, email, password_hash) "
+                "VALUES (%s, %s, %s, 'no-password-yet')",
+                (str(new_user_id), x_org_id, f"{new_user_id}@workspace.local"),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return WorkspaceResponse(organisation_id=UUID(x_org_id), user_id=new_user_id)
+
+
+@router.post("/workspaces", response_model=WorkspaceResponse)
+def create_workspace(request: Request):
+    """
+    Creates a genuinely new, isolated organisation and user -- the fix for
+    the critical pre-pilot finding: every visitor previously shared one
+    hardcoded demo organisation, meaning real pilot testers would have seen
+    each other's data. Each new visitor now gets their own real organisation,
+    protected by the same Row-Level Security already verified in
+    test_tenant_isolation.py. This is a private-link model, not full
+    password-based login -- adequate for a controlled pilot with known,
+    invited testers, not yet for open public exposure to strangers.
+    """
+    # Real IP, accounting for Render's reverse proxy (X-Forwarded-For is set
+    # by the proxy; request.client.host would just be the proxy's own IP).
+    client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.client.host
+    _check_workspace_rate_limit(client_ip)
+
+    import psycopg2
+    from app.database import _get_dsn
+
+    org_id = uuid4()
+    user_id = uuid4()
+    conn = psycopg2.connect(_get_dsn())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO organisations (id, name) VALUES (%s, %s)",
+                (str(org_id), f"Workspace {str(org_id)[:8]}"),
+            )
+            cur.execute("SET app.current_org_id = %s", (str(org_id),))
+            cur.execute(
+                "INSERT INTO users (id, organisation_id, email, password_hash) "
+                "VALUES (%s, %s, %s, 'no-password-yet')",
+                (str(user_id), str(org_id), f"{user_id}@workspace.local"),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return WorkspaceResponse(organisation_id=org_id, user_id=user_id)
+
+
+@router.post("/validation/run")
+def run_two_case_validation():
+    """
+    Runs the same 2 real cases from benchmark/real_llm_validation.py
+    through the exact production reasoning path -- no reasoning logic is
+    duplicated here. Uses an in-process TestClient to call the real
+    /commercial-decisions and /respond endpoints, precisely the same
+    pattern used throughout the whole test suite tonight, so this is
+    genuinely the unmodified production path, not a copy of it.
+
+    Runs against a brand-new, dedicated, throwaway workspace, created
+    fresh every time this is called -- this can never touch or consume
+    quota from any real pilot workspace's monthly limit, since it never
+    reuses one.
+
+    Deliberately synchronous and bounded: exactly 2 cases, real cost is
+    small and predictable, and the caller (the simple validation page)
+    waits for real results rather than polling -- this endpoint itself
+    blocks until both cases reach a terminal state.
+    """
+    import uuid as uuid_module
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from benchmark.real_llm_validation import VALIDATION_CASES, _compute_cost
+    from app.pipeline.token_tracking import get_usage, reset_usage
+
+    test_client = TestClient(app)
+
+    # A dedicated, isolated workspace for this run only -- never a real
+    # pilot workspace, so this can never affect real quota.
+    org_id = uuid_module.uuid4()
+    user_id = uuid_module.uuid4()
+    import psycopg2
+    from app.database import _get_dsn
+    conn = psycopg2.connect(_get_dsn())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO organisations (id, name, monthly_decision_limit) VALUES (%s, %s, 10)",
+                (str(org_id), f"Validation Run {str(org_id)[:8]}"),
+            )
+            cur.execute("SET app.current_org_id = %s", (str(org_id),))
+            cur.execute(
+                "INSERT INTO users (id, organisation_id, email, password_hash) "
+                "VALUES (%s, %s, %s, 'no-password-yet')",
+                (str(user_id), str(org_id), f"{user_id}@validation.local"),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    headers = {"x-org-id": str(org_id), "x-user-id": str(user_id)}
+    results = []
+
+    for case in VALIDATION_CASES[:2]:
+        reset_usage()
+        start = time.time()
+        r = test_client.post(
+            "/api/v1/commercial-decisions", json={"raw_question": case["raw_question"]}, headers=headers,
+        )
+        decision_id = r.json()["id"]
+
+        heartbeat_readings = []
+        deadline = time.time() + 20 * 60
+        data = r.json()
+        while data.get("status") == "reasoning" and time.time() < deadline:
+            heartbeat_readings.append({
+                "elapsed": data.get("processing_elapsed_seconds"),
+                "is_stale": data.get("processing_is_stale"),
+            })
+            time.sleep(2)
+            data = test_client.get(f"/api/v1/commercial-decisions/{decision_id}", headers=headers).json()
+
+        elapsed = time.time() - start
+        position = data.get("commercial_position") or {}
+        usage_entries = get_usage()
+        cost_info = _compute_cost(usage_entries)
+
+        results.append({
+            "case_id": case["id"],
+            "status": data.get("status"),
+            "elapsed_seconds": round(elapsed, 1),
+            "confidence_level": (position.get("confidence") or {}).get("level"),
+            "recommendation_preview": (position.get("recommendation") or "")[:200],
+            "financial_impact_present": position.get("financial_impact") is not None,
+            "real_api_calls": cost_info["real_api_calls"],
+            "retry_occurred": cost_info["real_api_calls"] > 2,
+            "total_input_tokens": cost_info["total_input_tokens"],
+            "total_output_tokens": cost_info["total_output_tokens"],
+            "estimated_cost_usd": cost_info["estimated_cost_usd"],
+            "heartbeat_stayed_healthy": not any(h["is_stale"] for h in heartbeat_readings),
+        })
+
+    total_cost = round(sum(r["estimated_cost_usd"] for r in results), 4)
+    return {"cases": results, "total_estimated_cost_usd": total_cost}
+
+
+@router.get("/workspaces/me", response_model=WorkspaceInfoResponse)
+def get_workspace_info(x_org_id: str = Header(...)):
+    """
+    Real fix for the cross-employer data leakage risk, not just a disclosure
+    sentence: returns how long this workspace has genuinely been active, so
+    the frontend can periodically prompt "is this still your current business
+    context?" rather than relying on a one-time warning nobody re-reads.
+    A private-link workspace has no way to know if its holder changed roles
+    or employers -- this is a real, functioning checkpoint that at least
+    creates a recurring moment to notice and act, given that a fully
+    automated identity-verification fix would require infrastructure (e.g.
+    verified company email domains) not justified before real evidence.
+    """
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, created_at FROM organisations WHERE id = %s", (x_org_id,)
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Workspace not found")
+    days_active = (datetime.now(timezone.utc) - row["created_at"]).days
+    return WorkspaceInfoResponse(
+        organisation_id=row["id"], created_at=row["created_at"], days_active=days_active
+    )
+
+# How many past outcomes to feed back into the reasoner. Kept small and
+# deliberately hardcoded for the MVP -- this is the entire "organizational
+# learning" mechanism: no retrieval infra, just this org's own most recent
+# recorded outcomes for the same content_type.
+HISTORY_LIMIT = 5
+
+
+def _log_full_error(context: str, exc: Exception) -> str:
+    """Prints the full traceback to the server console (visible in your logs)
+    for real debugging, but returns a calm, generic message to the actual
+    user -- not the raw exception text. Verified pre-pilot finding: showing
+    a real external user "ValueError: Classifier returned non-JSON output:
+    '...'" mid-demo is unprofessional; that detail is exactly as available
+    to us in the server logs as it always was, just no longer shown to them."""
+    full_trace = traceback.format_exc()
+    print(f"\n===== VENDOREDGE ERROR: {context} =====\n{full_trace}=====\n")
+    return (
+        "VendorEdge is having trouble reasoning through this specific question right now. "
+        "Please try again in a moment, or rephrase the question slightly."
+    )
+
+
+def _log_fallback_fired(fallback_name: str, content_type: str | None = None, is_conflict: bool = False):
+    """
+    Real instrumentation for the deterministic extraction fallbacks
+    (region, annual spend, requested percent, freight, incoterm, duty,
+    currency, volume) -- built after finding the SAME class of bug
+    repeatedly (the model's numeric/structured extraction missing
+    something its own text extraction clearly saw). Every real firing
+    gets logged here, with real columns for fallback type, content type,
+    and model version, specifically so they can be cross-tabulated
+    cleanly in SQL (see PILOT_DASHBOARD_QUERIES.md).
+
+    is_conflict=True marks a genuine LLM-vs-fallback disagreement (both
+    methods independently extracted a value, and they didn't match) --
+    a distinct, arguably more interesting signal than a simple miss,
+    since it might mean the fallback pattern itself needs refinement for
+    that sentence shape, not just that the model missed something.
+
+    Fire-and-forget: a failure here must never block the main request,
+    same discipline as every other non-critical logging in this codebase.
+    """
+    try:
+        import psycopg2
+        from app.database import _get_dsn
+        from app.model_config import CLASSIFIER_MODEL
+        conn = psycopg2.connect(_get_dsn())
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO fallback_events (fallback_type, content_type, model_version, is_conflict) "
+                    "VALUES (%s, %s, %s, %s)",
+                    (fallback_name, content_type, CLASSIFIER_MODEL, is_conflict),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f"Fallback-firing log skipped (non-blocking): {type(e).__name__}: {e}")
+
+
+@router.post("/commercial-decisions", response_model=CommercialDecisionResponse)
+def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTasks,
+                     x_org_id: str = Header(...), x_user_id: str = Header(...)):
+    # Real, enforced usage cap -- checked BEFORE the database write and
+    # BEFORE the costly Anthropic API call, since the whole point is to
+    # never spend real money on a request that shouldn't be allowed. This
+    # replaces what was previously just text on the pricing page with zero
+    # actual enforcement anywhere.
+    _enforce_monthly_usage_limit(x_org_id)
+
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            decision_id = body.client_decision_id or uuid4()
+            cur.execute(
+                """INSERT INTO commercial_decisions
+                   (id, organisation_id, created_by_user_id, raw_question, status)
+                   VALUES (%s, %s, %s, %s, 'classifying')
+                   RETURNING id, status, raw_question, created_at""",
+                (str(decision_id), x_org_id, x_user_id, body.raw_question),
+            )
+            cur.fetchone()
+
+    # Step A — classify
+    try:
+        classification = classify(body.raw_question)
+    except Exception as e:
+        detail = _log_full_error("Classification (Step A) failed", e)
+        _update_status(x_org_id, decision_id, "provider_unavailable")
+        raise HTTPException(status_code=503, detail=detail)
+
+    content_type = classification.get("content_type")
+    if content_type == "unsupported":
+        _update_status(x_org_id, decision_id, "provider_unavailable")
+        # Real demand evidence, not a guess: log which category this fell
+        # into, purely for later aggregate counting -- never used to answer
+        # the question itself, and failing silently if logging has any issue
+        # so it can never block the (already honest) rejection response.
+        category = classification.get("unsupported_category", "other")
+        try:
+            _log_unsupported_category(category)
+        except Exception:
+            pass
+        category_label = category.replace("_", " ").title()
+        # Deliberately does NOT list what a future module "will evaluate" --
+        # nothing about that has actually been designed yet, and stating
+        # specific future capabilities with confidence would be the same
+        # category of problem as fabricating a live answer, just about the
+        # future instead of the present. Name what was detected and confirm
+        # it's logged; don't promise a spec that doesn't exist.
+        raise HTTPException(
+            status_code=422,
+            detail=f"Commercial decision identified: {category_label}. This looks like "
+                   f"a real {category_label.lower()} question, but it's outside what "
+                   f"this version of VendorEdge currently supports -- right now it "
+                   f"handles supplier price increases and supplier quote comparisons. "
+                   f"Your question has been anonymously recorded to help prioritize "
+                   f"future modules. Try rephrasing around one of the two supported "
+                   f"types for now.",
+        )
+
+    decision_type = classification.get("decision_type")
+    constraint_signal = classification.get("constraint_satisfaction_signal")
+    llm_extracted_evidence = classification.get("extracted_evidence") or {}
+    llm_numeric_facts = classification.get("numeric_facts") or {}
+
+    # THE single evidence-normalization boundary. Every fallback (region,
+    # incoterm, duty, currency, volume, annual spend, requested percent,
+    # freight parsing), every conflict resolution, and every derivation
+    # (freight_relevant, duty_relevant, resolved annual spend) happens
+    # exactly once, here. No downstream stage may independently re-extract,
+    # re-derive, or reinterpret this evidence.
+    normalized, conflicts = normalize_evidence(
+        body.raw_question, content_type, llm_extracted_evidence, llm_numeric_facts,
+        supplier_specific_evidence=classification.get("supplier_specific_evidence"),
+    )
+    for field in conflicts:
+        _log_fallback_fired(field, content_type, is_conflict=True)
+    # Real, honest telemetry: every field whose final value came from the
+    # deterministic fallback (not the model) is logged here too, same
+    # signal as before the migration, just sourced from one place now
+    # instead of two duplicated call sites.
+    for field, prov in normalized.provenance.items():
+        if prov.source == "deterministic_fallback" and not prov.conflicting:
+            _log_fallback_fired(field, content_type)
+
+    stored_evidence = normalized.as_flat_evidence_dict()
+    # Persist per-supplier data too, under a reserved key -- without this,
+    # a follow-up via /respond or continue_case would silently lose the
+    # real multi-supplier evidence built in Guarantee #2, since it isn't
+    # part of the flat common/case dict this normally stores.
+    if normalized.suppliers:
+        stored_evidence["__supplier_specific_evidence__"] = [s.model_dump() for s in normalized.suppliers]
+
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE commercial_decisions
+                   SET classified_content_type = %s, classified_decision_type = %s,
+                       user_supplied_inputs = %s, numeric_facts = %s
+                   WHERE id = %s""",
+                (content_type, decision_type, json.dumps(stored_evidence),
+                 json.dumps(stored_evidence), str(decision_id)),
+            )
+
+    # Step B — evidence check, deterministic, no LLM call. Reads
+    # normalized.derived.freight_relevant directly -- computed once,
+    # above -- rather than re-deriving it from raw Incoterm text.
+    missing = check_missing_evidence(normalized)
+    if missing:
+        _set_awaiting_input(x_org_id, decision_id, missing)
+        return _fetch_decision(x_org_id, decision_id)
+
+    attempt_id = attempt_fencing.start_new_attempt(x_org_id, decision_id, from_status="classifying")
+    if attempt_id is None:
+        # Should not be reachable in practice (this row was just created
+        # in this same request), but if it somehow isn't in the expected
+        # state, fail safe rather than silently proceed without an
+        # attempt identity.
+        return _fetch_decision(x_org_id, decision_id)
+    background_tasks.add_task(
+        _run_reasoning_safe, x_org_id, decision_id, attempt_id, normalized, body.raw_question, constraint_signal,
+    )
+    return _fetch_decision(x_org_id, decision_id)
+
+
+@router.get("/commercial-decisions", response_model=list[CommercialDecisionResponse])
+def list_decisions(x_org_id: str = Header(...), x_user_id: str = Header(...)):
+    """
+    The 'Commercial Cases' list -- every case this org has ever created, most
+    recent first, each flagged with whether its outcome has been recorded yet.
+    This is what turns the product from one-shot Q&A into something with a
+    home base worth coming back to.
+    """
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT cd.id, cd.status, cd.raw_question, cd.classified_content_type,
+                          cd.classified_decision_type, cd.missing_inputs_requested,
+                          cd.commercial_position, cd.created_at, cd.completed_at,
+                          EXISTS(
+                              SELECT 1 FROM decision_feedback df
+                              WHERE df.commercial_decision_id = cd.id
+                          ) AS has_outcome_feedback
+                   FROM commercial_decisions cd
+                   ORDER BY cd.created_at DESC"""
+            )
+            rows = cur.fetchall()
+            return [CommercialDecisionResponse(**row) for row in rows]
+def _restart_reasoning_from_stored_evidence(org_id: str, decision_id, attempt_id: str, row: dict, background_tasks: BackgroundTasks) -> CommercialDecisionResponse:
+    """
+    Shared recovery logic for both the stale-reasoning and
+    provider_unavailable paths -- re-normalizes and re-kicks off
+    reasoning using the evidence ALREADY stored on the case (the
+    original answer is still there; nothing new was submitted for a
+    recovery attempt), then returns an immediate acknowledgment exactly
+    like the normal path.
+    """
+    stored_evidence = row["user_supplied_inputs"] or {}
+    restored_suppliers = stored_evidence.get("__supplier_specific_evidence__")
+    normalize_input_evidence = {k: v for k, v in stored_evidence.items() if k != "__supplier_specific_evidence__"}
+    normalized, conflicts = normalize_evidence(
+        row["raw_question"], row["classified_content_type"], normalize_input_evidence, normalize_input_evidence,
+        supplier_specific_evidence=restored_suppliers,
+    )
+    for field in conflicts:
+        _log_fallback_fired(field, row["classified_content_type"], is_conflict=True)
+    background_tasks.add_task(_run_reasoning_safe, org_id, decision_id, attempt_id, normalized, row["raw_question"])
+    return _fetch_decision(org_id, decision_id)
+
+
+def _run_reasoning_safe(org_id, decision_id, attempt_id: str, normalized, raw_question, constraint_signal=None, continuation_context=None):
+    """
+    Wraps _run_reasoning with a broad outer safety net -- this is what
+    makes background-task execution genuinely safe. Since a background
+    task runs after the HTTP response is already sent, an unhandled
+    exception here would otherwise vanish silently. This guarantees ANY
+    failure, anywhere in the reasoning chain, results in a real,
+    recoverable state -- and the fencing on write_provider_unavailable
+    means even THIS failure-handling path can never mark a case failed
+    out from under a newer attempt that has since taken over.
+    """
+    try:
+        _run_reasoning(org_id, decision_id, attempt_id, normalized, raw_question, constraint_signal, continuation_context)
+    except Exception as e:
+        try:
+            _log_full_error("Background reasoning task failed", e)
+            attempt_fencing.write_provider_unavailable(org_id, decision_id, attempt_id)
+        except Exception:
+            pass  # even failure-handling itself must never raise further, silently or loudly
+
+
+@router.post("/commercial-decisions/{decision_id}/respond", response_model=CommercialDecisionResponse)
+def respond(decision_id: UUID, body: RespondRequest, background_tasks: BackgroundTasks,
+            x_org_id: str = Header(...), x_user_id: str = Header(...)):
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT status, raw_question, classified_content_type, "
+                "classified_decision_type, user_supplied_inputs, numeric_facts, "
+                "reasoning_started_at "
+                "FROM commercial_decisions WHERE id = %s",
+                (str(decision_id),),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Decision not found")
+
+    current_status = row["status"]
+
+    # Idempotent, not an error: if this case already completed (perhaps
+    # the user's first submission succeeded and this is a duplicate
+    # arriving late), just show the real, final result.
+    if current_status == "completed":
+        return _fetch_decision(x_org_id, decision_id)
+
+    # Genuinely invalid -- never had evidence requested, or some other
+    # state that was never meant to receive a response at all.
+    if current_status not in ("awaiting_user_input", "reasoning", "provider_unavailable"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Decision is in status '{current_status}', not awaiting input.",
+        )
+
+    if current_status == "reasoning":
+        stale, elapsed = attempt_fencing.is_stale(x_org_id, decision_id)
+        if not stale:
+            # Direct fix for the reported symptom: a genuine, still-live
+            # in-flight case is never an error to the caller -- graceful
+            # acknowledgment, not a 409. Heartbeat-based, not time-only --
+            # a legitimately 15-minute call is never mistaken for dead.
+            return _fetch_decision(x_org_id, decision_id)
+        # Genuinely stale (heartbeat evidence, not elapsed time alone) --
+        # safe to reclaim. try_reclaim atomically replaces
+        # current_attempt_id, permanently invalidating any future write
+        # the old, presumed-dead attempt might still somehow make.
+        attempt_id = attempt_fencing.try_reclaim(x_org_id, decision_id)
+        if attempt_id is None:
+            return _fetch_decision(x_org_id, decision_id)  # someone else already reclaimed it
+        return _restart_reasoning_from_stored_evidence(x_org_id, decision_id, attempt_id, row, background_tasks)
+
+    if current_status == "provider_unavailable":
+        # Recovery path: a genuine, recorded failure is always safely
+        # retriable, reusing the evidence already stored.
+        attempt_id = attempt_fencing.try_reclaim(x_org_id, decision_id)
+        if attempt_id is None:
+            return _fetch_decision(x_org_id, decision_id)
+        return _restart_reasoning_from_stored_evidence(x_org_id, decision_id, attempt_id, row, background_tasks)
+
+    # current_status == "awaiting_user_input" -- the normal path.
+    merged_evidence = {**(row["user_supplied_inputs"] or {}), **body.user_supplied_inputs}
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE commercial_decisions SET user_supplied_inputs = %s "
+                "WHERE id = %s AND status = 'awaiting_user_input'",
+                (json.dumps(merged_evidence), str(decision_id)),
+            )
+
+    # Atomic claim -- the real concurrency lock. If this fails, someone
+    # else (a genuine double-click, a racing client retry) already
+    # claimed it between our read above and this attempt; graceful, not
+    # an error.
+    attempt_id = attempt_fencing.start_new_attempt(x_org_id, decision_id, from_status="awaiting_user_input")
+    if attempt_id is None:
+        return _fetch_decision(x_org_id, decision_id)
+
+    restored_suppliers = merged_evidence.get("__supplier_specific_evidence__")
+    normalize_input_evidence = {k: v for k, v in merged_evidence.items() if k != "__supplier_specific_evidence__"}
+    normalized, conflicts = normalize_evidence(
+        row["raw_question"], row["classified_content_type"], normalize_input_evidence, normalize_input_evidence,
+        supplier_specific_evidence=restored_suppliers,
+    )
+    for field in conflicts:
+        _log_fallback_fired(field, row["classified_content_type"], is_conflict=True)
+
+    missing = check_missing_evidence(normalized)
+    if missing:
+        # Genuinely still incomplete even after this answer -- revert
+        # back to awaiting input for the remaining fields.
+        _set_awaiting_input(x_org_id, decision_id, missing)
+        return _fetch_decision(x_org_id, decision_id)
+
+    background_tasks.add_task(_run_reasoning_safe, x_org_id, decision_id, attempt_id, normalized, row["raw_question"])
+    return _fetch_decision(x_org_id, decision_id)
+
+
+@router.get("/commercial-decisions/{decision_id}", response_model=CommercialDecisionResponse)
+def get_decision(decision_id: UUID, x_org_id: str = Header(...), x_user_id: str = Header(...)):
+    return _fetch_decision(x_org_id, decision_id)
+
+
+@router.post("/commercial-decisions/{decision_id}/continue", response_model=CommercialDecisionResponse)
+def continue_case(decision_id: UUID, body: ContinueCaseRequest, background_tasks: BackgroundTasks,
+                   x_org_id: str = Header(...), x_user_id: str = Header(...)):
+    """
+    Creates a NEW, linked commercial_decision that continues an existing
+    case -- never edits the original. The parent stays exactly as it was,
+    protected by the tamper-prevention trigger; this row carries
+    parent_decision_id back to it, preserving a real audit trail of how the
+    negotiation evolved rather than overwriting history.
+    """
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT id, raw_question, classified_content_type, user_supplied_inputs,
+                          numeric_facts, commercial_position, status
+                   FROM commercial_decisions WHERE id = %s""",
+                (str(decision_id),),
+            )
+            parent = cur.fetchone()
+            if not parent:
+                raise HTTPException(status_code=404, detail="Case not found")
+            if parent["status"] != "completed":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Only a completed case can be continued -- this one hasn't finished yet.",
+                )
+
+    parent_position = parent["commercial_position"] or {}
+    if isinstance(parent_position, str):
+        parent_position = json.loads(parent_position)
+
+    continuation_context = (
+        f"Prior recommendation: \"{parent_position.get('recommendation', '(none on file)')}\"\n"
+        f"Prior confidence: {parent_position.get('confidence', {}).get('level', 'unknown')}\n"
+        f"Prior key assumption(s): {'; '.join(parent_position.get('assumptions', [])[:2]) or '(none on file)'}\n\n"
+        f"WHAT HAPPENED SINCE (from the user):\n{body.what_happened}"
+    )
+
+    new_decision_id = body.client_decision_id or uuid4()
+    new_attempt_id = attempt_fencing.new_attempt_id()
+    parent_flat_evidence = parent["user_supplied_inputs"] or {}
+    # Non-mutating read -- the INSERT below must still store the full
+    # data (including this key) so a FURTHER continuation of this new
+    # case can also restore supplier evidence. A prior version of this
+    # fix used .pop(), which removed the key before the INSERT ran,
+    # silently losing supplier data for any second-level continuation --
+    # caught and fixed before shipping.
+    restored_suppliers = parent_flat_evidence.get("__supplier_specific_evidence__")
+    normalize_input_evidence = {k: v for k, v in parent_flat_evidence.items() if k != "__supplier_specific_evidence__"}
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO commercial_decisions
+                   (id, organisation_id, created_by_user_id, raw_question,
+                    classified_content_type, parent_decision_id, status,
+                    user_supplied_inputs, numeric_facts, reasoning_started_at,
+                    current_attempt_id, last_heartbeat_at, current_stage)
+                   VALUES (%s, %s, %s, %s, %s, %s, 'reasoning', %s, %s, now(), %s, now(), 'starting')""",
+                (str(new_decision_id), x_org_id, x_user_id, body.what_happened,
+                 parent["classified_content_type"], str(decision_id),
+                 json.dumps(parent_flat_evidence),
+                 json.dumps(parent_flat_evidence), new_attempt_id),
+            )
+
+    # Re-normalize through the same single boundary, reusing the parent's
+    # already-normalized evidence -- since the parent case already
+    # completed, every required field is already present, so the
+    # deterministic fallbacks (run here against body.what_happened, the
+    # continuation text) have nothing meaningful left to catch; this call
+    # exists for consistency, not because new extraction is expected.
+    normalized, conflicts = normalize_evidence(
+        body.what_happened, parent["classified_content_type"],
+        normalize_input_evidence, normalize_input_evidence,
+        supplier_specific_evidence=restored_suppliers,
+    )
+    for field in conflicts:
+        _log_fallback_fired(field, parent["classified_content_type"], is_conflict=True)
+
+    background_tasks.add_task(
+        _run_reasoning_safe, x_org_id, new_decision_id, new_attempt_id, normalized, body.what_happened,
+        continuation_context=continuation_context,
+    )
+    return _fetch_decision(x_org_id, new_decision_id)
+
+
+@router.post("/commercial-decisions/{decision_id}/feedback", status_code=201)
+def submit_feedback(decision_id: UUID, body: FeedbackRequest, x_org_id: str = Header(...), x_user_id: str = Header(...)):
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO decision_feedback
+                   (commercial_decision_id, submitted_by_user_id, decision_alignment,
+                    outcome_description, validation_verdict, unexpected_insight)
+                   VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, outcome_recorded_at""",
+                (str(decision_id), x_user_id, body.decision_alignment,
+                 body.outcome_description, body.validation_verdict, body.unexpected_insight),
+            )
+            return cur.fetchone()
+
+
+# --- internal helpers ---
+
+def _get_org_history(org_id, content_type, exclude_decision_id) -> list[dict]:
+    """
+    This org's own past recorded outcomes for the same content_type -- the
+    entire organizational-learning mechanism for the MVP. RLS on
+    commercial_decisions (enforced via the org-scoped connection) means this
+    INNER JOIN can only ever return feedback rows whose parent decision
+    belongs to this org, even though decision_feedback has no organisation_id
+    column of its own.
+
+    Includes unexpected_insight -- without pulling this specific field in,
+    it would just be stored in the database and never actually reach future
+    reasoning, which would defeat the entire point of capturing it.
+    """
+    if not content_type:
+        return []
+    with get_org_scoped_connection(org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT cd.commercial_position, df.outcome_description,
+                          df.validation_verdict, df.unexpected_insight
+                   FROM decision_feedback df
+                   JOIN commercial_decisions cd ON cd.id = df.commercial_decision_id
+                   WHERE cd.classified_content_type = %s AND cd.id != %s
+                   ORDER BY df.outcome_recorded_at DESC
+                   LIMIT %s""",
+                (content_type, str(exclude_decision_id), HISTORY_LIMIT),
+            )
+            return cur.fetchall()
+
+
+def _get_supplier_specific_history(org_id, supplier_name, exclude_decision_id) -> list[dict]:
+    """
+    Real, distinct addition alongside _get_org_history above: matches past
+    cases involving the SAME NAMED supplier, not just the same content
+    type. Only fires when a genuine, specific supplier name was captured
+    (never a generic "Supplier A" placeholder -- see classifier.py, which
+    deliberately excludes those from extraction, since they'd incorrectly
+    link unrelated suppliers across different cases).
+
+    Deliberately returns the RAW facts from matching past cases, not a
+    computed statistic (e.g. never "settles at 1/3 of opening ask") --
+    with realistically few cases per organisation early on, a computed
+    average would be false precision dressed up as insight. The reasoning
+    prompt is instructed to speak to a genuine pattern only when the real
+    volume of history actually supports one, and to say plainly when it
+    doesn't -- same honesty discipline as every other guarantee in this
+    codebase, just applied to a new capability.
+    """
+    if not supplier_name or not supplier_name.strip():
+        return []
+    with get_org_scoped_connection(org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT cd.raw_question, cd.commercial_position, cd.created_at,
+                          df.outcome_description, df.validation_verdict, df.decision_alignment
+                   FROM commercial_decisions cd
+                   LEFT JOIN decision_feedback df ON df.commercial_decision_id = cd.id
+                   WHERE cd.user_supplied_inputs->>'supplier_name' ILIKE %s
+                     AND cd.id != %s
+                     AND cd.status = 'completed'
+                   ORDER BY cd.created_at DESC
+                   LIMIT %s""",
+                (supplier_name.strip(), str(exclude_decision_id), HISTORY_LIMIT),
+            )
+            return cur.fetchall()
+
+
+# Real minimum sample size before ANY calibration statistic is computed or
+# shown -- below this, the honest answer is "not enough data yet," not a
+# percentage from too few real outcomes. Deliberately small (this is a
+# pilot), but never zero -- a stat from 1-2 outcomes is exactly the same
+# false-precision risk Phase 2 (supplier memory) was built to avoid.
+MIN_OUTCOMES_FOR_CALIBRATION = 3
+
+
+def _compute_confidence_calibration(org_id) -> str | None:
+    """
+    Real outcome-based learning (Phase 3): computes, in code -- never left
+    to the model's own vague sense of "we've been pretty good so far" --
+    how often this organization's past recorded outcomes actually
+    confirmed VendorEdge's reasoning (validation_verdict == 'reasoning_held')
+    versus didn't. Deliberately organization-wide, not per content-type or
+    per confidence-level, since splitting further would shrink an already
+    small pilot-stage sample into genuinely meaningless fractions.
+
+    Returns None (no note shown at all) when there isn't yet enough real
+    data to support a real number -- same honesty discipline as
+    _format_supplier_history in reasoner.py, just applied organization-wide
+    instead of per-supplier.
+    """
+    with get_org_scoped_connection(org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT validation_verdict FROM decision_feedback df
+                   JOIN commercial_decisions cd ON cd.id = df.commercial_decision_id"""
+            )
+            rows = cur.fetchall()
+
+    total = len(rows)
+    if total < MIN_OUTCOMES_FOR_CALIBRATION:
+        return None
+
+    held = sum(1 for r in rows if r["validation_verdict"] == "reasoning_held")
+    percent = round((held / total) * 100)
+    return (
+        f"Across this organization's {total} recorded outcomes so far, "
+        f"reasoning held up as given in {held} ({percent}%) of them -- "
+        f"a real, growing track record, not a claim about any single case."
+    )
+
+
+def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedEvidence, raw_question, constraint_signal=None, continuation_context=None):
+    content_type = normalized.content_type
+    history = _get_org_history(org_id, content_type, decision_id)
+    supplier_history = []
+    try:
+        supplier_name = normalized.common.supplier_name
+        if supplier_name:
+            supplier_history = _get_supplier_specific_history(org_id, supplier_name, decision_id)
+    except Exception as e:
+        print(f"Supplier-specific history lookup skipped (non-blocking): {type(e).__name__}: {e}")
+        supplier_history = []
+    normalized.history = HistoryContext(org_history=history, supplier_history=supplier_history)
+
+    try:
+        financial_impact = compute_financial_impact(normalized)
+    except Exception as e:
+        print(f"Financial calculation skipped (non-blocking): {type(e).__name__}: {e}")
+        financial_impact = None
+
+    # Requirement 1, enforced by construction: HeartbeatTicker writes are
+    # wrapped by write_heartbeat(), which can never raise. Nothing about
+    # wrapping a call in a ticker changes its behavior, timing, retry
+    # logic, or output -- it is purely observational, layered around the
+    # real work, never inside it.
+    market_verification = None
+    if content_type == "price_increase":
+        stated_justification = normalized.case.suppliers_stated_justification or ""
+        supplier_region = normalized.common.supplier_region_or_market
+        with attempt_fencing.HeartbeatTicker(org_id, decision_id, attempt_id, "market_verification"):
+            market_verification = verify_market_claim(stated_justification, region=supplier_region)
+
+    def _reasoning_call(stage_name, **extra_kwargs):
+        with attempt_fencing.HeartbeatTicker(org_id, decision_id, attempt_id, stage_name):
+            return generate_commercial_position(
+                normalized, raw_question, constraint_signal=constraint_signal,
+                computed_financial_impact=financial_impact,
+                market_verification=market_verification,
+                continuation_context=continuation_context,
+                **extra_kwargs,
+            )
+
+    try:
+        position = _reasoning_call("primary_reasoning")
+        if market_verification is not None:
+            position.market_verification_scope = market_verification.get("scope")
+        try:
+            position.confidence_calibration_note = _compute_confidence_calibration(org_id)
+        except Exception as e:
+            print(f"Confidence calibration skipped (non-blocking): {type(e).__name__}: {e}")
+    except Exception as e:
+        detail = _log_full_error("Reasoning (Step D) failed", e)
+        # Attempt-fenced: if this attempt has already been superseded by
+        # a reclaim, this write correctly, silently no-ops -- a newer
+        # attempt already owns the case, and this old, failing attempt
+        # must never be allowed to mark it failed out from under it.
+        attempt_fencing.write_provider_unavailable(org_id, decision_id, attempt_id)
+        raise HTTPException(status_code=503, detail=detail)
+
+    if financial_impact is not None:
+        position.financial_impact = financial_impact
+    position.informed_by_case_count = len(history)
+
+    if claims_tco_methodology(position.methodology_applied):
+        relevant_dimensions = determine_relevant_tco_dimensions(normalized)
+        uncovered = check_tco_coverage(position, relevant_dimensions)
+        if uncovered:
+            try:
+                correction_text = (
+                    f"Your response claimed a TCO/landed-cost methodology, but was genuinely "
+                    f"missing coverage of: {', '.join(uncovered)}. Either incorporate real "
+                    f"numbers for these into your reasoning/financial discussion, or explicitly "
+                    f"name them as a real gap in \"assumptions\"."
+                )
+                retried_position = _reasoning_call("methodology_check", methodology_correction=correction_text)
+                if financial_impact is not None:
+                    retried_position.financial_impact = financial_impact
+                retried_position.informed_by_case_count = len(history)
+                still_uncovered = check_tco_coverage(retried_position, relevant_dimensions)
+                _log_fallback_fired("tco_retry_fired", content_type)
+                if len(still_uncovered) < len(uncovered):
+                    position = retried_position
+            except Exception as e:
+                print(f"Methodology-consistency retry skipped (non-blocking): {type(e).__name__}: {e}")
+
+    if claims_kraljic_methodology(position.methodology_applied):
+        missing_kraljic = check_kraljic_reasoning_coverage(position)
+        if missing_kraljic:
+            try:
+                readable = {
+                    "business_impact": "the business impact/criticality of this component (spend, downtime cost, or operational criticality)",
+                    "supply_risk": "the supply risk (number of qualified alternatives, switching difficulty, capacity constraints, or lead time)",
+                }
+                correction_text = (
+                    f"Your response claimed a Kraljic-style approach, but the reasoning never "
+                    f"genuinely evaluated: {' and '.join(readable[m] for m in missing_kraljic)}. "
+                    f"A real Kraljic assessment requires BOTH dimensions to be explicitly "
+                    f"discussed before naming a quadrant or recommending a sourcing strategy -- "
+                    f"if the evidence genuinely doesn't support assessing one of these, say so "
+                    f"plainly rather than naming a quadrant anyway."
+                )
+                retried_position = _reasoning_call("methodology_check", methodology_correction=correction_text)
+                if financial_impact is not None:
+                    retried_position.financial_impact = financial_impact
+                retried_position.informed_by_case_count = len(history)
+                _log_fallback_fired("kraljic_retry_fired", content_type)
+                still_missing = check_kraljic_reasoning_coverage(retried_position)
+                if len(still_missing) < len(missing_kraljic):
+                    position = retried_position
+            except Exception as e:
+                print(f"Kraljic-consistency retry skipped (non-blocking): {type(e).__name__}: {e}")
+
+    contradictions = check_all_contradictions(position)
+    if contradictions:
+        try:
+            correction_text = (
+                f"Your response contains a genuine internal contradiction that must be fixed: "
+                f"{' '.join(contradictions)} Regenerate your response so the reasoning and "
+                f"recommendation text are consistent with the real, guaranteed financial figures "
+                f"-- reference the actual computed number, do not claim it is unavailable."
+            )
+            retried_position = _reasoning_call("contradiction_check", methodology_correction=correction_text)
+            if financial_impact is not None:
+                retried_position.financial_impact = financial_impact
+            retried_position.informed_by_case_count = len(history)
+            _log_fallback_fired("contradiction_retry_fired", content_type)
+            still_contradicting = check_all_contradictions(retried_position)
+            if len(still_contradicting) < len(contradictions):
+                position = retried_position
+        except Exception as e:
+            print(f"Contradiction-check retry skipped (non-blocking): {type(e).__name__}: {e}")
+
+    overstatements = check_all_claim_overstatements(
+        position, normalized, raw_question, is_continuation=continuation_context is not None,
+    )
+    if overstatements:
+        try:
+            correction_text = (
+                f"Your response makes claims stronger than the evidence supports: "
+                f"{' '.join(overstatements)} Regenerate using language that matches exactly what "
+                f"the evidence shows -- never assert verification, certainty, superiority, "
+                f"achievement, or legal status beyond what was genuinely established."
+            )
+            retried_position = _reasoning_call("claim_integrity_check", methodology_correction=correction_text)
+            if financial_impact is not None:
+                retried_position.financial_impact = financial_impact
+            retried_position.informed_by_case_count = len(history)
+            _log_fallback_fired("claim_integrity_retry_fired", content_type)
+            still_overstating = check_all_claim_overstatements(
+                retried_position, normalized, raw_question, is_continuation=continuation_context is not None,
+            )
+            if len(still_overstating) < len(overstatements):
+                position = retried_position
+        except Exception as e:
+            print(f"Claim-integrity retry skipped (non-blocking): {type(e).__name__}: {e}")
+
+    position = apply_confidence_ceiling(position, normalized)
+
+    attempt_fencing.write_heartbeat(org_id, decision_id, attempt_id, "finalizing")
+    write_succeeded = attempt_fencing.write_final_result(
+        org_id, decision_id, attempt_id,
+        position.model_dump_json(),
+        json.dumps({k: v.model_dump() for k, v in normalized.provenance.items()}),
+    )
+    if not write_succeeded:
+        # This attempt has been superseded -- a newer attempt already
+        # owns this case (or already completed it). This attempt's real,
+        # fully-computed result is correctly, deliberately discarded,
+        # not an error to surface -- the case's true final state belongs
+        # to whichever attempt is still current.
+        print(f"Attempt {attempt_id} completed its work but was already superseded -- result discarded, not written.")
+        return None
+    return _fetch_decision(org_id, decision_id)
+
+
+def _set_awaiting_input(org_id, decision_id, missing):
+    with get_org_scoped_connection(org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE commercial_decisions
+                   SET status = 'awaiting_user_input', missing_inputs_requested = %s
+                   WHERE id = %s""",
+                (json.dumps(missing), str(decision_id)),
+            )
+
+
+def _update_status(org_id, decision_id, status):
+    with get_org_scoped_connection(org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE commercial_decisions SET status = %s WHERE id = %s", (status, str(decision_id)))
+
+
+def get_evidence_provenance(org_id: str, decision_id, field_name: str | None = None) -> dict | None:
+    """
+    Quality Gate Guarantee #1 -- the actual, queryable answer to "where
+    did this number come from," for ANY completed decision, at any later
+    point, not just during the live request that produced it. Reads the
+    persisted evidence_provenance column, respecting the same org-scoped
+    RLS as everything else. If field_name is given, returns just that
+    field's provenance entry; otherwise returns the full provenance dict
+    for the case.
+    """
+    with get_org_scoped_connection(org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT evidence_provenance FROM commercial_decisions WHERE id = %s",
+                (str(decision_id),),
+            )
+            row = cur.fetchone()
+    if not row or not row["evidence_provenance"]:
+        return None
+    provenance = row["evidence_provenance"]
+    if field_name is not None:
+        return provenance.get(field_name)
+    return provenance
+
+
+# Requirement 5: internal stage names (market_verification,
+# contradiction_check, claim_integrity_check, etc.) are real, useful for
+# logs and heartbeat tracking, but must never reach a user directly. This
+# is the one, single place internal stages are translated into calm,
+# honest, non-technical language.
+_CALM_STAGE_MESSAGES = {
+    "starting": "VendorEdge is getting started on your case.",
+    "market_verification": "VendorEdge is checking market conditions relevant to your case.",
+    "primary_reasoning": "VendorEdge is analyzing your case.",
+    "methodology_check": "VendorEdge is double-checking its commercial analysis.",
+    "contradiction_check": "VendorEdge is verifying its own numbers are consistent.",
+    "claim_integrity_check": "VendorEdge is verifying every claim matches the evidence.",
+    "finalizing": "VendorEdge is finishing up.",
+}
+
+
+def _elapsed_seconds(started_at) -> float | None:
+    """Real elapsed time since a timestamp, or None if there isn't one --
+    never a fabricated duration."""
+    if started_at is None:
+        return None
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=timezone.utc)
+    return (now - started_at).total_seconds()
+
+
+def _fetch_decision(org_id, decision_id) -> CommercialDecisionResponse:
+    with get_org_scoped_connection(org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT cd.id, cd.status, cd.raw_question, cd.classified_content_type,
+                          cd.classified_decision_type, cd.missing_inputs_requested,
+                          cd.commercial_position, cd.created_at, cd.completed_at,
+                          cd.user_supplied_inputs, cd.parent_decision_id, cd.reasoning_started_at,
+                          cd.last_heartbeat_at, cd.current_stage, cd.current_attempt_id,
+                          (df.id IS NOT NULL) AS has_outcome_feedback,
+                          df.outcome_description AS recorded_outcome_description,
+                          df.validation_verdict AS recorded_outcome_verdict,
+                          df.outcome_recorded_at AS recorded_outcome_at,
+                          df.decision_alignment AS recorded_decision_alignment,
+                          df.unexpected_insight AS recorded_unexpected_insight
+                   FROM commercial_decisions cd
+                   LEFT JOIN LATERAL (
+                       SELECT id, outcome_description, validation_verdict, outcome_recorded_at,
+                              decision_alignment, unexpected_insight
+                       FROM decision_feedback
+                       WHERE commercial_decision_id = cd.id
+                       ORDER BY outcome_recorded_at DESC
+                       LIMIT 1
+                   ) df ON true
+                   WHERE cd.id = %s""",
+                (str(decision_id),),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Decision not found")
+
+            row_dict = dict(row)
+            # Fix for the confirmed master-case leak: internal bookkeeping
+            # keys (reserved __name__ convention, e.g.
+            # __supplier_specific_evidence__) are stored in
+            # user_supplied_inputs for real, legitimate reasons -- they
+            # let /respond and continue_case restore structured data
+            # across a round-trip. But they were never meant to be
+            # user-facing evidence, and leaking one to the client renders
+            # as "[object Object],[object Object]" (a JS array-of-objects
+            # naively stringified). Filtered generically here, by naming
+            # convention, not by hardcoding this one key -- a real
+            # safeguard against the next internal field someone adds
+            # later, not a one-off patch for today's specific symptom.
+            # Database storage and the respond()/continue_case()
+            # restoration logic read the raw column directly and are
+            # completely unaffected by this -- only the outbound API
+            # response changes.
+            if row_dict.get("user_supplied_inputs"):
+                row_dict["user_supplied_inputs"] = {
+                    k: v for k, v in row_dict["user_supplied_inputs"].items()
+                    if not (k.startswith("__") and k.endswith("__"))
+                }
+
+            # Total elapsed time is still real and honest to show --
+            # "3m 42s" -- but heartbeat freshness, not total elapsed
+            # time, is now the actual staleness determinant.
+            total_elapsed = _elapsed_seconds(row_dict.pop("reasoning_started_at", None))
+            heartbeat_elapsed = _elapsed_seconds(row_dict.pop("last_heartbeat_at", None))
+            current_stage = row_dict.pop("current_stage", None)
+            row_dict.pop("current_attempt_id", None)  # never expose attempt identity to the client
+
+            if row_dict["status"] == "reasoning":
+                is_stale = heartbeat_elapsed is None or heartbeat_elapsed >= attempt_fencing.RECOVERY_GRACE_PERIOD_SECONDS
+                row_dict["processing_elapsed_seconds"] = round(total_elapsed, 1) if total_elapsed is not None else None
+                row_dict["processing_is_stale"] = is_stale
+                row_dict["can_retry"] = is_stale
+                if is_stale:
+                    row_dict["user_facing_state"] = "safely_resuming"
+                    row_dict["processing_message"] = (
+                        "This analysis appears to have stopped unexpectedly. Your case and "
+                        "information are safe. VendorEdge can safely resume the analysis."
+                    )
+                else:
+                    row_dict["user_facing_state"] = "working"
+                    row_dict["processing_message"] = _CALM_STAGE_MESSAGES.get(
+                        current_stage, "VendorEdge is still analyzing your case."
+                    )
+            elif row_dict["status"] == "provider_unavailable":
+                row_dict["can_retry"] = True
+                row_dict["user_facing_state"] = "unable_to_complete"
+                row_dict["processing_message"] = (
+                    "VendorEdge couldn't complete this analysis. You can safely try again -- "
+                    "your answers are saved."
+                )
+            return CommercialDecisionResponse(**row_dict)

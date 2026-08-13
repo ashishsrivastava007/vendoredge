@@ -1,0 +1,48 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: vendoredge
+      POSTGRES_PASSWORD: superuser_password_not_used_by_app
+    ports:
+      - "5432:5432"
+    volumes:
+      - vendoredge_pgdata:/var/lib/postgresql/data
+      # This is the magic that means you never have to type a database command
+      # yourself: Postgres automatically runs this file the very first time
+      # the database is created.
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      # Confirms Postgres is genuinely ready to accept real connections, not
+      # just that the container process has started. Fixes a real bug found
+      # via live testing: the app could otherwise try to set up its demo
+      # account before the database was actually ready, silently fail once,
+      # and then every single request would crash afterward.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vendoredge"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: "host=db dbname=vendoredge user=vendoredge_app password=change_this_before_production"
+      # A separate, more privileged connection used ONLY for the narrow,
+      # automatic startup schema-migration step -- the everyday app
+      # connection above intentionally cannot alter the database structure,
+      # which is the correct security posture. This one can, but is never
+      # used for regular request handling, only the one migration step at boot.
+      MIGRATION_DATABASE_URL: "host=db dbname=vendoredge user=postgres password=superuser_password_not_used_by_app"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+    env_file:
+      - .env
+
+volumes:
+  vendoredge_pgdata:

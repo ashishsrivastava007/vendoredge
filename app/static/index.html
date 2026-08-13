@@ -1,0 +1,1403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VendorEdge</title>
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 640px; margin: 0 auto; padding: 0 20px 60px; color: #1a1a1a; }
+  h1 { font-size: 22px; font-weight: 500; text-align: center; }
+  .sub { text-align: center; color: #666; margin-bottom: 24px; }
+  textarea { width: 100%; box-sizing: border-box; padding: 12px; font-size: 15px; border: 1px solid #ccc; border-radius: 8px; }
+  button { cursor: pointer; }
+  select { padding: 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; width: 100%; box-sizing: border-box; }
+  .example-btn { background: #f2f2f2; border: 1px solid #ddd; border-radius: 8px; padding: 8px 14px; font-size: 13px; margin: 4px; }
+  .primary-btn { background: #1a1a1a; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; margin-top: 12px; }
+  .secondary-btn { background: white; color: #1a1a1a; border: 1px solid #ccc; padding: 9px 16px; border-radius: 8px; font-size: 13px; margin-top: 12px; margin-right: 8px; }
+  .link-btn { background: none; border: none; color: #4a2f8f; font-size: 14px; text-decoration: underline; padding: 0; }
+  .card { background: #f7f7f7; border-radius: 12px; padding: 20px; margin-top: 20px; }
+  .badge { background: #e8e0ff; color: #4a2f8f; font-size: 12px; padding: 4px 10px; border-radius: 6px; display: inline-block; margin: 8px 0; }
+  .badge.awaiting { background: #fff0d6; color: #8a5a00; }
+  .badge.recorded { background: #e2f4e6; color: #216b3e; }
+  .factor { font-size: 13px; color: #444; margin: 4px 0; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 13px; margin-bottom: 4px; color: #333; }
+  .field input { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #ccc; border-radius: 6px; }
+  #loading { text-align: center; color: #666; padding: 30px 0; }
+  .hidden { display: none; }
+  nav { display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-bottom: 1px solid #eee; margin-bottom: 20px; }
+  nav .brand { font-weight: 600; font-size: 15px; }
+  nav .nav-links button { margin-left: 10px; }
+  .case-row { border: 1px solid #e5e5e5; border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; cursor: pointer; }
+  .case-row:hover { border-color: #bbb; }
+  .case-row .q { font-size: 14px; margin: 0 0 6px; }
+  .case-row .meta { font-size: 12px; color: #888; }
+  .empty-state { text-align: center; color: #888; padding: 40px 0; font-size: 14px; }
+  .nudge-banner { background: #fff7e6; border: 1px solid #ffe1a3; border-radius: 10px; padding: 12px 16px; margin-bottom: 18px; font-size: 13px; }
+  .nudge-banner button { margin-left: 8px; }
+  #case-summary-text { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12.5px; background: white; border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px; max-height: 340px; overflow-y: auto; }
+  .copy-confirm { font-size: 12px; color: #216b3e; margin-left: 8px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="brand">VendorEdge</span>
+  <span class="nav-links">
+    <button class="link-btn" onclick="goToCases()">My Cases</button>
+    <button class="link-btn" onclick="goToNewCase()">+ New Case</button>
+  </span>
+</nav>
+
+<div id="ask-screen">
+  <div id="nudge-container"></div>
+  <h1>Start a Procurement Case</h1>
+  <p class="sub">Don't worry about writing the perfect prompt. Just upload whatever you have --
+    supplier emails, RFQs, quotes, contracts, meeting notes, spreadsheets. VendorEdge will
+    understand the evidence, identify what's missing, and recommend your commercial position.</p>
+  <textarea id="question" rows="3" placeholder="Describe your situation, or attach documents below" oninput="updateCharCount()"></textarea>
+  <p id="char-count" style="font-size:11.5px; color:#999; text-align:right; margin:2px 0 0"></p>
+  <div style="text-align:center; margin-top:10px">
+    <button class="example-btn" onclick="setExample('Our supplier wants to raise prices 12 percent, is that fair?')">A supplier wants a price increase</button>
+    <button class="example-btn" onclick="setExample('I have two supplier quotes, which one is the better deal?')">Compare supplier quotes</button>
+  </div>
+  <div style="text-align:center"><button id="ask-btn" class="primary-btn" onclick="askQuestion()">Get my position →</button></div>
+  <div style="text-align:center; margin-top:14px">
+    <button class="example-btn" onclick="triggerFileUpload()" style="border-style:dashed">📄 Upload Documents (.txt, .csv, .xlsx, .pdf, .eml, .zip)</button>
+    <input type="file" id="file-input" accept=".txt,.csv,.xlsx,.pdf,.eml,.zip" multiple style="display:none" onchange="handleFileUpload(event)" />
+  </div>
+</div>
+
+<div id="loading" class="hidden">Reviewing your case...</div>
+
+<div id="pilot-limit-screen" class="hidden">
+  <div class="card" style="text-align:center; padding:40px 24px">
+    <p style="font-size:18px; font-weight:500; margin:0 0 10px">Thank you for trying VendorEdge.</p>
+    <p style="font-size:14px; color:#555; margin:0 0 6px">You've completed all available pilot cases.</p>
+    <p style="font-size:14px; color:#555; margin:0 0 20px">We're improving VendorEdge based on real procurement feedback.</p>
+    <div id="pilot-limit-notify" style="display:inline-block">
+      <a href="#" onclick="clickNotifyMe(); return false;" class="primary-btn" style="display:inline-block; text-decoration:none">🔔 Notify me when more cases are available</a>
+    </div>
+    <p id="pilot-limit-thanks" class="hidden" style="font-size:13px; color:#2f7d4f; margin-top:14px">Thanks — we'll be in touch.</p>
+  </div>
+</div>
+
+<div id="evidence-screen" class="hidden">
+  <h1 style="font-size:18px">A few specifics, so this isn't a guess</h1>
+  <div id="evidence-found-checklist"></div>
+  <div id="evidence-fields"></div>
+  <div style="text-align:center"><button id="submit-evidence-btn" class="primary-btn" onclick="submitEvidence()">Get my position →</button></div>
+</div>
+
+<div id="cases-screen" class="hidden">
+  <h1 style="font-size:18px">Your commercial cases</h1>
+  <div id="cases-list"></div>
+</div>
+
+<div id="position-screen" class="hidden">
+  <div class="card">
+    <p style="color:#888; font-size:13px; margin:0 0 8px">Your commercial position</p>
+    <div id="pos-thread-indicator"></div>
+    <div id="pos-snapshot"></div>
+    <div id="pos-case-count"></div>
+    <p id="pos-why-wins" style="font-size:13.5px; color:#444; font-style:italic; margin:6px 0 0"></p>
+    <div id="pos-commercial-insights" style="font-size:14px; font-style:italic; color:#4a4a6a; border-left:3px solid #6a5acd; padding-left:10px; margin:10px 0"></div>
+    <div id="pos-hypothesis"></div>
+    <div id="pos-methodology"></div>
+    <div id="pos-cost-drivers"></div>
+    <div id="pos-financial-scenarios"></div>
+    <div id="pos-key-figures"></div>
+    <div id="pos-supplier-comparison"></div>
+    <div id="pos-financial-impact"></div>
+    <div style="margin-top:10px">
+      <div style="font-size:12px; font-weight:600; color:#555; margin-bottom:4px">Commercial Rationale</div>
+      <p id="pos-reasoning" style="font-size:13.5px; line-height:1.5; color:#333"></p>
+    </div>
+    <div id="pos-badge"></div>
+    <div id="pos-factors"></div>
+    <p id="pos-derivation" style="font-size:13px; color:#555; margin-top:10px"></p>
+    <p style="font-size:13px; margin-top:14px"><b>This depends on:</b> <span id="pos-assumption"></span></p>
+    <div id="pos-walkaway"></div>
+    <div id="pos-negotiation-dimensions"></div>
+    <div id="pos-talk-track"></div>
+    <p style="font-size:13px"><b>What would change this:</b> <span id="pos-disconfirm"></span></p>
+    <div id="quick-feedback-prompt" style="margin-top:16px; padding:12px; background:#f7f7f9; border-radius:8px">
+      <p style="font-size:13px; font-weight:500; margin:0 0 8px">Did this help you make a better commercial decision?</p>
+      <div id="quick-feedback-buttons">
+        <button class="example-btn" onclick="submitQuickFeedback(true)">👍 Yes</button>
+        <button class="example-btn" onclick="submitQuickFeedback(false)">👎 No</button>
+      </div>
+      <div id="quick-feedback-followup" class="hidden" style="margin-top:8px">
+        <input type="text" id="quick-feedback-reason" style="width:100%; box-sizing:border-box; padding:6px 8px; font-size:13px; border:1px solid #ccc; border-radius:6px" />
+        <button class="example-btn" style="margin-top:6px" onclick="submitQuickFeedbackReason()">Send</button>
+      </div>
+      <p id="quick-feedback-thanks" class="hidden" style="font-size:12.5px; color:#2f7d4f; margin:6px 0 0">Thanks — that's genuinely useful to know.</p>
+    </div>
+    <div id="notify-me-card" style="margin-top:10px; padding:10px 12px; background:#f7f7f9; border-radius:8px; font-size:13px">
+      <span id="notify-me-prompt">Need VendorEdge for more procurement decisions?
+        <a href="#" onclick="clickNotifyMe(); return false;" style="color:#3a7ac9; font-weight:500">🔔 Notify me when more pilot cases become available.</a>
+      </span>
+      <span id="notify-me-clicked-thanks" class="hidden" style="color:#2f7d4f">Thanks — we'll be in touch.</span>
+    </div>
+    <p style="font-size:11.5px; color:#999; margin-top:14px; border-top:1px solid #e5e5e5; padding-top:10px">
+      AI-generated decision support, not professional advice. Verify before acting —
+      see the <a href="/ai-disclaimer.html" target="_blank">AI Disclaimer</a>.
+    </p>
+  </div>
+
+  <div id="case-continuation-actions" class="card">
+    <p style="font-weight:500; margin:0 0 10px">What's next for this case?</p>
+    <div style="display:flex; gap:8px; flex-wrap:wrap">
+      <button class="primary-btn" onclick="showContinueForm()">Continue this case →</button>
+      <button class="example-btn" onclick="showOutcomeSection()">Mark as concluded</button>
+    </div>
+    <div id="continue-form" class="hidden" style="margin-top:12px">
+      <label style="font-size:13px; color:#555; display:block; margin-bottom:4px">What happened since? (e.g. the supplier's counteroffer, a new development)</label>
+      <textarea id="continue-what-happened" rows="3" style="width:100%; box-sizing:border-box; padding:8px; font-size:13px; border:1px solid #ccc; border-radius:6px"></textarea>
+      <button id="continue-case-btn" class="primary-btn" style="margin-top:8px" onclick="submitContinueCase()">Get updated position →</button>
+    </div>
+  </div>
+
+  <div id="outcome-section" class="card hidden">
+    <p style="font-weight:500; margin:0 0 6px">Why log outcomes?</p>
+    <p style="font-size:13px; color:#666; margin:0 0 4px">
+      VendorEdge doesn't just help you make decisions. It helps your organization learn from them --
+      every completed negotiation becomes searchable knowledge for future commercial decisions.
+    </p>
+    <p style="font-size:13px; color:#666; margin:0 0 14px">
+      Every outcome you log strengthens your organization's commercial intelligence, helping future
+      decisions benefit from today's experience.
+    </p>
+    <div class="field">
+      <label>Did you follow this recommendation?</label>
+      <select id="alignment-select">
+        <option value="followed">Followed it as given</option>
+        <option value="modified">Modified it before acting</option>
+        <option value="different_direction">Went a different direction entirely</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Was the reasoning right?</label>
+      <select id="verdict-select">
+        <option value="reasoning_held">Reasoning held up</option>
+        <option value="reasoning_wrong_bad_assumption">Wrong — the assumption was bad</option>
+        <option value="reasoning_wrong_bad_execution">Wrong — the assumption was fine, execution wasn't</option>
+        <option value="ambiguous_unresolved">Still unclear / not resolved yet</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>What was finally agreed or decided?</label>
+      <textarea id="outcome-description" rows="3" placeholder="e.g. We countered at 6% and the supplier accepted."></textarea>
+    </div>
+    <div class="field">
+      <label>What surprised you? (optional, but this is the most valuable part)</label>
+      <textarea id="unexpected-insight" rows="2" placeholder="e.g. Supplier was more concerned about contract length than price."></textarea>
+    </div>
+    <button class="primary-btn" onclick="submitOutcome()">Record outcome &amp; generate case summary</button>
+  </div>
+
+  <div id="summary-section" class="card hidden">
+    <p style="font-weight:500; margin:0 0 10px">Case summary</p>
+    <p style="font-size:13px; color:#666; margin:0 0 12px">Yours to keep — copy it into your supplier file, contract notes, or wherever this case needs to live next.</p>
+    <div id="case-summary-text"></div>
+    <div style="margin-top:12px">
+      <button class="secondary-btn" onclick="copySummary()">Copy</button>
+      <button class="secondary-btn" onclick="downloadSummary()">Download .txt</button>
+      <span id="copy-confirm" class="copy-confirm hidden">Copied ✓</span>
+    </div>
+  </div>
+</div>
+
+<footer style="margin-top:50px; padding-top:16px; border-top:1px solid #eee; text-align:center; font-size:12px; color:#999">
+  <a href="/privacy-policy.html" style="color:#999; margin:0 8px">Privacy Policy</a>·
+  <a href="/terms-of-use.html" style="color:#999; margin:0 8px">Terms of Use</a>·
+  <a href="/ai-disclaimer.html" style="color:#999; margin:0 8px">AI Disclaimer</a>·
+  <a href="#" onclick="showFeedbackModal(); return false;" style="color:#999; margin:0 8px">Feedback</a>
+</footer>
+
+<script>
+const API = "/api/v1";
+// Real per-visitor workspace isolation, replacing the previous hardcoded
+// shared demo account -- the critical pre-pilot fix. Each new visitor gets
+// their own genuinely isolated organisation (verified against the same
+// Row-Level Security already tested), identified via a private link they
+// can bookmark. This is a private-link model, not full password login --
+// adequate for a controlled pilot with known, invited testers.
+let HEADERS = null;
+
+async function ensureWorkspace() {
+  const params = new URLSearchParams(window.location.search);
+  let org = params.get("org");
+  let user = params.get("user");
+
+  if (!org || !user) {
+    const res = await fetch(`${API}/workspaces`, { method: "POST" });
+    if (!res.ok) {
+      // Real fix for a genuine, reported bug: previously this failure was
+      // completely silent -- the code would proceed anyway with broken,
+      // undefined org/user values, and the user would only ever see a
+      // confusing, unrelated "still setting up your session" error much
+      // later when trying to do something else. Now the real reason is
+      // shown immediately, honestly.
+      const data = await res.json().catch(() => ({}));
+      alert(data.detail || "Could not start your workspace right now. Please refresh and try again in a moment.");
+      throw new Error("Workspace creation failed: " + (data.detail || res.status));
+    }
+    const data = await res.json();
+    org = data.organisation_id;
+    user = data.user_id;
+    const newUrl = `${window.location.pathname}?org=${org}&user=${user}`;
+    window.history.replaceState({}, "", newUrl);
+    showWorkspaceBanner();
+  }
+
+  HEADERS = {
+    "Content-Type": "application/json",
+    "x-org-id": org,
+    "x-user-id": user,
+  };
+
+  await checkWorkspaceAge(org);
+  showStartFreshLink();
+}
+
+function showWorkspaceBanner() {
+  const banner = document.createElement("div");
+  banner.style.cssText = "background:#eef6ff; border:1px solid #cfe3fb; border-radius:8px; padding:10px 14px; font-size:12.5px; color:#345; margin-bottom:16px";
+  banner.innerHTML = "This is your own private workspace, tied to your current business context. <b>Bookmark this exact page</b> to return to it later -- but if you change roles or employers, use \"Start a fresh workspace\" below rather than reusing this link, since your decision history here is treated as belonging to this business context, not to you personally.";
+  document.body.insertBefore(banner, document.body.firstChild);
+}
+
+// Real, functioning safeguard against the cross-employer data leakage risk --
+// not just a one-time disclosure sentence. An old workspace actively prompts
+// reconfirmation rather than relying on someone remembering a warning they
+// saw once, possibly years earlier.
+const WORKSPACE_AGE_REPROMPT_DAYS = 60;
+
+async function checkWorkspaceAge(org) {
+  try {
+    const res = await fetch(`${API}/workspaces/me`, { headers: { "x-org-id": org } });
+    if (!res.ok) return;
+    const info = await res.json();
+    if (info.days_active >= WORKSPACE_AGE_REPROMPT_DAYS) {
+      const banner = document.createElement("div");
+      banner.style.cssText = "background:#fff3d6; border:1px solid #f0d99a; border-radius:8px; padding:10px 14px; font-size:12.5px; color:#5c4a00; margin-bottom:16px";
+      banner.innerHTML = `This workspace has been active for ${info.days_active} days. Still working in the same business context as when you started? If you've changed roles or employers since then, please <a href="#" onclick="startFreshWorkspace(); return false;" style="color:#5c4a00; font-weight:600">start a fresh workspace</a> instead of continuing here, to keep that history properly separated.`;
+      document.body.insertBefore(banner, document.body.firstChild);
+    }
+  } catch (e) { /* non-critical, don't block the app if this check fails */ }
+}
+
+function showStartFreshLink() {
+  const footer = document.querySelector("footer");
+  if (!footer) return;
+  const link = document.createElement("a");
+  link.href = "#";
+  link.style.cssText = "color:#999; margin:0 8px";
+  link.innerText = "Start a fresh workspace";
+  link.onclick = (e) => { e.preventDefault(); startFreshWorkspace(); };
+  footer.appendChild(link);
+
+  const inviteLink = document.createElement("a");
+  inviteLink.href = "#";
+  inviteLink.style.cssText = "color:#999; margin:0 8px";
+  inviteLink.innerText = "Invite a teammate";
+  inviteLink.onclick = (e) => { e.preventDefault(); inviteTeammate(); };
+  footer.appendChild(inviteLink);
+}
+
+function startFreshWorkspace() {
+  if (!confirm("This will give you a brand-new, empty workspace, separate from this one. Your current workspace's history stays exactly where it is, tied to its own link. Continue?")) return;
+  window.location.href = window.location.pathname;
+}
+
+async function inviteTeammate() {
+  try {
+    const res = await fetch(`${API}/workspaces/invite`, { method: "POST", headers: HEADERS });
+    if (!res.ok) {
+      alert("Could not create an invite link right now. Please try again in a moment.");
+      return;
+    }
+    const data = await res.json();
+    const inviteUrl = `${window.location.origin}${window.location.pathname}?org=${data.organisation_id}&user=${data.user_id}`;
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      alert("Invite link copied! Send it to your teammate -- they'll join this same workspace with their own identity, and share the same decision history.");
+    } catch (e) {
+      prompt("Copy this invite link and send it to your teammate:", inviteUrl);
+    }
+  } catch (e) {
+    alert("Could not reach the server. Details: " + e.message);
+  }
+}
+
+let currentDecisionId = null;
+let currentMissingFields = [];
+let currentHasFeedback = false;
+let currentRawQuestion = "";
+let currentEvidence = {};
+let currentPositionObj = null;
+let currentSummaryText = "";
+
+const VERDICT_LABELS = {
+  reasoning_held: "Reasoning held up",
+  reasoning_wrong_bad_assumption: "Reasoning was wrong — bad assumption",
+  reasoning_wrong_bad_execution: "Reasoning was wrong — execution issue",
+  ambiguous_unresolved: "Still unclear / not resolved yet",
+};
+
+const ALIGNMENT_LABELS = {
+  followed: "Followed as given",
+  modified: "Modified before acting",
+  different_direction: "Went a different direction",
+};
+
+// Guarantees only one modal is ever open at a time, regardless of how it
+// was triggered -- a real bug found by a real pilot user, where the
+// Notify Me modal and Feedback modal could both end up open at once,
+// stacking on top of each other with no way out.
+// Uses the browser's own native prompt() dialog for everything -- no more
+// custom modals anywhere in this app, removed entirely after real,
+// persistent problems. Simple, reliable, and every real failure now shows
+// its actual reason directly.
+async function showFeedbackModal() {
+  const message = prompt("Anything on your mind? (confusing, broken, great, anything)");
+  if (!message || !message.trim()) return;
+  const ready = await waitForHeaders();
+  if (!ready) {
+    alert("Still setting up your session -- please wait a moment and try again.");
+    return;
+  }
+  try {
+    const res = await fetch(`${API}/general-feedback`, {
+      method: "POST", headers: HEADERS, body: JSON.stringify({ message: message.trim() }),
+    });
+    if (!res.ok) { alert("Could not send right now -- please try again in a moment."); return; }
+    alert("Thanks — genuinely useful to hear.");
+  } catch (e) {
+    alert("Could not reach the server. Details: " + e.message);
+  }
+}
+
+async function waitForHeaders(maxWaitMs = 8000) {
+  const start = Date.now();
+  while (!HEADERS && (Date.now() - start) < maxWaitMs) {
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return !!HEADERS;
+}
+
+async function clickNotifyMe() {
+  const ready = await waitForHeaders();
+  if (!ready) {
+    alert("Still setting up your session -- please wait a moment and try again.");
+    return;
+  }
+  const email = prompt("What's your work email? We'll let you know when more pilot cases are available.");
+  if (!email || !email.trim()) return;
+  try {
+    await fetch(`${API}/interest-signal?feature=notify_me_click`, { method: "POST", headers: HEADERS });
+    const res = await fetch(`${API}/pilot-lead`, {
+      method: "POST", headers: HEADERS,
+      body: JSON.stringify({ email: email.trim(), next_case_category: "other" }),
+    });
+    if (!res.ok) { alert("Could not submit right now -- please try again in a moment."); return; }
+    alert("Thanks — we'll be in touch.");
+  } catch (e) {
+    alert("Could not reach the server. Details: " + e.message);
+  }
+}
+
+function setExample(text) { document.getElementById("question").value = text; updateCharCount(); }
+
+const QUESTION_CHAR_LIMIT = 20000;
+
+function updateCharCount() {
+  const len = document.getElementById("question").value.length;
+  const el = document.getElementById("char-count");
+  if (len < QUESTION_CHAR_LIMIT * 0.7) {
+    el.innerText = "";
+  } else if (len <= QUESTION_CHAR_LIMIT) {
+    el.style.color = "#c98a3a";
+    el.innerText = `${len.toLocaleString()} / ${QUESTION_CHAR_LIMIT.toLocaleString()} characters`;
+  } else {
+    el.style.color = "#a33";
+    el.innerText = `${len.toLocaleString()} / ${QUESTION_CHAR_LIMIT.toLocaleString()} characters -- over the limit, please remove some content or split this into separate cases before submitting.`;
+  }
+}
+
+function showContinueForm() {
+  document.getElementById("continue-form").classList.remove("hidden");
+}
+
+function showOutcomeSection() {
+  document.getElementById("case-continuation-actions").classList.add("hidden");
+  document.getElementById("outcome-section").classList.remove("hidden");
+}
+
+async function submitContinueCase() {
+  const whatHappened = document.getElementById("continue-what-happened").value.trim();
+  if (!whatHappened) return;
+  const continueBtn = document.getElementById("continue-case-btn");
+  if (continueBtn) continueBtn.disabled = true;
+  show("loading");
+  document.getElementById("loading").innerText = "Getting started...";
+
+  const clientDecisionId = crypto.randomUUID();
+
+  try {
+    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/continue`, {
+      method: "POST", headers: HEADERS,
+      body: JSON.stringify({ what_happened: whatHappened, client_decision_id: clientDecisionId }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showError(data.detail || "Could not continue this case.");
+      return;
+    }
+    currentDecisionId = data.id;
+    persistCurrentCase(data.id);
+    handleDecisionResponse(data);
+  } catch (err) {
+    showError("Could not reach the server. Details: " + err.message);
+  } finally {
+    if (continueBtn) continueBtn.disabled = false;
+  }
+}
+
+function renderCostDriverComparison(pos) {
+  const el = document.getElementById("pos-cost-drivers");
+  if (!pos.cost_driver_comparison || pos.cost_driver_comparison.length === 0) {
+    el.innerHTML = "";
+    return;
+  }
+  const allValues = pos.cost_driver_comparison.flatMap(d => [d.claimed_percent, d.market_percent]);
+  const maxAbs = Math.max(...allValues.map(Math.abs), 1);
+
+  const barCell = (value, color) => {
+    const widthPct = (Math.abs(value) / maxAbs) * 100;
+    return `
+      <div style="display:flex; align-items:center; gap:6px">
+        <div style="flex:1; background:#f0f0f0; border-radius:3px; height:14px; position:relative">
+          <div style="width:${widthPct}%; background:${color}; height:100%; border-radius:3px"></div>
+        </div>
+        <span style="font-size:11.5px; color:#555; width:42px; text-align:right">${value > 0 ? "+" : ""}${value}%</span>
+      </div>`;
+  };
+
+  const rows = pos.cost_driver_comparison.map(d => `
+    <tr style="border-top:1px solid #eee">
+      <td style="padding:6px 8px; font-size:12.5px; color:#444">${d.driver}</td>
+      <td style="padding:6px 8px; width:38%">${barCell(d.claimed_percent, "#c98a3a")}</td>
+      <td style="padding:6px 8px; width:38%">${barCell(d.market_percent, "#3a7ac9")}</td>
+    </tr>
+  `).join("");
+
+  el.innerHTML = `
+    <div style="border:1px solid #ddd; border-radius:10px; margin:10px 0; overflow:hidden">
+      <div style="background:#f7f7f9; padding:6px 12px; font-size:11px; font-weight:600; letter-spacing:0.03em; color:#777; text-transform:uppercase">Supplier's Claim vs. Verified Market Data</div>
+      <p style="font-size:11px; color:#999; margin:6px 12px; font-style:italic">${pos.market_verification_scope && pos.market_verification_scope !== "global" ? `Checked specifically against ${pos.market_verification_scope} market data.` : "Checked against general/global market data, not confirmed region-specific figures -- if this supplier's real cost base is regional, treat this as a starting point for questions, not final proof."}</p>
+      <table style="width:100%; border-collapse:collapse">
+        <tr style="font-size:10.5px; color:#999">
+          <td style="padding:4px 8px"></td>
+          <td style="padding:4px 8px"><span style="color:#c98a3a">■</span> Claimed</td>
+          <td style="padding:4px 8px"><span style="color:#3a7ac9">■</span> Market</td>
+        </tr>
+        ${rows}
+      </table>
+    </div>
+  `;
+}
+
+function renderKeyFigures(pos) {
+  const el = document.getElementById("pos-key-figures");
+  if (!pos.key_figures || pos.key_figures.length === 0) {
+    el.innerHTML = "";
+    return;
+  }
+  const rows = pos.key_figures.map((f, i) => `
+    <div style="display:flex; justify-content:space-between; align-items:baseline; padding:7px 0; ${i > 0 ? 'border-top:1px solid #eee' : ''}">
+      <span style="font-size:12.5px; color:#777">${f.label}</span>
+      <span style="font-size:14px; font-weight:500">${f.value}</span>
+    </div>
+  `).join("");
+  el.innerHTML = `
+    <div style="border:1px solid #ddd; border-radius:10px; margin:10px 0; padding:8px 14px; max-width:340px">
+      <p style="font-size:10.5px; font-weight:600; letter-spacing:0.03em; color:#999; text-transform:uppercase; margin:4px 0 2px">Key figures at a glance</p>
+      ${rows}
+    </div>
+  `;
+}
+
+function renderSupplierComparison(pos) {
+  const el = document.getElementById("pos-supplier-comparison");
+  if (!pos.supplier_comparison || pos.supplier_comparison.length === 0) {
+    el.innerHTML = "";
+    return;
+  }
+  const cell = (v) => v || "&mdash;";
+  const rows = pos.supplier_comparison.map(s => `
+    <tr style="border-top:1px solid #eee">
+      <td style="padding:7px 10px; font-size:12.5px; font-weight:500">${s.name}</td>
+      <td style="padding:7px 10px; font-size:12.5px; text-align:right">${cell(s.price)}</td>
+      <td style="padding:7px 10px; font-size:12.5px; text-align:right">${cell(s.otif)}</td>
+      <td style="padding:7px 10px; font-size:12.5px; text-align:right">${cell(s.defect_rate)}</td>
+      <td style="padding:7px 10px; font-size:12.5px; text-align:right">${cell(s.lead_time)}</td>
+    </tr>
+  `).join("");
+  el.innerHTML = `
+    <div style="border:1px solid #ddd; border-radius:10px; margin:10px 0; overflow:hidden">
+      <div style="background:#f7f7f9; padding:6px 12px; font-size:11px; font-weight:600; letter-spacing:0.03em; color:#777; text-transform:uppercase">Supplier comparison</div>
+      <table style="width:100%; border-collapse:collapse">
+        <tr style="font-size:11px; color:#999">
+          <td style="padding:4px 10px">Supplier</td>
+          <td style="padding:4px 10px; text-align:right">Price</td>
+          <td style="padding:4px 10px; text-align:right">OTIF</td>
+          <td style="padding:4px 10px; text-align:right">Defect rate</td>
+          <td style="padding:4px 10px; text-align:right">Lead time</td>
+        </tr>
+        ${rows}
+      </table>
+    </div>
+  `;
+}
+
+// Quick feedback: "did this help you make a better decision" -- ChatGPT's
+// refined version of the original blunt "would you pay for this" ask.
+// Yes -> logged immediately, no friction. No -> asks what was missing,
+// since that specific answer is the most useful one to collect.
+async function submitQuickFeedback(wasHelpful) {
+  document.getElementById("quick-feedback-buttons").classList.add("hidden");
+  try {
+    await fetch(`${API}/interest-signal?feature=${wasHelpful ? "helpful_yes" : "helpful_no"}`, { method: "POST" });
+  } catch (e) { /* non-critical */ }
+  if (wasHelpful) {
+    document.getElementById("quick-feedback-thanks").classList.remove("hidden");
+  } else {
+    document.getElementById("quick-feedback-followup").classList.remove("hidden");
+    document.getElementById("quick-feedback-reason").placeholder = "What was missing?";
+    document.getElementById("quick-feedback-reason").focus();
+  }
+}
+
+async function submitQuickFeedbackReason() {
+  const reason = document.getElementById("quick-feedback-reason").value.trim();
+  if (reason) {
+    try {
+      await fetch(`${API}/interest-signal?feature=${encodeURIComponent("helpful_no_reason: " + reason.slice(0, 150))}`, { method: "POST" });
+    } catch (e) { /* non-critical */ }
+  }
+  document.getElementById("quick-feedback-followup").classList.add("hidden");
+  document.getElementById("quick-feedback-thanks").classList.remove("hidden");
+}
+
+function renderNegotiationDimensions(pos) {
+  const el = document.getElementById("pos-negotiation-dimensions");
+  if (!pos.negotiation_dimensions || pos.negotiation_dimensions.length === 0) {
+    el.innerHTML = "";
+    return;
+  }
+  const rows = pos.negotiation_dimensions.map(d => `
+    <tr style="border-top:1px solid #eee">
+      <td style="padding:7px 10px; font-size:12.5px; font-weight:500">${d.dimension}</td>
+      <td style="padding:7px 10px; font-size:12px">${d.opening_ask}</td>
+      <td style="padding:7px 10px; font-size:12px; color:#2f7d4f">${d.target_outcome}</td>
+      <td style="padding:7px 10px; font-size:12px; color:#a33">${d.walk_away}</td>
+    </tr>
+  `).join("");
+  el.innerHTML = `
+    <div style="border:1px solid #ddd; border-radius:10px; margin:10px 0; overflow:hidden">
+      <div style="background:#f7f7f9; padding:6px 12px; font-size:11px; font-weight:600; letter-spacing:0.03em; color:#777; text-transform:uppercase">Negotiation positions by dimension</div>
+      <table style="width:100%; border-collapse:collapse">
+        <tr style="font-size:11px; color:#999">
+          <td style="padding:4px 10px">Dimension</td>
+          <td style="padding:4px 10px">Opening</td>
+          <td style="padding:4px 10px">Target</td>
+          <td style="padding:4px 10px">Walk-away</td>
+        </tr>
+        ${rows}
+      </table>
+    </div>
+  `;
+}
+
+function renderTalkTrack(pos) {
+  const el = document.getElementById("pos-talk-track");
+  if (!pos.negotiation_talk_track || pos.negotiation_talk_track.length === 0) {
+    el.innerHTML = "";
+    return;
+  }
+  const items = pos.negotiation_talk_track.map((m, i) => `
+    <div style="margin:${i > 0 ? '10' : '0'}px 0 0; padding-top:${i > 0 ? '10' : '0'}px; ${i > 0 ? 'border-top:1px solid #eee' : ''}">
+      <div style="font-size:11px; color:#999; margin-bottom:2px">${i + 1}. ${m.trigger}</div>
+      <div style="font-size:13px; color:#333">"${m.line}"</div>
+    </div>
+  `).join("");
+  el.innerHTML = `
+    <div style="border:1px solid #ddd; border-radius:10px; margin:10px 0; padding:10px 14px">
+      <p style="font-size:11px; font-weight:600; letter-spacing:0.03em; color:#777; text-transform:uppercase; margin:0 0 6px">What to say, and when</p>
+      ${items}
+    </div>
+  `;
+}
+
+function renderFinancialScenarios(pos) {
+  const el = document.getElementById("pos-financial-scenarios");
+  if (!pos.financial_scenarios || pos.financial_scenarios.length === 0) {
+    el.innerHTML = "";
+    return;
+  }
+  const rows = pos.financial_scenarios.map(s => `
+    <tr style="border-top:1px solid #eee">
+      <td style="padding:7px 10px; font-size:12.5px">${s.scenario}</td>
+      <td style="padding:7px 10px; font-size:12.5px; text-align:right; font-weight:500">${s.annual_spend}</td>
+      <td style="padding:7px 10px; font-size:12.5px; text-align:right; color:${s.vs_baseline.startsWith("-") ? "#2f7d4f" : "#a33"}">${s.vs_baseline}</td>
+    </tr>
+  `).join("");
+  el.innerHTML = `
+    <div style="border:1px solid #ddd; border-radius:10px; margin:10px 0; overflow:hidden">
+      <div style="background:#f7f7f9; padding:6px 12px; font-size:11px; font-weight:600; letter-spacing:0.03em; color:#777; text-transform:uppercase">Financial scenarios</div>
+      <table style="width:100%; border-collapse:collapse">
+        <tr style="font-size:11px; color:#999">
+          <td style="padding:4px 10px">Scenario</td>
+          <td style="padding:4px 10px; text-align:right">Annual spend</td>
+          <td style="padding:4px 10px; text-align:right">vs. today</td>
+        </tr>
+        ${rows}
+      </table>
+    </div>
+  `;
+}
+
+function renderDecisionSnapshot(pos) {
+  const el = document.getElementById("pos-snapshot");
+  const fmt = (n) => "$" + Number(n).toLocaleString(undefined, {maximumFractionDigits: 0});
+  const financialLine = pos.financial_impact
+    ? fmt(pos.financial_impact.potential_annual_impact_usd) + "/yr"
+    : "Not calculable from evidence given";
+  const limitingFactor = (pos.confidence.factors.find(f => f.weight === "decreases confidence") || {}).factor;
+  const topRisk = limitingFactor || "None flagged";
+  const nextAction = pos.opening_position || pos.walk_away_threshold || "See full reasoning below";
+
+  el.innerHTML = `
+    <div style="border:1px solid #ddd; border-radius:10px; margin-bottom:16px; overflow:hidden">
+      <div style="background:#f7f7f9; padding:6px 12px; font-size:11px; font-weight:600; letter-spacing:0.03em; color:#777; text-transform:uppercase">Decision Snapshot</div>
+      <table style="width:100%; border-collapse:collapse; font-size:13px">
+        <tr style="border-top:1px solid #eee">
+          <td style="padding:8px 12px; color:#888; width:140px; vertical-align:top">Recommendation</td>
+          <td style="padding:8px 12px; font-weight:500">${pos.recommendation}</td>
+        </tr>
+        <tr style="border-top:1px solid #eee">
+          <td style="padding:8px 12px; color:#888; vertical-align:top">Financial Impact</td>
+          <td style="padding:8px 12px">${financialLine}</td>
+        </tr>
+        <tr style="border-top:1px solid #eee">
+          <td style="padding:8px 12px; color:#888; vertical-align:top">Confidence</td>
+          <td style="padding:8px 12px">${pos.confidence.level.charAt(0).toUpperCase() + pos.confidence.level.slice(1)}</td>
+        </tr>
+        <tr style="border-top:1px solid #eee">
+          <td style="padding:8px 12px; color:#888; vertical-align:top">Top Risk</td>
+          <td style="padding:8px 12px">${topRisk}</td>
+        </tr>
+        <tr style="border-top:1px solid #eee">
+          <td style="padding:8px 12px; color:#888; vertical-align:top">Next Action</td>
+          <td style="padding:8px 12px">${nextAction}</td>
+        </tr>
+      </table>
+    </div>
+    <p style="font-size:11.5px; color:#999; margin:0 0 16px">Full reasoning, evidence, and detail below.</p>
+  `;
+}
+
+function triggerFileUpload() {
+  document.getElementById("file-input").click();
+}
+
+async function handleFileUpload(event) {
+  const files = Array.from(event.target.files);
+  if (files.length === 0) return;
+
+  const results = { added: [], unsupported: [] };
+  // Processed one at a time, in sequence, deliberately -- appending to the
+  // same textbox from several concurrent reads risks a race condition
+  // (two files finishing at once and overwriting each other's append).
+  for (const file of files) {
+    await processOneFile(file, results);
+  }
+
+  if (results.added.length > 0) {
+    let msg = `Added content from: ${results.added.join(", ")}. Review it below, then click "Get my position."`;
+    if (results.unsupported.length > 0) {
+      msg += `\n\nCouldn't read: ${results.unsupported.join(", ")} (unsupported format for now).`;
+    }
+    alert(msg);
+  } else if (results.unsupported.length > 0) {
+    alert(`Couldn't read: ${results.unsupported.join(", ")} -- unsupported format for now.`);
+  }
+  updateCharCount();
+  event.target.value = "";
+}
+
+async function processOneFile(file, results) {
+  const name = file.name.toLowerCase();
+  const questionBox = document.getElementById("question");
+
+  if (name.endsWith(".txt") || name.endsWith(".csv")) {
+    // Genuinely safe: reading the file entirely in the browser, no upload
+    // to any server, no new backend code or parsing risk. The resulting
+    // text feeds straight into the SAME extraction pipeline already tested
+    // all night -- this is not a new engine, just a new way to get text in.
+    const text = await file.text();
+    questionBox.value = (questionBox.value ? questionBox.value + "\n\n" : "") + text;
+    results.added.push(file.name);
+  } else if (name.endsWith(".xlsx") || name.endsWith(".pdf") || name.endsWith(".eml") || name.endsWith(".zip")) {
+    // Real document parsing, via the backend -- deterministic, no AI
+    // call, feeding the extracted text into the same tested pipeline.
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${API}/extract-file`, { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) {
+        results.unsupported.push(`${file.name} (${data.detail || "could not read"})`);
+        return;
+      }
+      questionBox.value = (questionBox.value ? questionBox.value + "\n\n" : "") + data.extracted_text;
+      results.added.push(file.name);
+    } catch (e) {
+      results.unsupported.push(`${file.name} (server unreachable)`);
+    }
+  } else {
+    // Honest handling for formats we genuinely don't parse yet (scanned
+    // PDFs, Word docs) -- still logs real demand, same as the original
+    // fake-door test, but now gives useful guidance instead of just an apology.
+    try {
+      await fetch(`${API}/interest-signal?feature=binary_file_upload_${name.split(".").pop()}`, { method: "POST" });
+    } catch (e) { /* non-critical */ }
+    results.unsupported.push(`${file.name} (format not supported yet)`);
+  }
+}
+
+function show(id) {
+  ["ask-screen", "loading", "evidence-screen", "cases-screen", "position-screen", "pilot-limit-screen"].forEach(s =>
+    document.getElementById(s).classList.toggle("hidden", s !== id));
+}
+
+function showPilotLimitScreen() {
+  document.getElementById("pilot-limit-notify").classList.remove("hidden");
+  document.getElementById("pilot-limit-thanks").classList.add("hidden");
+  show("pilot-limit-screen");
+}
+
+function goToNewCase() {
+  document.getElementById("question").value = "";
+  updateCharCount();
+  show("ask-screen");
+  renderNudgeBanner();
+}
+
+async function goToCases() {
+  show("loading");
+  document.getElementById("loading").innerText = "Loading your cases...";
+  try {
+    const res = await fetch(`${API}/commercial-decisions`, { headers: HEADERS });
+    const cases = await res.json();
+    renderCasesList(cases);
+    show("cases-screen");
+  } catch (err) {
+    showError("Could not load your cases. Details: " + err.message);
+  }
+}
+
+function renderCasesList(cases) {
+  const container = document.getElementById("cases-list");
+  if (!cases.length) {
+    container.innerHTML = `<div class="empty-state">No cases yet. Start your first procurement case.</div>`;
+    return;
+  }
+  container.innerHTML = cases.map(c => {
+    let badge = "";
+    if (c.status === "completed" && !c.has_outcome_feedback) {
+      badge = `<span class="badge awaiting">Awaiting outcome</span>`;
+    } else if (c.status === "completed" && c.has_outcome_feedback) {
+      badge = `<span class="badge recorded">Outcome recorded</span>`;
+    } else {
+      badge = `<span class="badge">${c.status.replace(/_/g, " ")}</span>`;
+    }
+    const date = new Date(c.created_at).toLocaleDateString();
+    return `<div class="case-row" onclick="openCase('${c.id}')">
+      <p class="q">${c.raw_question}</p>
+      ${badge}
+      <div class="meta">${date}${c.classified_content_type ? " · " + c.classified_content_type.replace(/_/g, " ") : ""}</div>
+    </div>`;
+  }).join("");
+}
+
+async function openCase(decisionId) {
+  currentDecisionId = decisionId;
+  show("loading");
+  document.getElementById("loading").innerText = "Opening case...";
+  try {
+    const res = await fetch(`${API}/commercial-decisions/${decisionId}`, { headers: HEADERS });
+    const data = await res.json();
+    handleDecisionResponse(data);
+  } catch (err) {
+    showError("Could not open this case. Details: " + err.message);
+  }
+}
+
+async function renderNudgeBanner() {
+  const container = document.getElementById("nudge-container");
+  container.innerHTML = "";
+  try {
+    const res = await fetch(`${API}/commercial-decisions`, { headers: HEADERS });
+    const cases = await res.json();
+    const awaiting = cases.filter(c => c.status === "completed" && !c.has_outcome_feedback);
+    if (awaiting.length > 0) {
+      container.innerHTML = `<div class="nudge-banner">
+        You have ${awaiting.length} completed case${awaiting.length > 1 ? "s" : ""} waiting on an outcome.
+        <button class="link-btn" onclick="goToCases()">Review now →</button>
+      </div>`;
+    }
+  } catch (err) {
+    // Non-critical -- if this fails, just skip the banner silently.
+  }
+}
+
+// Real, plain-English labels for each genuine backend status value --
+// deliberately NOT a simulated/fake sequence on a timer. Each label only
+// appears when the backend has actually written that status to the
+// database, verified by polling the real GET endpoint concurrently.
+const STATUS_LABELS = {
+  classifying: "Reviewing your case and identifying what's needed...",
+  awaiting_user_input: "Checking what evidence is missing...",
+  reasoning: "Reasoning through the evidence, checking the numbers, and verifying any market claims...",
+  completed: "Finishing up...",
+  provider_unavailable: "Something went wrong...",
+};
+
+async function pollRealStatus(decisionId, stopFlag) {
+  while (!stopFlag.stop) {
+    try {
+      const res = await fetch(`${API}/commercial-decisions/${decisionId}`, { headers: HEADERS });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === "reasoning" && !stopFlag.stop) {
+          renderProcessingState(data);
+        }
+        if (data.status === "completed" || data.status === "provider_unavailable") {
+          stopFlag.stop = true;
+          handleDecisionResponse(data);
+          break;
+        }
+      }
+    } catch (e) { /* a transient poll failure isn't worth interrupting the user over */ }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+}
+
+// Real, honest processing message -- built from the backend's own
+// elapsed-time clock, never a fabricated client-side progress estimate.
+// This is what makes the "still working" state unmistakable rather than
+// a static label that could just as easily mean the page is frozen.
+function renderProcessingState(data) {
+  const el = document.getElementById("loading");
+  const elapsed = data.processing_elapsed_seconds;
+  const elapsedText = (elapsed !== null && elapsed !== undefined)
+    ? ` (${Math.round(elapsed)}s so far)` : "";
+  const message = data.processing_message || STATUS_LABELS.reasoning;
+
+  // Switches explicitly on the calm, backend-computed state -- never on
+  // raw internal status strings, heartbeat timing, or anything else the
+  // frontend would otherwise have to infer meaning from.
+  if (data.user_facing_state === "safely_resuming") {
+    el.innerHTML = `<p>${escapeHtml(message)}</p>
+      <div style="text-align:center; margin-top:16px">
+        <button class="example-btn" onclick="retryCase('${data.id}')">Resume analysis</button>
+      </div>`;
+  } else if (data.user_facing_state === "unable_to_complete") {
+    el.innerHTML = `<p>${escapeHtml(message)}</p>
+      <div style="text-align:center; margin-top:16px">
+        <button class="example-btn" onclick="retryCase('${data.id}')">Try again</button>
+      </div>`;
+  } else {
+    // "working" -- the default, calm, reassuring state. Explicitly tells
+    // the user they don't need to resubmit, so there's never a reason
+    // to reach for the double-click or a duplicate submission.
+    el.innerText = message + elapsedText + " You don't need to resubmit -- this will update automatically.";
+  }
+}
+
+// Recovery action for both a stale in-progress case and a genuine
+// provider failure -- both are safely retriable via the same /respond
+// endpoint, which reuses the evidence already stored rather than asking
+// the user to retype anything.
+async function retryCase(decisionId) {
+  show("loading");
+  document.getElementById("loading").innerText = "Retrying...";
+  try {
+    const res = await fetch(`${API}/commercial-decisions/${decisionId}/respond`, {
+      method: "POST", headers: HEADERS, body: JSON.stringify({ user_supplied_inputs: {} }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showError(data.detail || `Server returned an error (status ${res.status})`);
+      return;
+    }
+    handleDecisionResponse(data);
+  } catch (err) {
+    showError("Could not reach the server. Details: " + err.message);
+  }
+}
+
+async function askQuestion() {
+  const question = document.getElementById("question").value.trim();
+  if (!question) return;
+  if (question.length > QUESTION_CHAR_LIMIT) {
+    alert(`Your case is ${question.length.toLocaleString()} characters, over the ${QUESTION_CHAR_LIMIT.toLocaleString()} limit. Please remove some content, or consider splitting this into separate cases.`);
+    return;
+  }
+  // Double-click / duplicate-submission protection at the UI layer --
+  // defense in depth alongside the backend's real atomic claim. Even if
+  // this were somehow bypassed, the backend guarantees safety on its
+  // own; this just avoids the user ever seeing two requests fire.
+  const askBtn = document.getElementById("ask-btn");
+  if (askBtn) askBtn.disabled = true;
+  show("loading");
+  document.getElementById("loading").innerText = "Getting started...";
+
+  const clientDecisionId = crypto.randomUUID();
+
+  try {
+    const res = await fetch(`${API}/commercial-decisions`, {
+      method: "POST", headers: HEADERS,
+      body: JSON.stringify({ raw_question: question, client_decision_id: clientDecisionId }),
+    });
+    const data = await res.json();
+    if (res.status === 429) {
+      showPilotLimitScreen();
+      return;
+    }
+    if (!res.ok) {
+      showError(data.detail || `Server returned an error (status ${res.status})`);
+      return;
+    }
+    currentDecisionId = data.id;
+    persistCurrentCase(data.id);
+    // Immediate response now (per the async reasoning architecture) --
+    // handleDecisionResponse itself starts polling if status is still
+    // 'reasoning', so no separate polling logic is needed here.
+    handleDecisionResponse(data);
+  } catch (err) {
+    showError("Could not reach the server. Is it still running? Details: " + err.message);
+  } finally {
+    if (askBtn) askBtn.disabled = false;
+  }
+}
+
+function showError(message) {
+  document.getElementById("loading").innerHTML =
+    `<div style="color:#b00020; text-align:left; white-space:pre-wrap; font-size:13px">${message}</div>
+     <div style="text-align:center; margin-top:16px"><button class="example-btn" onclick="show('ask-screen')">← Try again</button></div>`;
+  show("loading");
+}
+
+function handleDecisionResponse(data) {
+  currentHasFeedback = !!data.has_outcome_feedback;
+  currentRawQuestion = data.raw_question || "";
+  currentEvidence = data.user_supplied_inputs || {};
+  // Single, guaranteed persistence point -- every path that produces a
+  // decision response (ask, respond, continue, reopen, retry) flows
+  // through here, so refresh/reopen recovery works regardless of which
+  // action the user took, with no risk of a missed call site elsewhere.
+  if (data.id && (data.status === "reasoning" || data.status === "awaiting_user_input" || data.status === "provider_unavailable")) {
+    persistCurrentCase(data.id);
+  } else if (data.id) {
+    clearPersistedCase();
+  }
+
+  if (data.status === "awaiting_user_input") {
+    currentMissingFields = data.missing_inputs_requested;
+    renderEvidenceForm();
+    show("evidence-screen");
+  } else if (data.status === "completed") {
+    currentPositionObj = data.commercial_position;
+    const threadEl = document.getElementById("pos-thread-indicator");
+    threadEl.innerHTML = data.parent_decision_id
+      ? `<p style="font-size:12px; color:#999; margin:0 0 8px">↳ This continues an earlier case</p>`
+      : "";
+    renderPosition(currentPositionObj);
+    if (currentHasFeedback) {
+      // Reopening a case that already has a recorded outcome -- rebuild the
+      // same summary from stored data instead of only showing it once, in
+      // the original submission session.
+      renderCaseSummary(data.recorded_outcome_description, data.recorded_outcome_verdict,
+                         data.recorded_decision_alignment, data.recorded_outcome_at);
+      document.getElementById("outcome-section").classList.add("hidden");
+      document.getElementById("case-continuation-actions").classList.add("hidden");
+    } else {
+      // Deliberately NOT shown automatically anymore -- outcome logging is
+      // now an explicit choice ("Mark as concluded"), not a default next
+      // step, since a case that's still being negotiated shouldn't nudge
+      // the user toward premature closure.
+      document.getElementById("outcome-section").classList.add("hidden");
+      document.getElementById("summary-section").classList.add("hidden");
+      document.getElementById("case-continuation-actions").classList.remove("hidden");
+      document.getElementById("continue-form").classList.add("hidden");
+      // Real bug found via code audit, same class as the modal-stacking
+      // issue: leftover text typed for a PREVIOUS case's continuation,
+      // never submitted, would otherwise still be sitting in this box
+      // when a DIFFERENT case is opened next.
+      document.getElementById("continue-what-happened").value = "";
+      document.getElementById("outcome-description").value = "";
+      document.getElementById("unexpected-insight").value = "";
+    }
+    show("position-screen");
+  } else if (data.status === "reasoning") {
+    // Direct fix for the real reported bug: a legitimately in-progress
+    // case must never look frozen or show a raw status string. Shows a
+    // real, honest elapsed-time message (from the actual backend clock,
+    // never a fabricated client-side estimate) and keeps polling until
+    // the case reaches a terminal state.
+    show("loading");
+    renderProcessingState(data);
+    const stopFlag = { stop: false };
+    pollRealStatus(data.id, stopFlag);
+  } else if (data.status === "provider_unavailable") {
+    // Recovery path: a genuine failure is always safely retriable --
+    // the user's answers are preserved, never a dead end.
+    show("loading");
+    renderProcessingState(data);
+  } else {
+    // Defensive fallback for a genuinely unexpected state -- calm even
+    // here, never a raw internal status string, per the explicit
+    // requirement that no technical detail ever reaches the user.
+    document.getElementById("loading").innerText =
+      "VendorEdge ran into an unexpected issue. Your case and information are safe -- please refresh the page.";
+    show("loading");
+  }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = String(text);
+  return div.innerHTML;
+}
+
+function renderEvidenceForm() {
+  const foundContainer = document.getElementById("evidence-found-checklist");
+  const foundKeys = Object.keys(currentEvidence || {});
+  if (foundKeys.length > 0) {
+    const items = foundKeys.map(k => {
+      const label = escapeHtml(k.replace(/_/g, " "));
+      const value = escapeHtml(currentEvidence[k]);
+      return `<div style="font-size:13px; color:#2f7d4f; margin:3px 0">✓ ${label}: <span style="color:#555">${value}</span></div>`;
+    }).join("");
+    foundContainer.innerHTML = `
+      <div style="background:#f4faf6; border:1px solid #cde8d6; border-radius:8px; padding:10px 14px; margin-bottom:14px">
+        <p style="font-size:12px; font-weight:600; color:#2f7d4f; text-transform:uppercase; letter-spacing:0.03em; margin:0 0 6px">I found this</p>
+        ${items}
+      </div>`;
+  } else {
+    foundContainer.innerHTML = "";
+  }
+
+  const container = document.getElementById("evidence-fields");
+  container.innerHTML = "";
+  currentMissingFields.forEach((f) => {
+    container.innerHTML += `<div class="field">
+      <label>${escapeHtml(f.prompt)}</label>
+      <div style="font-size:12px;color:#888;margin-bottom:4px">${escapeHtml(f.why)}</div>
+      <input id="field-${f.field}" data-field-key="${f.field}" />
+    </div>`;
+  });
+}
+
+async function submitEvidence() {
+  const inputs = {};
+  currentMissingFields.forEach((f) => {
+    inputs[f.field] = document.getElementById(`field-${f.field}`).value;
+  });
+  // Double-click / duplicate-submission protection at the UI layer --
+  // the backend's atomic claim is the real guarantee; this just avoids
+  // firing two requests in the first place.
+  const submitBtn = document.getElementById("submit-evidence-btn");
+  if (submitBtn) submitBtn.disabled = true;
+  show("loading");
+  document.getElementById("loading").innerText = "Getting started...";
+
+  try {
+    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/respond`, {
+      method: "POST", headers: HEADERS, body: JSON.stringify({ user_supplied_inputs: inputs }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showError(data.detail || `Server returned an error (status ${res.status})`);
+      return;
+    }
+    // Immediate response now -- handleDecisionResponse starts polling
+    // itself if status is still 'reasoning'.
+    handleDecisionResponse(data);
+  } catch (err) {
+    showError("Could not reach the server. Details: " + err.message);
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+function renderPosition(pos) {
+  renderDecisionSnapshot(pos);
+
+  // Only shown when there's genuinely real history -- never a hollow
+  // "informed by 0 cases" claim, the same empty-moat problem flagged
+  // earlier tonight when discussing organizational memory honestly.
+  const caseCountEl = document.getElementById("pos-case-count");
+  if (pos.informed_by_case_count > 0) {
+    const n = pos.informed_by_case_count;
+    caseCountEl.innerHTML = `<span style="display:inline-block; font-size:11px; color:#3a7ac9; background:#eaf3fb; border-radius:100px; padding:2px 10px; margin:4px 0">Informed by ${n} past ${n === 1 ? "case" : "cases"} from your organization</span>`;
+  } else {
+    caseCountEl.innerHTML = "";
+  }
+
+  document.getElementById("pos-why-wins").innerText = pos.why_this_wins || "";
+
+  // Reset the quick-feedback prompt for this new answer -- otherwise a
+  // previous question's "thanks" state would incorrectly persist.
+  document.getElementById("quick-feedback-buttons").classList.remove("hidden");
+  document.getElementById("quick-feedback-followup").classList.add("hidden");
+  document.getElementById("quick-feedback-thanks").classList.add("hidden");
+  document.getElementById("quick-feedback-reason").value = "";
+
+  document.getElementById("pos-commercial-insights").innerHTML =
+    `<p style="font-size:11px; font-weight:600; letter-spacing:0.03em; color:#6a5acd; text-transform:uppercase; margin:0 0 6px; font-style:normal">Why this commercial position wins</p>` +
+    pos.commercial_insights.map(i => `<p style="margin:4px 0">• ${i}</p>`).join("");
+  const hypothesisEl = document.getElementById("pos-hypothesis");
+  if (pos.commercial_hypothesis) {
+    hypothesisEl.innerHTML = `<p style="font-size:13px; color:#7a5c00; background:#fff3d6; border-radius:6px; padding:8px 10px"><b>Hypothesis (unconfirmed):</b> ${pos.commercial_hypothesis}</p>`;
+  } else {
+    hypothesisEl.innerHTML = "";
+  }
+  const methodologyEl = document.getElementById("pos-methodology");
+  if (pos.methodology_applied) {
+    methodologyEl.innerHTML = `<p style="font-size:12.5px; color:#3a5a7a; background:#eaf3fb; border-radius:6px; padding:6px 10px"><b>Approach used:</b> ${pos.methodology_applied}</p>`;
+  } else {
+    methodologyEl.innerHTML = "";
+  }
+  renderCostDriverComparison(pos);
+  renderFinancialScenarios(pos);
+  renderKeyFigures(pos);
+  renderSupplierComparison(pos);
+  renderNegotiationDimensions(pos);
+  renderTalkTrack(pos);
+  document.getElementById("pos-reasoning").innerText = pos.reasoning;
+
+  const fiEl = document.getElementById("pos-financial-impact");
+  if (pos.financial_impact) {
+    const fi = pos.financial_impact;
+    const fmt = (n) => "$" + Number(n).toLocaleString(undefined, {maximumFractionDigits: 0});
+    fiEl.innerHTML = `
+      <div style="background:#f0f4f8; border-radius:8px; padding:12px 14px; margin:10px 0; font-size:13px">
+        <div style="font-weight:600; margin-bottom:6px">Commercial Exposure</div>
+        <div>Annual spend: <b>${fmt(fi.annual_spend_usd)}</b></div>
+        <div>Requested change: <b>${fi.requested_change_percent}%</b></div>
+        <div>Potential annual impact: <b>${fmt(fi.potential_annual_impact_usd)}</b></div>
+        ${fi.switching_cost_usd != null ? `<div>Estimated switching cost: <b>${fmt(fi.switching_cost_usd)}</b></div>` : ""}
+        ${fi.net_exposure_usd != null ? `<div>Net exposure: <b>${fmt(fi.net_exposure_usd)}</b></div>` : ""}
+      </div>`;
+  } else {
+    fiEl.innerHTML = "";
+  }
+
+  const supportingFactors = pos.confidence.factors.filter(f => f.weight === "increases confidence");
+  const limitingFactors = pos.confidence.factors.filter(f => f.weight === "decreases confidence");
+
+  document.getElementById("pos-badge").innerHTML =
+    `<span class="badge">Recommendation Confidence: ${pos.confidence.level.charAt(0).toUpperCase() + pos.confidence.level.slice(1)}</span>` +
+    (pos.confidence_calibration_note ? `<p style="font-size:11.5px; color:#888; margin:6px 0 0; font-style:italic">${pos.confidence_calibration_note}</p>` : "");
+
+  document.getElementById("pos-factors").innerHTML = `
+    ${supportingFactors.length ? `
+      <div style="margin-top:8px">
+        <div style="font-size:12px; font-weight:600; color:#2f7d4f">Supported by</div>
+        ${supportingFactors.map(f => `<div class="factor" style="color:#2f7d4f">✓ ${f.factor}</div>`).join("")}
+      </div>` : ""}
+    ${limitingFactors.length ? `
+      <div style="margin-top:8px">
+        <div style="font-size:12px; font-weight:600; color:#a33">Limited by</div>
+        ${limitingFactors.map(f => `<div class="factor" style="color:#a33">✗ ${f.factor}</div>`).join("")}
+      </div>` : ""}
+  `;
+  document.getElementById("pos-derivation").innerText = pos.confidence.derivation_note;
+  document.getElementById("pos-assumption").innerHTML =
+    "<ul style='margin:4px 0 0 18px;padding:0'>" +
+    pos.assumptions.map(a => `<li>${a}</li>`).join("") +
+    "</ul>";
+  // Note: opening_position is intentionally NOT rendered again here --
+  // it's already surfaced as "Next Action" in the Decision Snapshot above.
+  // Rendering it a second time as a standalone callout was the source of
+  // literal duplicate text in the report (fixed alongside the recommendation
+  // double-render).
+  const walkawayEl = document.getElementById("pos-walkaway");
+  if (pos.walk_away_threshold) {
+    walkawayEl.innerHTML = `<p style="font-size:13px; background:#fdeaea; border-radius:6px; padding:8px 10px"><b>Walk-away threshold:</b> ${pos.walk_away_threshold}</p>`;
+  } else {
+    walkawayEl.innerHTML = "";
+  }
+  document.getElementById("pos-disconfirm").innerText = pos.disconfirming_condition;
+}
+
+// --- Sprint 1: outcome capture as auto-generated case documentation ---
+// (see design pack: "outcome capture IS their documentation, not a survey") ---
+
+function buildCaseSummaryText(outcomeDescription, verdictValue, alignmentValue, recordedAt) {
+  const lines = [];
+  lines.push("VENDOREDGE — COMMERCIAL CASE SUMMARY");
+  lines.push("=".repeat(40));
+  lines.push("");
+  lines.push("QUESTION");
+  lines.push(currentRawQuestion || "(not recorded)");
+  lines.push("");
+
+  const evidenceKeys = Object.keys(currentEvidence || {});
+  if (evidenceKeys.length) {
+    lines.push("EVIDENCE SUPPLIED");
+    evidenceKeys.forEach(k => {
+      lines.push(`- ${k.replace(/_/g, " ")}: ${currentEvidence[k]}`);
+    });
+    lines.push("");
+  }
+
+  if (currentPositionObj) {
+    lines.push("COMMERCIAL POSITION");
+    lines.push(`Recommendation: ${currentPositionObj.recommendation}`);
+    lines.push(`Recommendation Confidence: ${currentPositionObj.confidence.level}`);
+    lines.push(`This depended on: ${(currentPositionObj.assumptions || []).join("; ")}`);
+    lines.push(`Would change if: ${currentPositionObj.disconfirming_condition}`);
+    lines.push("");
+  }
+
+  lines.push("DECISION TAKEN");
+  lines.push(ALIGNMENT_LABELS[alignmentValue] || alignmentValue);
+  lines.push("");
+
+  lines.push("OUTCOME");
+  lines.push(`What was finally agreed: ${outcomeDescription}`);
+  lines.push(`Verdict: ${VERDICT_LABELS[verdictValue] || verdictValue}`);
+  const dateStr = recordedAt ? new Date(recordedAt).toLocaleDateString() : new Date().toLocaleDateString();
+  lines.push(`Recorded: ${dateStr}`);
+
+  return lines.join("\n");
+}
+
+function renderCaseSummary(outcomeDescription, verdictValue, alignmentValue, recordedAt) {
+  currentSummaryText = buildCaseSummaryText(outcomeDescription, verdictValue, alignmentValue, recordedAt);
+  document.getElementById("case-summary-text").innerText = currentSummaryText;
+  document.getElementById("summary-section").classList.remove("hidden");
+  document.getElementById("copy-confirm").classList.add("hidden");
+}
+
+async function copySummary() {
+  try {
+    await navigator.clipboard.writeText(currentSummaryText);
+    const confirmEl = document.getElementById("copy-confirm");
+    confirmEl.classList.remove("hidden");
+    setTimeout(() => confirmEl.classList.add("hidden"), 2000);
+  } catch (err) {
+    alert("Could not copy automatically -- select the text above and copy manually.");
+  }
+}
+
+function downloadSummary() {
+  const blob = new Blob([currentSummaryText], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `vendoredge-case-${currentDecisionId || "summary"}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function submitOutcome() {
+  const outcome_description = document.getElementById("outcome-description").value.trim();
+  const validation_verdict = document.getElementById("verdict-select").value;
+  const decision_alignment = document.getElementById("alignment-select").value;
+  const unexpected_insight_raw = document.getElementById("unexpected-insight").value.trim();
+  const unexpected_insight = unexpected_insight_raw || null;
+  if (!outcome_description) return;
+  try {
+    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/feedback`, {
+      method: "POST", headers: HEADERS,
+      body: JSON.stringify({ outcome_description, validation_verdict, decision_alignment, unexpected_insight }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.detail || "Could not record the outcome.");
+      return;
+    }
+    currentHasFeedback = true;
+    document.getElementById("outcome-section").classList.add("hidden");
+    renderCaseSummary(outcome_description, validation_verdict, decision_alignment, new Date().toISOString());
+  } catch (err) {
+    alert("Could not reach the server. Details: " + err.message);
+  }
+}
+
+// Refresh/reopen support: persists only the decision ID, never any
+// evidence content -- the real data always lives in the database, this
+// is purely a pointer so a refreshed page can find its way back to an
+// in-progress case instead of losing track of it.
+const LAST_CASE_KEY = "vendoredge_last_open_case";
+
+function persistCurrentCase(decisionId) {
+  try {
+    localStorage.setItem(LAST_CASE_KEY, decisionId);
+  } catch (e) { /* localStorage unavailable (private browsing, etc.) -- non-critical */ }
+}
+
+function clearPersistedCase() {
+  try {
+    localStorage.removeItem(LAST_CASE_KEY);
+  } catch (e) { /* non-critical */ }
+}
+
+async function tryResumeLastCase() {
+  let lastId;
+  try {
+    lastId = localStorage.getItem(LAST_CASE_KEY);
+  } catch (e) {
+    return false;
+  }
+  if (!lastId) return false;
+  try {
+    const res = await fetch(`${API}/commercial-decisions/${lastId}`, { headers: HEADERS });
+    if (!res.ok) {
+      clearPersistedCase();
+      return false;
+    }
+    const data = await res.json();
+    // Only auto-resume a case that's genuinely still in progress -- a
+    // completed or already-answered case doesn't need to interrupt a
+    // fresh visit to the app; the case list already covers that.
+    if (data.status === "reasoning" || data.status === "awaiting_user_input" || data.status === "provider_unavailable") {
+      currentDecisionId = data.id;
+      handleDecisionResponse(data);
+      return true;
+    }
+    clearPersistedCase();
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+
+(async function initializeApp() {
+  await ensureWorkspace();
+  const resumed = await tryResumeLastCase();
+  if (!resumed) {
+    renderNudgeBanner();
+  }
+})();
+</script>
+</body>
+</html>

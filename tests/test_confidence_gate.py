@@ -144,13 +144,16 @@ def test_adversarial_case_5_fully_verified_and_complete_reaches_high():
     assert reasons == []
 
 
-def test_ceiling_never_raises_confidence_only_lowers_it():
-    """Critical structural guarantee: if the model itself says LOW, the
-    ceiling must never override that upward, even with perfect evidence."""
+def test_system_owned_confidence_replaces_model_level():
+    """The final confidence level belongs to the deterministic system.
+
+    The model may provide factors and a derivation narrative, but its own
+    level is not authoritative in either direction.
+    """
     normalized = NormalizedEvidence(
         content_type="price_increase", common=CommonEvidence(),
         case=PriceIncreaseEvidence(current_price_or_terms="x", requested_increase_percent=10.0,
-                                    suppliers_stated_justification="x", annual_spend_usd=1_000_000.0),
+                                   suppliers_stated_justification="x", annual_spend_usd=1_000_000.0),
         derived=DerivedEvidence(resolved_annual_spend_usd=1_000_000.0, annual_spend_resolution_method="direct"),
         provenance={f: FieldProvenance(source="both_agree", stage_captured="x") for f in
                     ["current_price_or_terms", "requested_increase_percent", "suppliers_stated_justification", "annual_spend_usd"]},
@@ -163,8 +166,8 @@ def test_ceiling_never_raises_confidence_only_lowers_it():
                                           potential_annual_impact_usd=100_000.0, note="x"),
     )
     result = apply_confidence_ceiling(position, normalized)
-    assert result.confidence.level == "low"
-
+    assert result.confidence.level == "high"
+    assert "System-owned confidence level" in result.confidence.derivation_note
 
 def test_false_high_deterministic_ceiling_overrides_a_wrong_high_claim():
     """
@@ -198,7 +201,7 @@ def test_false_high_deterministic_ceiling_overrides_a_wrong_high_claim():
     )
 
 
-def test_false_low_ceiling_never_artificially_raises_a_genuinely_cautious_model():
+def test_system_owned_confidence_is_high_when_evidence_is_high_even_if_model_says_low():
     """
     Required additional test: the model claims LOW even though every
     load-bearing input is genuinely verified, reconciled, and complete
@@ -227,15 +230,8 @@ def test_false_low_ceiling_never_artificially_raises_a_genuinely_cautious_model(
                                           potential_annual_impact_usd=3_686_400.0, note="x"),
     )
     result = apply_confidence_ceiling(position, normalized)
-    assert result.confidence.level == "low", (
-        "The ceiling must NEVER raise a model's own cautious LOW claim to HIGH, "
-        "even when the underlying evidence is genuinely clean and complete -- "
-        "the ceiling is strictly a cap, never a floor."
-    )
-    # And, since nothing was actually capped (the model's own level was already
-    # at or below the ceiling), the derivation note must NOT falsely claim a
-    # capping event occurred.
-    assert "capped" not in result.confidence.derivation_note.lower()
+    assert result.confidence.level == "high"
+    assert "System-owned confidence level" in result.confidence.derivation_note
 
 
 def test_confidence_reason_text_matches_the_actual_triggered_condition():

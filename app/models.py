@@ -26,6 +26,7 @@ DecisionAlignment = Literal["followed", "modified", "different_direction"]
 class WorkspaceResponse(BaseModel):
     organisation_id: UUID
     user_id: UUID
+    access_token: str
 
 
 class WorkspaceInfoResponse(BaseModel):
@@ -140,6 +141,75 @@ class FinancialImpact(BaseModel):
     note: str
 
 
+class DecisionAlternative(BaseModel):
+    name: str
+    type: str
+    path: str
+    supplier: Optional[str] = None
+    annual_spend_usd: Optional[float] = None
+    financial_basis: str
+    unit_price_usd: Optional[float] = None
+    what_you_gain: list[str] = Field(default_factory=list, max_length=6)
+    what_you_give_up: list[str] = Field(default_factory=list, max_length=8)
+    stakeholder_impacts: list[str] = Field(default_factory=list, max_length=6)
+    evidence_strength: str
+    requires_new_evidence: list[str] = Field(default_factory=list, max_length=8)
+
+
+class AlternativeAnalysis(BaseModel):
+    available: bool
+    status: str
+    summary: str
+    alternatives: list[DecisionAlternative] = Field(default_factory=list, max_length=3)
+    warnings: list[str] = Field(default_factory=list, max_length=6)
+    method: Optional[str] = None
+
+
+class DecisionAudit(BaseModel):
+    material_evidence: list[dict] = Field(default_factory=list, max_length=12)
+    inferred_signals: list[str] = Field(default_factory=list, max_length=3)
+    uncertainties: list[str] = Field(default_factory=list, max_length=10)
+    stakeholder_tradeoffs: list[dict] = Field(default_factory=list, max_length=8)
+    stakeholder_conflict: list[str] = Field(default_factory=list, max_length=8)
+    reversal_conditions: list[str] = Field(default_factory=list, max_length=6)
+    evidence_integrity_status: Literal["PROVEN", "INFERRED", "UNKNOWN", "CONTRADICTED"]
+    evidence_counts: dict[str, int] = Field(default_factory=dict)
+
+
+class ControlTower(BaseModel):
+    available: bool
+    readiness: Literal["READY", "CONDITIONAL", "HOLD"]
+    readiness_reason: str
+    recommended_action: str
+    confidence: Literal["high", "medium", "low"]
+    evidence_integrity: Literal["PROVEN", "INFERRED", "UNKNOWN", "CONTRADICTED"]
+    critical_before_action: list[str] = Field(default_factory=list, max_length=5)
+    important_not_blocking: list[str] = Field(default_factory=list, max_length=5)
+    useful_later: list[str] = Field(default_factory=list, max_length=3)
+    decision_changers: list[str] = Field(default_factory=list, max_length=6)
+    stakeholder_conflicts: list[str] = Field(default_factory=list, max_length=6)
+    alternative_count: int = 0
+    stress_status: str
+    financial_impact_available: bool
+    action_items: list[dict[str, str]] = Field(default_factory=list, max_length=5)
+    method: str
+
+
+class NegotiationPlaybook(BaseModel):
+    available: bool = True
+    objective: str
+    opening_position: Optional[str] = None
+    target: Optional[str] = None
+    walk_away: Optional[str] = None
+    dimensions: list[dict[str, str]] = Field(default_factory=list, max_length=8)
+    talk_track: list[dict[str, str]] = Field(default_factory=list, max_length=6)
+    supplier_facts: list[dict[str, str]] = Field(default_factory=list, max_length=8)
+    evidence_to_lead_with: list[str] = Field(default_factory=list, max_length=5)
+    questions_to_resolve: list[str] = Field(default_factory=list, max_length=6)
+    red_lines: list[str] = Field(default_factory=list, max_length=5)
+    method: str
+
+
 class CommercialPosition(BaseModel):
     recommendation: str
     commercial_insights: list[str] = Field(
@@ -186,6 +256,20 @@ class CommercialPosition(BaseModel):
     confidence_calibration_note: Optional[str] = None
     reasoning: str
     confidence: Confidence
+    # Release 5: deterministic audit of what evidence, uncertainty and reversal conditions surround this decision.
+    decision_audit: Optional[DecisionAudit] = None
+    # Release 6: deterministic what-if analysis generated from normalized evidence.
+    # Never supplied by the LLM and never used as a hidden recommendation.
+    sensitivity_analysis: Optional[dict[str, Any]] = None
+    # Release 8: deterministic alternative commercial paths.
+    alternative_analysis: Optional[AlternativeAnalysis] = None
+    # Release 9: deterministic executive control-tower view.
+    control_tower: Optional[ControlTower] = None
+    # Release 13: deterministic negotiation meeting aid.
+    negotiation_playbook: Optional[NegotiationPlaybook] = None
+    # Release 7: deterministic challenge of the recommendation using only
+    # stated evidence and explicitly labelled hypothetical shocks.
+    stress_test: Optional[dict[str, Any]] = None
     financial_impact: Optional[FinancialImpact] = None
     # Capped, and tightened to short phrases in the prompt itself -- this
     # was the other genuinely unbounded field, sometimes running to 6+ full
@@ -195,6 +279,14 @@ class CommercialPosition(BaseModel):
     walk_away_threshold: Optional[str] = None
     disconfirming_condition: str
     decision_type: DecisionType
+
+
+class DecisionFormatRequest(BaseModel):
+    format_name: Literal["cfo_brief", "category_review", "supplier_meeting", "one_page"]
+
+
+class CustomFormatRequest(BaseModel):
+    template: str = Field(..., min_length=1, max_length=12000)
 
 
 class MissingField(BaseModel):
@@ -244,6 +336,20 @@ class CommercialDecisionResponse(BaseModel):
 class ContinueCaseRequest(BaseModel):
     what_happened: str = Field(..., min_length=1)
     client_decision_id: Optional[UUID] = None
+
+
+class PilotExperienceRequest(BaseModel):
+    """Structured pilot-use signal, kept separate from commercial outcome truth.
+
+    These fields measure whether VendorEdge was useful and usable; they never
+    feed into the commercial reasoning engine and never alter a decision.
+    """
+    ease_of_use: Literal["very_easy", "easy", "okay", "difficult", "very_difficult"]
+    trust_level: Literal["high", "medium", "low"]
+    time_saved: Literal["significant", "some", "none", "more_time"]
+    would_use_again: bool
+    most_valuable: str = Field(..., min_length=1, max_length=500)
+    missing_or_frustrating: Optional[str] = Field(default=None, max_length=500)
 
 
 class FeedbackRequest(BaseModel):

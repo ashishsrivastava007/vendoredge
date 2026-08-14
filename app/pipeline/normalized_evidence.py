@@ -71,6 +71,33 @@ QualificationStatus = Literal["not_started", "in_progress", "complete", "unknown
 # genuinely distinct states, defaulting to "unknown," never to "none."
 ProductionHistoryStatus = Literal["established", "limited", "none", "unknown"]
 
+StakeholderViewType = Literal[
+    "objective",
+    "preference",
+    "risk_concern",
+    "constraint",
+    "experience",
+    "rumor",
+    "recommendation",
+]
+
+
+class StakeholderView(BaseModel):
+    """
+    A directly attributed internal/external stakeholder view.
+
+    This is deliberately NOT treated as supplier/commercial fact. A stakeholder
+    may have valuable insider knowledge, a strong operational preference, or a
+    risk concern, but VendorEdge must preserve the source and type of the view
+    so the reasoner can weigh it rather than silently promote it into evidence.
+    """
+    stakeholder_name: str
+    role: Optional[str] = None
+    view_type: StakeholderViewType
+    statement: str
+    basis: Optional[str] = None
+    explicitly_stated: bool = True
+
 
 class SupplierEvidence(BaseModel):
     """
@@ -239,6 +266,10 @@ class NormalizedEvidence(BaseModel):
     # single-supplier price_increase case, where common.* already covers
     # everything correctly.
     suppliers: list[SupplierEvidence] = Field(default_factory=list)
+    # Stakeholder views are evidence about stakeholder positions, not facts.
+    # They remain separately attributable so conflicting views can be surfaced
+    # and weighed without creating false consensus.
+    stakeholder_views: list[StakeholderView] = Field(default_factory=list)
 
     def supplier_by_name(self, name: str) -> Optional[SupplierEvidence]:
         for s in self.suppliers:

@@ -33,13 +33,15 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: "host=db dbname=vendoredge user=vendoredge_app password=change_this_before_production"
+      DATABASE_URL: "host=db dbname=vendoredge user=vendoredge_app password=local_only_change_me"
       # A separate, more privileged connection used ONLY for the narrow,
       # automatic startup schema-migration step -- the everyday app
       # connection above intentionally cannot alter the database structure,
       # which is the correct security posture. This one can, but is never
       # used for regular request handling, only the one migration step at boot.
       MIGRATION_DATABASE_URL: "host=db dbname=vendoredge user=postgres password=superuser_password_not_used_by_app"
+      APP_DATABASE_USER: "vendoredge_app"
+      APP_DATABASE_PASSWORD: "local_only_change_me"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
     env_file:
       - .env

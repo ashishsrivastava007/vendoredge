@@ -13,6 +13,7 @@ import re
 from anthropic import Anthropic
 from app.pipeline.evidence import EVIDENCE_REQUIREMENTS, FIELD_PROMPTS
 from app.model_config import CLASSIFIER_MODEL
+from app import caps
 
 _client: Anthropic | None = None
 
@@ -66,6 +67,8 @@ SUPPLIER IDENTITY (optional, passive extraction only -- never ask for this, only
 
 PER-SUPPLIER EVIDENCE (structured -- extract an entry for EVERY real, named supplier connected to this procurement decision, regardless of content_type): this applies unconditionally -- for a price_increase case, this means the incumbent supplier requesting the increase gets an entry (is_incumbent=true) AND any real alternative supplier mentioned also gets an entry, even if only one attribute is stated for them. Do NOT omit a real, named supplier just because the case is classified price_increase or because they are only mentioned briefly as an alternative -- a supplier with real, comparable data (price, OTIF, lead time, etc.) is materially relevant regardless of which content_type the case falls under. A supplier mentioned with zero attributes still gets an entry, with every field left null/unknown -- never omit the entry itself. Extract "supplier_specific_evidence" as a list, one entry per named supplier: {{"supplier_name": str, "incoterm": str-or-null, "region": str-or-null, "currency": str-or-null, "price_display": "the price as stated, e.g. \"$1,420/tonne\"", "lead_time_weeks": number-or-null, "otif_percent": number-or-null, "defect_rate_percent": number-or-null, "payment_terms": str-or-null, "capacity_percent": number-or-null, "qualification_status": "not_started" | "in_progress" | "complete" | "unknown", "qualification_percent": number-or-null, "is_incumbent": true-or-false, "freight_cost_or_estimate": "the freight/transport cost as stated FOR THIS SPECIFIC SUPPLIER, e.g. \"€85/unit\", or null", "production_history_status": "established" | "limited" | "none" | "unknown", "certification_status": "certified" | "not_certified" | "unknown", "certification_detail": "the specific certification named, e.g. \"ISO 9001\", or null", "preferred_supplier_status": "preferred" | "not_preferred" | "unknown"}}. CRITICAL for freight_cost_or_estimate: only attribute a freight figure to a supplier when the text genuinely, unambiguously ties that number to that specific supplier. If ambiguous between two suppliers, leave null for both rather than guessing -- a wrong attribution is worse than leaving it null. CRITICAL for qualification_status: reflect EXACTLY what the evidence states, never rounded up -- "70% qualified" is "in_progress" with qualification_percent=70, NEVER "complete." Only use "complete" when the evidence explicitly says qualification is finished, approved, or done. CRITICAL, and this applies identically to qualification_status, production_history_status, certification_status, AND preferred_supplier_status: UNKNOWN IS NEVER THE SAME AS NEGATIVE. Silence about a status must always resolve to "unknown" (or "not_started" for qualification specifically, which itself means "known not yet begun" -- still distinct from true silence), never inferred as a stated negative. Only an EXPLICIT statement in either direction moves a field off "unknown": if the text says "not yet certified" or "certification pending," that is "unknown" (or, for certification specifically, genuinely ambiguous language like this should stay "unknown" -- reserve "not_certified" for language that unambiguously states certification was sought and failed, is explicitly absent, or was explicitly declined). If the text never mentions certification or preferred status at all, both fields MUST be "unknown" -- never guess "not_certified" or "not_preferred" just because the case doesn't happen to mention it. The reverse mistake is equally serious: never infer a POSITIVE status (e.g. "complete", "certified", "preferred") from a supplier simply being named, described favorably, or having good numeric performance data -- good OTIF/defect numbers are NOT the same fact as being qualified, certified, or preferred, and must never be used to infer any of those three fields.
 
+STAKEHOLDER VIEWS (optional, passive extraction only -- never invent stakeholders and never convert their views into objective facts): if the question explicitly attributes a position, preference, concern, experience, constraint, recommendation, or rumor to a named stakeholder or stakeholder group (e.g. "Finance wants 5% savings", "Operations prefers Atlas", "Engineering is concerned about reliability", "the buyer heard that supplier X may have capacity issues"), extract at most {caps.MAX_STAKEHOLDER_VIEWS} entries per case, one per distinct attributed view, into `stakeholder_views`. Use exactly one view_type from: objective, preference, risk_concern, constraint, experience, rumor, recommendation. Preserve the statement faithfully. `stakeholder_name` may be a named person or an explicit group such as "Finance", "Operations", "Engineering", "Procurement", "Plant Manager". Do NOT invent a stakeholder merely because a preference would be commercially sensible. Do NOT treat a stakeholder's opinion, anecdote, rumor, or preference as independently verified supplier evidence. If two stakeholders disagree, capture BOTH views separately rather than resolving the disagreement during extraction. Example: {{"stakeholder_name":"Operations","role":"operations","view_type":"preference","statement":"prefers Atlas because of reliability","basis":"stated by user"}}.
+
 CROSS-BORDER COMMERCIAL DETAILS (optional, passive extraction only -- never ask for these, only capture what's genuinely already stated):
 - "supplier_currency": if the supplier's pricing or billing currency is stated and differs from an implied USD default (e.g. "billed in EUR," "€50,000," "supplier invoices in GBP"), extract the specific currency.
 - "incoterm": if a standard Incoterm is genuinely named (EXW, FCA, FAS, FOB, CFR, CIF, CPT, CIP, DAP, DPU, or DDP), extract it exactly as stated -- these are a real, published international standard (Incoterms 2020), not something to infer or guess if not explicitly named.
@@ -80,7 +83,7 @@ ADDITIONALLY, separately from extracted_evidence, pull out any of these specific
 Only include a key in numeric_facts if that specific number is genuinely, directly stated in the text as its own value -- pure extraction, never arithmetic, never a guess.
 
 Respond with ONLY a JSON object, no other text:
-{{"content_type": "...", "decision_type": "...", "constraint_satisfaction_signal": "the specific phrase that triggered constraint_satisfaction, or null", "extracted_evidence": {{"field_name": "value found in the text", ...}}, "numeric_facts": {{"annual_spend_usd": number-or-omit, "unit_price_usd": number-or-omit, "annual_volume_units": number-or-omit, "requested_change_percent": number-or-omit, "switching_cost_usd": number-or-omit, "duty_or_tax_rate_percent": number-or-omit}}, "supplier_specific_evidence": [{{"supplier_name": "...", "incoterm": "...-or-null", "region": "...-or-null", "currency": "...-or-null", "price_display": "...-or-null", "lead_time_weeks": number-or-null, "otif_percent": number-or-null, "defect_rate_percent": number-or-null, "payment_terms": "...-or-null", "capacity_percent": number-or-null, "qualification_status": "not_started|in_progress|complete|unknown", "qualification_percent": number-or-null, "is_incumbent": true-or-false, "freight_cost_or_estimate": "...-or-null", "production_history_status": "established|limited|none|unknown", "certification_status": "certified|not_certified|unknown", "certification_detail": "...-or-null", "preferred_supplier_status": "preferred|not_preferred|unknown"}}], "unsupported_category": "only present if content_type is unsupported, one of the fixed list above"}}"""
+{{"content_type": "...", "decision_type": "...", "constraint_satisfaction_signal": "the specific phrase that triggered constraint_satisfaction, or null", "extracted_evidence": {{"field_name": "value found in the text", ...}}, "numeric_facts": {{"annual_spend_usd": number-or-omit, "unit_price_usd": number-or-omit, "annual_volume_units": number-or-omit, "requested_change_percent": number-or-omit, "switching_cost_usd": number-or-omit, "duty_or_tax_rate_percent": number-or-omit}}, "supplier_specific_evidence": [{{"supplier_name": "...", "incoterm": "...-or-null", "region": "...-or-null", "currency": "...-or-null", "price_display": "...-or-null", "lead_time_weeks": number-or-null, "otif_percent": number-or-null, "defect_rate_percent": number-or-null, "payment_terms": "...-or-null", "capacity_percent": number-or-null, "qualification_status": "not_started|in_progress|complete|unknown", "qualification_percent": number-or-null, "is_incumbent": true-or-false, "freight_cost_or_estimate": "...-or-null", "production_history_status": "established|limited|none|unknown", "certification_status": "certified|not_certified|unknown", "certification_detail": "...-or-null", "preferred_supplier_status": "preferred|not_preferred|unknown"}}], "stakeholder_views": [{{"stakeholder_name": "...", "role": "...-or-null", "view_type": "objective|preference|risk_concern|constraint|experience|rumor|recommendation", "statement": "...", "basis": "...-or-null", "explicitly_stated": true}}], "unsupported_category": "only present if content_type is unsupported, one of the fixed list above"}}"""
 
 
 def _extract_json_object(text: str) -> str:
@@ -145,7 +148,7 @@ CLASSIFICATION_REMINDER = (
 def classify(raw_question: str) -> dict:
     client = _get_client()
 
-    def _attempt(max_tokens: int, correction: str = ""):
+    def _attempt(max_tokens: int, correction: str = "", call_type: str = "classify"):
         response = client.messages.create(
             model=CLASSIFIER_MODEL,
             max_tokens=max_tokens,
@@ -156,27 +159,30 @@ def classify(raw_question: str) -> dict:
         )
         try:
             from app.pipeline.token_tracking import record_usage
-            record_usage("classify", CLASSIFIER_MODEL, response.usage.input_tokens, response.usage.output_tokens)
+            record_usage(call_type, CLASSIFIER_MODEL, response.usage.input_tokens, response.usage.output_tokens)
         except Exception:
             pass  # never let cost tracking block the real request
         return response
 
-    # Raised from 1024/2048: the classifier now also extracts numeric_facts
-    # alongside text evidence, a genuinely larger output than before -- the
-    # old ceiling was sized for classification alone, not classification +
-    # two kinds of extraction together.
+    # The classifier now performs three jobs in one compact structured call:
+    # classification + case-level extraction + per-supplier extraction.
+    # The original 2048/4096 ceiling was sized for the older, smaller schema
+    # and was proven insufficient by a real two-supplier case. Use a bounded
+    # adaptive ladder rather than a single oversized default: this preserves
+    # the normal low-cost path while giving genuinely information-dense cases
+    # enough room to finish. The ladder is deliberately finite so a pathological
+    # prompt can never create unbounded spend.
     response = _attempt(max_tokens=2048)
 
-    # Explicit truncation detection: if the model hit the token ceiling
-    # before finishing, stop_reason tells us plainly -- this is what
-    # actually happened before ('{"'), not a generic JSON parse failure.
+    # Explicit truncation detection: if the model hit the token ceiling,
+    # retry with the next bounded budget. We only pay for the larger call when
+    # the smaller call actually ran out of output space.
     if response.stop_reason == "max_tokens":
-        response = _attempt(max_tokens=4096)  # one automatic retry with more room
+        response = _attempt(max_tokens=4096, correction="", call_type="classify_retry")
         if response.stop_reason == "max_tokens":
-            raise ValueError(
-                "Classifier response was truncated twice even at a larger token "
-                "budget -- this needs investigation, not just a bigger number."
-            )
+            response = _attempt(max_tokens=8192, call_type="classify_retry")
+            if response.stop_reason == "max_tokens":
+                return _decomposed_extraction(raw_question)
 
     raw_text = _extract_text(response)
 
@@ -196,23 +202,115 @@ def classify(raw_question: str) -> dict:
             "no headings, no markdown, no analysis, no recommendation. "
             "The very first character of your entire response must be '{'."
         )
-        response = _attempt(max_tokens=2048, correction=correction)
+        response = _attempt(max_tokens=2048, correction=correction, call_type="classify_format_retry")
         raw_text = _extract_text(response)
         if not _looks_like_json(raw_text):
-            # Genuinely failed twice even with an explicit correction --
-            # this is worth surfacing honestly as a real, investigatable
-            # failure, not silently retried forever.
-            raise ValueError(
-                "Classifier ignored the JSON-only instruction twice in a row, "
-                "even after an explicit correction. This needs investigation "
-                f"-- raw response: {raw_text[:300]!r}..."
-            )
+            return _decomposed_extraction(raw_question)
 
     text = _extract_json_object(raw_text)
     try:
         return json.loads(text)
     except json.JSONDecodeError as e:
         raise ValueError(f"Classifier returned non-JSON output: {text!r}") from e
+
+
+def _record_usage(call_type: str, response) -> None:
+    try:
+        from app.pipeline.token_tracking import record_usage
+        record_usage(call_type, CLASSIFIER_MODEL, response.usage.input_tokens, response.usage.output_tokens)
+    except Exception:
+        pass
+
+
+def _decomposed_extraction(raw_question: str) -> dict:
+    """Bounded escape hatch for information-dense cases.
+
+    The normal path keeps classification + extraction in one compact call for
+    cost/latency. If that response genuinely exhausts even 8,192 output tokens,
+    do not keep increasing a single prompt. Decompose into three narrow JSON
+    contracts whose outputs are independently bounded.
+    """
+    client = _get_client()
+
+    def call(stage: str, system: str, max_tokens: int) -> dict:
+        response = client.messages.create(
+            model=CLASSIFIER_MODEL,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": raw_question}],
+        )
+        _record_usage(stage, response)
+        if response.stop_reason == "max_tokens":
+            raise ValueError(f"Decomposed {stage} extraction was truncated at {max_tokens} tokens.")
+        raw = _extract_text(response)
+        text = _extract_json_object(raw)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Decomposed {stage} extraction returned invalid JSON: {text[:300]!r}") from exc
+
+    classification = call(
+        "classifier_decomposed_classification",
+        """You are the classification component of a procurement decision system.
+Return ONLY JSON. Do not reason or recommend.
+Choose content_type: price_increase, quote_comparison, or unsupported.
+Choose decision_type: optimization or constraint_satisfaction.
+If unsupported, include unsupported_category from: supply_risk, contract_renewal,
+payment_terms, inventory_moq, freight_logistics, esg_sustainability,
+category_strategy, supplier_exit, other.
+Also include constraint_satisfaction_signal, using the exact triggering phrase or null.
+JSON shape: {\"content_type\":\"...\",\"decision_type\":\"...\",\"constraint_satisfaction_signal\":null,\"unsupported_category\":\"...\"}.""",
+        768,
+    )
+
+    ctype = classification.get("content_type", "unsupported")
+    if ctype not in EVIDENCE_REQUIREMENTS:
+        ctype = "unsupported"
+    fields = EVIDENCE_REQUIREMENTS.get(ctype, [])
+    field_lines = "\n".join(f"- {f}: {FIELD_PROMPTS[f]}" for f in fields)
+    evidence = call(
+        "classifier_decomposed_case_evidence",
+        f"""You extract only explicit evidence from a procurement question. Never invent,
+calculate, infer, or recommend. Return ONLY JSON.
+Content type: {ctype}
+Relevant case fields:
+{field_lines}
+Also extract numeric_facts only when directly stated: annual_spend_usd,
+unit_price_usd, annual_volume_units, requested_change_percent, switching_cost_usd,
+duty_or_tax_rate_percent. Currency must be the stated currency; do not convert.
+JSON shape: {{\"extracted_evidence\":{{}},\"numeric_facts\":{{}}}}""",
+        2048,
+    )
+
+    entities = call(
+        "classifier_decomposed_entity_evidence",
+        """You extract ONLY named supplier evidence and explicitly attributed stakeholder views.
+Return ONLY JSON. Never recommend, infer qualification, certification, preference,
+production history, or reliability from silence or good numbers.
+Every real named supplier connected to the decision gets one entry, including the
+incumbent and suppliers mentioned briefly. Unknown status remains \"unknown\".
+Supplier fields: supplier_name, incoterm, region, currency, price_display,
+lead_time_weeks, otif_percent, defect_rate_percent, payment_terms, capacity_percent,
+qualification_status (not_started|in_progress|complete|unknown), qualification_percent,
+is_incumbent, freight_cost_or_estimate, production_history_status
+(established|limited|none|unknown), certification_status (certified|not_certified|unknown),
+certification_detail, preferred_supplier_status (preferred|not_preferred|unknown).
+Only attribute freight to a supplier when the text explicitly and unambiguously ties it to that supplier.
+Stakeholder views: each with stakeholder_name, role, view_type
+(objective|preference|risk_concern|constraint|experience|rumor|recommendation),
+statement, basis, explicitly_stated=true. Preserve attribution and capture conflicting views separately.
+JSON shape: {\"supplier_specific_evidence\":[],\"stakeholder_views\":[]}.""",
+        4096,
+    )
+
+    return {
+        **classification,
+        "content_type": ctype,
+        "extracted_evidence": evidence.get("extracted_evidence") or {},
+        "numeric_facts": evidence.get("numeric_facts") or {},
+        "supplier_specific_evidence": entities.get("supplier_specific_evidence") or [],
+        "stakeholder_views": entities.get("stakeholder_views") or [],
+    }
 
 
 def _extract_text(response) -> str:

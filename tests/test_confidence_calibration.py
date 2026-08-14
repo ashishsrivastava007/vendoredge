@@ -11,8 +11,6 @@ These require a live database connection (uses the real RLS-enforced
 connection helper), same as test_tenant_isolation.py.
 """
 import os
-os.environ.setdefault("DATABASE_URL", "host=localhost dbname=vendoredge_test user=vendoredge_app password=apppass")
-
 from fastapi.testclient import TestClient
 from unittest.mock import patch
 

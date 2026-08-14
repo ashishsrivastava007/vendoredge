@@ -11,10 +11,6 @@ import os
 import uuid
 from unittest.mock import patch
 
-os.environ["DATABASE_URL"] = (
-    "host=localhost dbname=vendoredge_test user=vendoredge_app password=apppass"
-)
-
 from fastapi.testclient import TestClient
 from app.main import app
 from app.models import CommercialPosition, Confidence, ConfidenceFactor

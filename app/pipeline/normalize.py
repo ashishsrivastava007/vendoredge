@@ -11,7 +11,7 @@ reinterpretation of its own.
 """
 from app.pipeline.normalized_evidence import (
     NormalizedEvidence, CommonEvidence, PriceIncreaseEvidence, QuoteComparisonEvidence,
-    DerivedEvidence, HistoryContext, FieldProvenance, SupplierEvidence,
+    DerivedEvidence, HistoryContext, FieldProvenance, SupplierEvidence, StakeholderView,
 )
 from app.pipeline.region_fallback import detect_supplier_region_fallback
 from app.pipeline.incoterm_fallback import detect_incoterm_fallback, normalize_incoterm
@@ -23,6 +23,7 @@ from app.pipeline.financial_fallback import (
 )
 from app.pipeline.numeric_parsing import parse_numeric_value
 from app.pipeline.evidence import INCOTERMS_WHERE_BUYER_BEARS_FREIGHT
+from app import caps
 
 # Real, small epsilon for numeric agreement checks -- two extraction
 # methods producing 2000000.0 vs 2000000.01 should count as agreement,
@@ -83,6 +84,7 @@ def normalize_evidence(
     llm_numeric_facts: dict,
     history: HistoryContext | None = None,
     supplier_specific_evidence: list[dict] | None = None,
+    stakeholder_views: list[dict] | None = None,
 ) -> tuple[NormalizedEvidence, list[str]]:
     """
     THE single evidence-normalization boundary. Returns the
@@ -175,6 +177,26 @@ def normalize_evidence(
             real_values = {getattr(s, attr) for s in suppliers if getattr(s, attr)}
             if len(real_values) >= 2:
                 multi_supplier_fields_handled.add(field_name)
+
+    # ---- stakeholder views: attributed, never promoted to fact ----
+    normalized_stakeholder_views: list[StakeholderView] = []
+    for entry in (stakeholder_views or [])[:caps.MAX_STAKEHOLDER_VIEWS]:
+        name = str(entry.get("stakeholder_name") or "").strip()
+        statement = str(entry.get("statement") or "").strip()
+        view_type = entry.get("view_type")
+        if not name or not statement or view_type not in {
+            "objective", "preference", "risk_concern", "constraint",
+            "experience", "rumor", "recommendation",
+        }:
+            continue
+        normalized_stakeholder_views.append(StakeholderView(
+            stakeholder_name=name,
+            role=entry.get("role"),
+            view_type=view_type,
+            statement=statement,
+            basis=entry.get("basis"),
+            explicitly_stated=bool(entry.get("explicitly_stated", True)),
+        ))
 
     # ---- common: region (existing fallback, moved here) ----
     if "region" in multi_supplier_fields_handled:
@@ -388,5 +410,6 @@ def normalize_evidence(
         history=history or HistoryContext(),
         provenance=provenance,
         suppliers=suppliers,
+        stakeholder_views=normalized_stakeholder_views,
     )
     return normalized, conflicts

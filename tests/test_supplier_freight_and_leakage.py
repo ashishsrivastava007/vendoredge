@@ -27,8 +27,6 @@ from app.pipeline.normalize import normalize_evidence
 from app.pipeline.evidence import check_missing_evidence
 from tests._async_test_helpers import poll_until_terminal
 
-os.environ.setdefault("DATABASE_URL", "host=localhost dbname=vendoredge_test user=vendoredge_app password=apppass")
-
 client = TestClient(app)
 _CONF = Confidence(
     level="medium",

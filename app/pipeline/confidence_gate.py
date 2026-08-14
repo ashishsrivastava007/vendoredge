@@ -25,6 +25,7 @@ mode:
 from app.models import CommercialPosition
 from app.pipeline.normalized_evidence import NormalizedEvidence
 from app.pipeline.contradiction_check import check_all_contradictions
+from app.pipeline.decision_integrity import compute_pre_reasoning_confidence as _compute_pre_reasoning_confidence
 
 _LEVEL_RANK = {"low": 0, "medium": 1, "high": 2}
 
@@ -133,14 +134,24 @@ def apply_confidence_ceiling(position: CommercialPosition, normalized: Normalize
     """
     ceiling, reasons = compute_confidence_ceiling(position, normalized)
     original_level = position.confidence.level
-    final_level = _min_level(original_level, ceiling)
+    final_level = ceiling
 
     if final_level != original_level:
-        position.confidence.level = final_level
         position.confidence.derivation_note = (
             position.confidence.derivation_note
-            + f" [Confidence capped from '{original_level}' to '{final_level}' by deterministic "
-            f"evidence-quality checks: {'; '.join(reasons)}.]"
+            + f" [System-owned confidence level: '{final_level}'. Model-stated '{original_level}' "
+            f"was not authoritative. Deterministic evidence checks: {'; '.join(reasons) if reasons else 'none'}.]"
         )
-
+    else:
+        position.confidence.derivation_note = (
+            position.confidence.derivation_note
+            + f" [System-owned confidence level: '{final_level}'. Deterministic evidence checks: "
+            f"{'none' if not reasons else '; '.join(reasons)}.]"
+        )
+    position.confidence.level = final_level
     return position
+
+
+def compute_pre_reasoning_confidence(normalized: NormalizedEvidence) -> tuple[str, list[str]]:
+    """Compatibility export for the evidence-only, pre-LLM confidence decision."""
+    return _compute_pre_reasoning_confidence(normalized)

@@ -16,11 +16,39 @@ new host require zero manual database commands from a non-technical founder.
 """
 import os
 import psycopg2
+from psycopg2 import sql
 
 DEMO_ORG_ID = "00000000-0000-0000-0000-000000000001"
 DEMO_USER_ID = "00000000-0000-0000-0000-000000000002"
 
 _SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "..", "db", "schema.sql")
+
+
+def _provision_app_role(conn):
+    """Provision the non-superuser application role from deployment-time secrets.
+
+    No application password is stored in schema.sql or source control. The
+    migration connection must be privileged enough to create/alter roles; if
+    APP_DATABASE_PASSWORD is absent, role provisioning is skipped so an
+    externally-managed application role can be used unchanged.
+    """
+    password = os.environ.get("APP_DATABASE_PASSWORD")
+    if not password:
+        return
+    role_name = os.environ.get("APP_DATABASE_USER", "vendoredge_app")
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role_name,))
+        exists = cur.fetchone() is not None
+        if not exists:
+            cur.execute(
+                sql.SQL("CREATE ROLE {} LOGIN PASSWORD %s").format(sql.Identifier(role_name)),
+                (password,),
+            )
+        else:
+            cur.execute(
+                sql.SQL("ALTER ROLE {} LOGIN PASSWORD %s").format(sql.Identifier(role_name)),
+                (password,),
+            )
 
 
 def run_migrations():
@@ -41,13 +69,14 @@ def run_migrations():
 
     conn = psycopg2.connect(dsn)
     try:
+        _provision_app_role(conn)
         with conn.cursor() as cur:
             cur.execute(schema_sql)
         conn.commit()
     except Exception as e:
         conn.rollback()
-        print(f"Warning: schema setup/migration failed ({e}); continuing anyway, "
-              f"but the database may be out of date or missing tables.")
+        print(f"FATAL: schema setup/migration failed ({e}); startup must not continue against an unknown schema.")
+        raise
     finally:
         conn.close()
 

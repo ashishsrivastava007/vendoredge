@@ -3,6 +3,7 @@ import traceback
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi import HTTPException
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
@@ -10,10 +11,15 @@ load_dotenv()
 
 from app.routes.decisions import router as decisions_router
 from app.seed import ensure_demo_org_exists, run_migrations
+from app.auth import require_session, verify_membership, _secret
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Authentication is mandatory for protected API routes. Fail fast rather
+    # than creating workspaces that cannot receive a signed session.
+    _secret()
+
     # Applies any small, safe schema catch-up changes first, so an existing
     # database (from an earlier build, before some column existed) stays in
     # sync automatically -- no manual "docker compose down -v" reset needed
@@ -21,7 +27,12 @@ async def lifespan(app: FastAPI):
     try:
         run_migrations()
     except Exception as e:
-        print(f"Warning: migrations step failed entirely ({e})")
+        # A database schema failure is not a recoverable application state.
+        # Starting anyway creates the most dangerous failure mode: a healthy-
+        # looking API backed by an unknown/outdated schema. Fail fast so the
+        # hosting platform restarts/reports the service instead.
+        print(f"FATAL: migrations failed; refusing to start against an unknown schema ({e})")
+        raise RuntimeError("Database migration failed; application startup aborted.") from e
 
     # Creates a default demo org/user automatically, so the frontend works
     # the moment you run it, with no manual database setup.
@@ -48,6 +59,30 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="VendorEdge MVP", version="0.1.0", lifespan=lifespan)
 app.include_router(decisions_router)
+
+
+@app.middleware("http")
+async def tenant_auth_middleware(request: Request, call_next):
+    """Enforce the signed workspace session at the API trust boundary.
+
+    The browser may still send x-org-id/x-user-id for backwards-compatible
+    frontend plumbing, but those values are never authoritative: require_session
+    validates the signed bearer token and rejects any mismatch. Workspace creation
+    is the only unauthenticated API operation because it creates the identity.
+    """
+    path = request.url.path
+    if path.startswith("/api/v1/") and not (
+        path == "/api/v1/workspaces" and request.method.upper() == "POST"
+        or path == "/api/v1/workspaces/legacy-session" and request.method.upper() == "POST"
+    ):
+        try:
+            claims = require_session(request)
+            verify_membership(claims["org_id"], claims["sub"])
+            request.state.organisation_id = claims["org_id"]
+            request.state.user_id = claims["sub"]
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    return await call_next(request)
 
 
 @app.middleware("http")

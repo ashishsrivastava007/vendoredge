@@ -258,6 +258,8 @@ def generate_commercial_position(
     market_verification: dict | None = None,
     continuation_context: str | None = None,
     methodology_correction: str | None = None,
+    system_confidence_level: str = "medium",
+    stakeholder_protocol: str | None = None,
 ) -> CommercialPosition:
     client = _get_client()
     content_type = normalized.content_type
@@ -339,17 +341,43 @@ def generate_commercial_position(
         if conflict_entries
         else ""
     )
+    stakeholder_note = ""
+    if normalized.stakeholder_views:
+        stakeholder_note = (
+            "\n\nSTAKEHOLDER VIEWS (attributed evidence, NOT independently verified facts):\n"
+            + "\n".join(
+                f"- {v.stakeholder_name}"
+                + (f" ({v.role})" if v.role else "")
+                + f" | type={v.view_type} | statement={v.statement}"
+                + (f" | basis={v.basis}" if v.basis else "")
+                for v in normalized.stakeholder_views
+            )
+            + "\nRULES: Preserve attribution. A stakeholder preference, anecdote, rumor, or experience is a useful signal but is NOT supplier fact unless independently supported elsewhere. When stakeholder views conflict, surface the conflict explicitly, identify what each party is optimizing for, and do not manufacture a consensus or average the views. Treat a hard constraint as hard only when evidence identifies a genuine policy, contractual, regulatory, safety, or operational constraint. Otherwise treat it as a preference or risk signal. If a stakeholder appears to have insider information, do not present it as verified fact; identify it as stakeholder-sourced information and recommend validation when material."
+        )
+        if stakeholder_protocol:
+            stakeholder_note += "\n" + stakeholder_protocol
+
+    system_confidence_note = (
+        "\n\nSYSTEM-OWNED CONFIDENCE: the deterministic evidence engine has assigned a maximum "
+        f"confidence level of {system_confidence_level.upper()} for this case BEFORE reasoning. "
+        "The confidence.level you return is treated as a placeholder and will be replaced "
+        "by the system-owned final level after deterministic post-reasoning checks. Do not "
+        "inflate confidence to HIGH when the system limit is lower. Use your confidence factors "
+        "to explain the evidence strengths and weaknesses; do not invent a numerical confidence score."
+    )
     user_message = (
         f"QUESTION: {raw_question}\n\n"
         f"CONTENT TYPE: {content_type}\n"
         f"CONSTRAINT SIGNAL: {constraint_signal or 'none'}\n\n"
         f"STRUCTURED EVIDENCE PROVIDED:\n"
         + "\n".join(f"- {k}: {v}" for k, v in evidence.items())
+        + stakeholder_note
         + financial_note
         + market_verification_note
         + continuation_note
         + methodology_correction_note
         + conflict_note
+        + system_confidence_note
         + f"\n\nORGANIZATION HISTORY (past outcomes, same content type, most recent first):\n"
         + _format_history(history)
         + (
@@ -359,8 +387,7 @@ def generate_commercial_position(
             else ""
         )
     )
-
-    def _attempt(max_tokens: int, correction: str = ""):
+    def _attempt(max_tokens: int, correction: str = "", call_type: str = "reasoning"):
         message_content = user_message + correction
         response = client.messages.create(
             model=CLASSIFIER_MODEL,
@@ -370,7 +397,7 @@ def generate_commercial_position(
         )
         try:
             from app.pipeline.token_tracking import record_usage
-            record_usage("reasoning", CLASSIFIER_MODEL, response.usage.input_tokens, response.usage.output_tokens)
+            record_usage(call_type, CLASSIFIER_MODEL, response.usage.input_tokens, response.usage.output_tokens)
         except Exception:
             pass  # never let cost tracking block the real request
         return response
@@ -406,7 +433,7 @@ def generate_commercial_position(
     # whatever the model spends on its own internal reasoning before answering.
 
     if response.stop_reason == "max_tokens":
-        response = _attempt(max_tokens=20000)
+        response = _attempt(max_tokens=20000, call_type="reasoning_retry")
         if response.stop_reason == "max_tokens":
             raise ValueError(
                 "Reasoning response was truncated twice even at a larger token "
@@ -427,7 +454,7 @@ def generate_commercial_position(
             "no extra headings, no markdown report, nothing else. "
             "The very first character of your entire response must be '{'."
         )
-        response = _attempt(max_tokens=12000, correction=correction)
+        response = _attempt(max_tokens=12000, correction=correction, call_type="reasoning_format_retry")
         raw_text = _extract_text(response)
         if not _looks_like_json(raw_text):
             raise ValueError(
@@ -472,7 +499,7 @@ def generate_commercial_position(
             "if a list field is over its stated cap, keep only the most commercially "
             "important items up to that cap, per the HARD CAP guidance for that field above."
         )
-        response = _attempt(max_tokens=12000, correction=correction)
+        response = _attempt(max_tokens=12000, correction=correction, call_type="reasoning_schema_retry")
         raw_text = _extract_text(response)
         text = _extract_json_object(raw_text)
         try:

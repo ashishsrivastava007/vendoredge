@@ -10,8 +10,6 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.models import CommercialPosition, Confidence, ConfidenceFactor
 
-os.environ.setdefault("DATABASE_URL", "host=localhost dbname=vendoredge_test user=vendoredge_app password=apppass")
-
 client = TestClient(app)
 _CONF = Confidence(
     level="medium",
@@ -41,10 +39,19 @@ def test_validation_page_loads_at_the_exact_url():
     assert "Run 2-Case Validation" in r.text
 
 
+def _auth_headers():
+    workspace = client.post("/api/v1/workspaces").json()
+    return {
+        "Authorization": f"Bearer {workspace['access_token']}",
+        "x-org-id": workspace["organisation_id"],
+        "x-user-id": workspace["user_id"],
+    }
+
+
 def test_validation_endpoint_runs_both_cases_through_the_real_pipeline():
     with patch("app.routes.decisions.classify", return_value=_MOCK_CLASSIFY), \
          patch("app.routes.decisions.generate_commercial_position", return_value=_MOCK_POSITION):
-        r = client.post("/api/v1/validation/run")
+        r = client.post("/api/v1/validation/run", headers=_auth_headers())
     assert r.status_code == 200
     data = r.json()
     assert len(data["cases"]) == 2
@@ -59,8 +66,13 @@ def test_validation_workspace_is_genuinely_isolated_from_real_pilot_quota():
     from app.database import get_org_scoped_connection
     with patch("app.routes.decisions.classify", return_value=_MOCK_CLASSIFY), \
          patch("app.routes.decisions.generate_commercial_position", return_value=_MOCK_POSITION):
-        r1 = client.post("/api/v1/validation/run")
-        r2 = client.post("/api/v1/validation/run")
+        r1 = client.post("/api/v1/validation/run", headers=_auth_headers())
+        r2 = client.post("/api/v1/validation/run", headers=_auth_headers())
     # Two independent runs must never collide or share state.
     assert r1.json()["cases"][0]["case_id"] == r2.json()["cases"][0]["case_id"]
     assert all(c["status"] == "completed" for c in r1.json()["cases"] + r2.json()["cases"])
+
+
+def test_validation_endpoint_requires_authenticated_workspace():
+    r = client.post("/api/v1/validation/run")
+    assert r.status_code == 401

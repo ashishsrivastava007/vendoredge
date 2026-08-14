@@ -1,3 +1,7 @@
+## Current CTO milestone
+
+Release 11 adds the customer-ready Decision Pack; see `CTO_RELEASE_11.md`.
+
 # VendorEdge MVP — How to Run This Yourself
 
 ## What you need first
@@ -52,3 +56,28 @@ Nothing in Classification, the Evidence Engine, the Reasoning Pipeline's core lo
 **Not yet proven, same caveat as above:** I don't have a live Postgres or Anthropic key in my own environment, so none of this was run end-to-end against a real database — it's been read carefully against the existing schema and query patterns, and syntax/AST-checked, but you'll be the first to actually run it. If `docker compose up` throws anything, especially from `pytest`, that's useful signal, not proof something's broken — tell me the exact error.
 
 **If you already have a running Postgres volume from before:** the RLS fix on `decision_feedback` won't take effect until the schema is reloaded (`docker compose down -v` then `docker compose up`, or equivalent) — Postgres init scripts only run once, against a fresh volume.
+
+## CTO Releases 13–15
+- Release 13: deterministic negotiation playbook.
+- Release 14: Bring Your Own Format renderers for CFO/category/supplier/one-page outputs.
+- Release 15: deterministic pilot-readiness metrics using real feedback and outcomes.
+
+## CTO Releases 13–15
+- Release 13: deterministic negotiation playbook.
+- Release 14: Bring Your Own Format customer-native renderers.
+- Release 15: deterministic pilot-readiness metrics from real feedback and outcomes.
+
+## Test database configuration
+
+Tests use `TEST_DATABASE_URL` exclusively. Do not point it at production. If it
+is not set, database-backed tests are skipped rather than guessing credentials.
+See `.env.test.example` for the placeholder format.
+
+## Production database credentials
+
+Production database credentials are supplied by the hosting platform, never
+stored in source control. Configure `DATABASE_URL` for the application role and
+`MIGRATION_DATABASE_URL` for the privileged migration connection. Set
+`APP_DATABASE_USER` (default `vendoredge_app`) and `APP_DATABASE_PASSWORD` in the
+hosting secret store so startup can provision/rotate the non-superuser
+application role without putting its password in `db/schema.sql`.

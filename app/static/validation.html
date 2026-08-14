@@ -43,7 +43,22 @@ async function runValidation() {
   statusEl.innerText = "Running both cases through VendorEdge's real reasoning. This usually takes 30–90 seconds per case — please don't close this tab.";
 
   try {
-    const res = await fetch("/api/v1/validation/run", { method: "POST" });
+    // Validation is an authenticated internal endpoint now. Obtain a signed
+    // throwaway session first; the endpoint itself creates a separate
+    // dedicated validation workspace for the real test cases.
+    const workspaceRes = await fetch("/api/v1/workspaces", { method: "POST" });
+    const workspace = await workspaceRes.json();
+    if (!workspaceRes.ok || !workspace.access_token) {
+      throw new Error(workspace.detail || "Could not establish a validation session.");
+    }
+    const res = await fetch("/api/v1/validation/run", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${workspace.access_token}`,
+        "x-org-id": workspace.organisation_id,
+        "x-user-id": workspace.user_id,
+      },
+    });
     const data = await res.json();
     if (!res.ok) {
       statusEl.innerText = "Something went wrong: " + (data.detail || "please try again.");

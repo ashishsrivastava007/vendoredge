@@ -19,8 +19,6 @@ from app.main import app
 from app.models import CommercialPosition, Confidence, ConfidenceFactor, FinancialImpact
 from tests._async_test_helpers import poll_until_terminal
 
-os.environ.setdefault("DATABASE_URL", "host=localhost dbname=vendoredge_test user=vendoredge_app password=apppass")
-
 client = TestClient(app)
 
 

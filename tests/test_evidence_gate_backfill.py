@@ -18,8 +18,6 @@ test locks in the real fix: backfilling BOTH, at the earliest point,
 before the evidence-gate ever runs.
 """
 import os
-os.environ.setdefault("DATABASE_URL", "host=localhost dbname=vendoredge_test user=vendoredge_app password=apppass")
-
 from unittest.mock import patch
 from fastapi.testclient import TestClient
 from app.main import app

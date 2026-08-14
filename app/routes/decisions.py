@@ -13,14 +13,15 @@ import time
 from collections import defaultdict
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
-from fastapi import APIRouter, HTTPException, Header, Request, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Header, Request, UploadFile, File, BackgroundTasks, Response
 
 from app.models import (
     CreateDecisionRequest, RespondRequest, FeedbackRequest, ContinueCaseRequest,
-    CommercialDecisionResponse, WorkspaceResponse, WorkspaceInfoResponse, PilotLeadRequest,
-    GeneralFeedbackRequest,
+    CommercialDecisionResponse, WorkspaceResponse, WorkspaceInfoResponse, PilotLeadRequest, ControlTower,
+    GeneralFeedbackRequest, DecisionAudit, PilotExperienceRequest, DecisionFormatRequest, CustomFormatRequest,
 )
 from app.database import get_org_scoped_connection
+from app.auth import create_session_token
 from app.pipeline.classifier import classify
 from app.pipeline.evidence import check_missing_evidence
 from app.pipeline.reasoner import generate_commercial_position
@@ -36,12 +37,41 @@ from app.pipeline.methodology_consistency import (
 from app.pipeline.contradiction_check import check_all_contradictions
 from app.pipeline.claim_integrity import check_all_claim_overstatements
 from app.pipeline.confidence_gate import apply_confidence_ceiling
+from app.pipeline.decision_integrity import (
+    compute_pre_reasoning_confidence, build_stakeholder_decision_protocol,
+)
+from app.pipeline.decision_audit import build_decision_audit
+from app.pipeline.sensitivity import build_sensitivity_analysis
+from app.pipeline.stress_test import build_stress_test
+from app.pipeline.alternatives import build_alternative_paths
+from app.pipeline.control_tower import build_control_tower
+from app.pipeline.negotiation_playbook import build_negotiation_playbook
+from app.pipeline.decision_formats import render_decision
+from app.pipeline.customer_actions import build_action_plan
+from app.pipeline.customer_exports import render_custom, export_csv
+from app.pipeline.webhook import dispatch_event
+from app.pipeline.pilot_metrics import build_pilot_metrics
 from app.pipeline.file_extraction import (
     extract_text_from_xlsx, extract_text_from_pdf, extract_text_from_eml,
     extract_text_from_zip, FileExtractionError,
 )
 
 router = APIRouter(prefix="/api/v1")
+
+
+def _require_identity(request: Request) -> tuple[str, str]:
+    """Return the organisation/user from the signed session, never from a browser header.
+
+    Headers remain accepted by some legacy frontend code, but protected endpoints
+    use the signed bearer token as the authority. Membership is checked live so a
+    removed user cannot keep using an unexpired token.
+    """
+    from app.auth import require_session, verify_membership
+    claims = require_session(request)
+    org_id = str(claims["org_id"])
+    user_id = str(claims["sub"])
+    verify_membership(org_id, user_id)
+    return org_id, user_id
 
 # Lightweight, in-memory rate limiting on workspace creation -- deliberately
 # simple, matching the lean philosophy held all night: this closes the
@@ -54,6 +84,18 @@ router = APIRouter(prefix="/api/v1")
 _workspace_creation_log: dict[str, list[float]] = defaultdict(list)
 _WORKSPACE_RATE_LIMIT_MAX = 20
 _WORKSPACE_RATE_LIMIT_WINDOW_SECONDS = 3600
+_validation_run_log: dict[str, list[float]] = defaultdict(list)
+_VALIDATION_RATE_LIMIT_MAX = 2
+_VALIDATION_RATE_LIMIT_WINDOW_SECONDS = 3600
+
+
+def _check_validation_rate_limit(org_id: str):
+    now = time.time()
+    recent = [t for t in _validation_run_log[org_id] if now - t < _VALIDATION_RATE_LIMIT_WINDOW_SECONDS]
+    if len(recent) >= _VALIDATION_RATE_LIMIT_MAX:
+        raise HTTPException(429, "Validation can only be run twice per workspace per hour.")
+    recent.append(now)
+    _validation_run_log[org_id] = recent
 
 
 def _check_workspace_rate_limit(client_ip: str):
@@ -71,7 +113,8 @@ def _check_workspace_rate_limit(client_ip: str):
 
 
 @router.post("/extract-file")
-async def extract_file(file: UploadFile = File(...)):
+async def extract_file(request: Request, file: UploadFile = File(...)):
+    _require_identity(request)
     """
     Real document text extraction -- pure deterministic parsing, no AI call
     involved. The extracted text is returned to the frontend to drop into
@@ -103,7 +146,8 @@ async def extract_file(file: UploadFile = File(...)):
 
 
 @router.post("/general-feedback", status_code=201)
-def submit_general_feedback(body: GeneralFeedbackRequest, x_org_id: str = Header(...)):
+def submit_general_feedback(request: Request, body: GeneralFeedbackRequest, x_org_id: str = Header(...)):
+    x_org_id, _ = _require_identity(request)
     """
     Always-available, open-ended feedback -- not tied to any specific
     moment or question, unlike the quick-feedback and outcome fields.
@@ -126,7 +170,8 @@ def submit_general_feedback(body: GeneralFeedbackRequest, x_org_id: str = Header
 
 
 @router.post("/pilot-lead", status_code=201)
-def submit_pilot_lead(body: PilotLeadRequest, x_org_id: str = Header(...)):
+def submit_pilot_lead(request: Request, body: PilotLeadRequest, x_org_id: str = Header(...)):
+    x_org_id, _ = _require_identity(request)
     """
     Only reached after a real "Notify me" click, which is already logged
     separately (via interest-signal) the moment it happens -- so an
@@ -153,7 +198,8 @@ def submit_pilot_lead(body: PilotLeadRequest, x_org_id: str = Header(...)):
 
 
 @router.post("/interest-signal", status_code=201)
-def log_interest_signal(feature: str):
+def log_interest_signal(request: Request, feature: str):
+    _require_identity(request)
     """
     Fake-door demand test: logs a click on a not-yet-built feature (e.g. PDF
     upload) without actually building it. Cheap, real signal on whether a
@@ -249,7 +295,8 @@ def _log_unsupported_category(category: str):
 
 
 @router.post("/workspaces/invite", response_model=WorkspaceResponse)
-def invite_teammate(x_org_id: str = Header(...)):
+def invite_teammate(request: Request, x_org_id: str = Header(...)):
+    x_org_id, _ = _require_identity(request)
     """
     Creates a new user identity within the SAME organisation -- not a new
     workspace. This is the actual missing piece behind "Team -- up to 15
@@ -279,7 +326,7 @@ def invite_teammate(x_org_id: str = Header(...)):
         conn.commit()
     finally:
         conn.close()
-    return WorkspaceResponse(organisation_id=UUID(x_org_id), user_id=new_user_id)
+    return WorkspaceResponse(organisation_id=UUID(x_org_id), user_id=new_user_id, access_token=create_session_token(x_org_id, str(new_user_id)))
 
 
 @router.post("/workspaces", response_model=WorkspaceResponse)
@@ -320,11 +367,31 @@ def create_workspace(request: Request):
         conn.commit()
     finally:
         conn.close()
-    return WorkspaceResponse(organisation_id=org_id, user_id=user_id)
+    return WorkspaceResponse(organisation_id=org_id, user_id=user_id, access_token=create_session_token(str(org_id), str(user_id)))
+
+
+@router.post("/workspaces/legacy-session", response_model=WorkspaceResponse)
+def legacy_workspace_session(x_org_id: str = Header(...), x_user_id: str = Header(...)):
+    """Temporary migration bridge for existing private workspace URLs.
+
+    Disabled by default. It only issues a signed session after confirming the
+    supplied user actually belongs to the supplied organisation. Remove this
+    bridge once existing pilot links have migrated to signed sessions.
+    """
+    import os
+    if os.environ.get("ALLOW_LEGACY_WORKSPACE_LINKS", "false").lower() != "true":
+        raise HTTPException(status_code=404, detail="Legacy workspace links are no longer enabled.")
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM users WHERE id = %s AND organisation_id = %s", (x_user_id, x_org_id))
+            if not cur.fetchone():
+                raise HTTPException(status_code=403, detail="Workspace access denied.")
+    return WorkspaceResponse(organisation_id=UUID(x_org_id), user_id=UUID(x_user_id), access_token=create_session_token(x_org_id, x_user_id))
 
 
 @router.post("/validation/run")
-def run_two_case_validation():
+def run_two_case_validation(request: Request):
+    _require_identity(request)
     """
     Runs the same 2 real cases from benchmark/real_llm_validation.py
     through the exact production reasoning path -- no reasoning logic is
@@ -343,6 +410,12 @@ def run_two_case_validation():
     waits for real results rather than polling -- this endpoint itself
     blocks until both cases reach a terminal state.
     """
+    import os
+    org_id, _ = _require_identity(request)
+    _check_validation_rate_limit(org_id)
+    if os.environ.get("VALIDATION_ENABLED", "false").lower() != "true":
+        raise HTTPException(status_code=404, detail="Validation is not enabled on this environment.")
+
     import uuid as uuid_module
     from fastapi.testclient import TestClient
     from app.main import app
@@ -374,7 +447,12 @@ def run_two_case_validation():
     finally:
         conn.close()
 
-    headers = {"x-org-id": str(org_id), "x-user-id": str(user_id)}
+    validation_token = create_session_token(str(org_id), str(user_id), ttl_days=1)
+    headers = {
+        "Authorization": f"Bearer {validation_token}",
+        "x-org-id": str(org_id),
+        "x-user-id": str(user_id),
+    }
     results = []
 
     for case in VALIDATION_CASES[:2]:
@@ -409,7 +487,11 @@ def run_two_case_validation():
             "recommendation_preview": (position.get("recommendation") or "")[:200],
             "financial_impact_present": position.get("financial_impact") is not None,
             "real_api_calls": cost_info["real_api_calls"],
-            "retry_occurred": cost_info["real_api_calls"] > 2,
+            "retry_occurred": any(
+                str(u.get("call_type", "")).endswith("_retry")
+                or "_retry" in str(u.get("call_type", ""))
+                for u in usage_entries
+            ),
             "total_input_tokens": cost_info["total_input_tokens"],
             "total_output_tokens": cost_info["total_output_tokens"],
             "estimated_cost_usd": cost_info["estimated_cost_usd"],
@@ -421,7 +503,8 @@ def run_two_case_validation():
 
 
 @router.get("/workspaces/me", response_model=WorkspaceInfoResponse)
-def get_workspace_info(x_org_id: str = Header(...)):
+def get_workspace_info(request: Request, x_org_id: str = Header(...)):
+    x_org_id, _ = _require_identity(request)
     """
     Real fix for the cross-employer data leakage risk, not just a disclosure
     sentence: returns how long this workspace has genuinely been active, so
@@ -508,8 +591,9 @@ def _log_fallback_fired(fallback_name: str, content_type: str | None = None, is_
 
 
 @router.post("/commercial-decisions", response_model=CommercialDecisionResponse)
-def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTasks,
+def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTasks, request: Request,
                      x_org_id: str = Header(...), x_user_id: str = Header(...)):
+    x_org_id, x_user_id = _require_identity(request)
     # Real, enforced usage cap -- checked BEFORE the database write and
     # BEFORE the costly Anthropic API call, since the whole point is to
     # never spend real money on a request that shouldn't be allowed. This
@@ -581,6 +665,7 @@ def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTas
     normalized, conflicts = normalize_evidence(
         body.raw_question, content_type, llm_extracted_evidence, llm_numeric_facts,
         supplier_specific_evidence=classification.get("supplier_specific_evidence"),
+        stakeholder_views=classification.get("stakeholder_views"),
     )
     for field in conflicts:
         _log_fallback_fired(field, content_type, is_conflict=True)
@@ -599,6 +684,8 @@ def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTas
     # part of the flat common/case dict this normally stores.
     if normalized.suppliers:
         stored_evidence["__supplier_specific_evidence__"] = [s.model_dump() for s in normalized.suppliers]
+    if normalized.stakeholder_views:
+        stored_evidence["__stakeholder_views__"] = [v.model_dump() for v in normalized.stakeholder_views]
 
     with get_org_scoped_connection(x_org_id) as conn:
         with conn.cursor() as cur:
@@ -633,7 +720,8 @@ def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTas
 
 
 @router.get("/commercial-decisions", response_model=list[CommercialDecisionResponse])
-def list_decisions(x_org_id: str = Header(...), x_user_id: str = Header(...)):
+def list_decisions(request: Request, x_org_id: str = Header(...), x_user_id: str = Header(...)):
+    x_org_id, x_user_id = _require_identity(request)
     """
     The 'Commercial Cases' list -- every case this org has ever created, most
     recent first, each flagged with whether its outcome has been recorded yet.
@@ -666,10 +754,12 @@ def _restart_reasoning_from_stored_evidence(org_id: str, decision_id, attempt_id
     """
     stored_evidence = row["user_supplied_inputs"] or {}
     restored_suppliers = stored_evidence.get("__supplier_specific_evidence__")
-    normalize_input_evidence = {k: v for k, v in stored_evidence.items() if k != "__supplier_specific_evidence__"}
+    restored_stakeholders = stored_evidence.get("__stakeholder_views__")
+    normalize_input_evidence = {k: v for k, v in stored_evidence.items() if k not in {"__supplier_specific_evidence__", "__stakeholder_views__"}}
     normalized, conflicts = normalize_evidence(
         row["raw_question"], row["classified_content_type"], normalize_input_evidence, normalize_input_evidence,
         supplier_specific_evidence=restored_suppliers,
+        stakeholder_views=restored_stakeholders,
     )
     for field in conflicts:
         _log_fallback_fired(field, row["classified_content_type"], is_conflict=True)
@@ -699,8 +789,9 @@ def _run_reasoning_safe(org_id, decision_id, attempt_id: str, normalized, raw_qu
 
 
 @router.post("/commercial-decisions/{decision_id}/respond", response_model=CommercialDecisionResponse)
-def respond(decision_id: UUID, body: RespondRequest, background_tasks: BackgroundTasks,
+def respond(decision_id: UUID, body: RespondRequest, background_tasks: BackgroundTasks, request: Request,
             x_org_id: str = Header(...), x_user_id: str = Header(...)):
+    x_org_id, x_user_id = _require_identity(request)
     with get_org_scoped_connection(x_org_id) as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -774,10 +865,12 @@ def respond(decision_id: UUID, body: RespondRequest, background_tasks: Backgroun
         return _fetch_decision(x_org_id, decision_id)
 
     restored_suppliers = merged_evidence.get("__supplier_specific_evidence__")
-    normalize_input_evidence = {k: v for k, v in merged_evidence.items() if k != "__supplier_specific_evidence__"}
+    restored_stakeholders = merged_evidence.get("__stakeholder_views__")
+    normalize_input_evidence = {k: v for k, v in merged_evidence.items() if k not in {"__supplier_specific_evidence__", "__stakeholder_views__"}}
     normalized, conflicts = normalize_evidence(
         row["raw_question"], row["classified_content_type"], normalize_input_evidence, normalize_input_evidence,
         supplier_specific_evidence=restored_suppliers,
+        stakeholder_views=restored_stakeholders,
     )
     for field in conflicts:
         _log_fallback_fired(field, row["classified_content_type"], is_conflict=True)
@@ -794,13 +887,15 @@ def respond(decision_id: UUID, body: RespondRequest, background_tasks: Backgroun
 
 
 @router.get("/commercial-decisions/{decision_id}", response_model=CommercialDecisionResponse)
-def get_decision(decision_id: UUID, x_org_id: str = Header(...), x_user_id: str = Header(...)):
+def get_decision(decision_id: UUID, request: Request, x_org_id: str = Header(...), x_user_id: str = Header(...)):
+    x_org_id, x_user_id = _require_identity(request)
     return _fetch_decision(x_org_id, decision_id)
 
 
 @router.post("/commercial-decisions/{decision_id}/continue", response_model=CommercialDecisionResponse)
-def continue_case(decision_id: UUID, body: ContinueCaseRequest, background_tasks: BackgroundTasks,
+def continue_case(decision_id: UUID, body: ContinueCaseRequest, background_tasks: BackgroundTasks, request: Request,
                    x_org_id: str = Header(...), x_user_id: str = Header(...)):
+    x_org_id, x_user_id = _require_identity(request)
     """
     Creates a NEW, linked commercial_decision that continues an existing
     case -- never edits the original. The parent stays exactly as it was,
@@ -846,7 +941,8 @@ def continue_case(decision_id: UUID, body: ContinueCaseRequest, background_tasks
     # silently losing supplier data for any second-level continuation --
     # caught and fixed before shipping.
     restored_suppliers = parent_flat_evidence.get("__supplier_specific_evidence__")
-    normalize_input_evidence = {k: v for k, v in parent_flat_evidence.items() if k != "__supplier_specific_evidence__"}
+    restored_stakeholders = parent_flat_evidence.get("__stakeholder_views__")
+    normalize_input_evidence = {k: v for k, v in parent_flat_evidence.items() if k not in {"__supplier_specific_evidence__", "__stakeholder_views__"}}
     with get_org_scoped_connection(x_org_id) as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -872,6 +968,7 @@ def continue_case(decision_id: UUID, body: ContinueCaseRequest, background_tasks
         body.what_happened, parent["classified_content_type"],
         normalize_input_evidence, normalize_input_evidence,
         supplier_specific_evidence=restored_suppliers,
+        stakeholder_views=restored_stakeholders,
     )
     for field in conflicts:
         _log_fallback_fired(field, parent["classified_content_type"], is_conflict=True)
@@ -883,8 +980,128 @@ def continue_case(decision_id: UUID, body: ContinueCaseRequest, background_tasks
     return _fetch_decision(x_org_id, new_decision_id)
 
 
+@router.get("/pilot-metrics")
+def pilot_metrics(request: Request):
+    """Return deterministic pilot-readiness metrics for the current organisation."""
+    x_org_id, _ = _require_identity(request)
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT ease_of_use, trust_level, time_saved, would_use_again FROM pilot_experience_feedback")
+            experience = cur.fetchall()
+            cur.execute("SELECT validation_verdict FROM decision_feedback")
+            outcomes = cur.fetchall()
+    return build_pilot_metrics(experience, outcomes)
+
+
+@router.post("/commercial-decisions/{decision_id}/pilot-experience", status_code=201)
+def submit_pilot_experience(decision_id: UUID, body: PilotExperienceRequest, request: Request, x_org_id: str = Header(...), x_user_id: str = Header(...)):
+    """Capture real pilot usability/value evidence without changing the decision.
+
+    This is intentionally separate from decision_feedback: commercial outcomes
+    answer whether the decision held up; this table answers whether the product
+    was useful and usable. Neither is fed into the current decision's reasoning.
+    """
+    x_org_id, x_user_id = _require_identity(request)
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT status FROM commercial_decisions WHERE id = %s", (str(decision_id),))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Decision not found")
+            if row["status"] != "completed":
+                raise HTTPException(status_code=409, detail="Pilot experience can be recorded after the decision is completed.")
+            cur.execute(
+                """INSERT INTO pilot_experience_feedback
+                   (commercial_decision_id, submitted_by_user_id, ease_of_use, trust_level,
+                    time_saved, would_use_again, most_valuable, missing_or_frustrating)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (commercial_decision_id, submitted_by_user_id)
+                   DO UPDATE SET ease_of_use = EXCLUDED.ease_of_use,
+                                 trust_level = EXCLUDED.trust_level,
+                                 time_saved = EXCLUDED.time_saved,
+                                 would_use_again = EXCLUDED.would_use_again,
+                                 most_valuable = EXCLUDED.most_valuable,
+                                 missing_or_frustrating = EXCLUDED.missing_or_frustrating,
+                                 recorded_at = now()
+                   RETURNING id, recorded_at""",
+                (str(decision_id), x_user_id, body.ease_of_use, body.trust_level,
+                 body.time_saved, body.would_use_again, body.most_valuable, body.missing_or_frustrating),
+            )
+            return cur.fetchone()
+
+
+@router.post("/commercial-decisions/{decision_id}/custom-format")
+def render_custom_customer_format(decision_id: UUID, body: CustomFormatRequest, request: Request):
+    """Render a user's own text template from the already validated decision.
+
+    The template is a presentation contract only: it cannot introduce a new
+    fact, trigger reasoning, or alter the stored decision.
+    """
+    x_org_id, _ = _require_identity(request)
+    decision = _fetch_decision(x_org_id, decision_id)
+    if decision.status != "completed" or decision.commercial_position is None:
+        raise HTTPException(status_code=409, detail="A completed decision is required.")
+    action_plan = build_action_plan(decision.commercial_position)
+    try:
+        return render_custom(decision.commercial_position, body.template, action_plan)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/commercial-decisions/{decision_id}/integration/webhook")
+def dispatch_decision_webhook(decision_id: UUID, request: Request):
+    """Explicitly dispatch a minimal completed-decision event to the configured integration."""
+    x_org_id, _ = _require_identity(request)
+    decision = _fetch_decision(x_org_id, decision_id)
+    if decision.status != "completed" or decision.commercial_position is None:
+        raise HTTPException(status_code=409, detail="A completed decision is required.")
+    return dispatch_event(str(decision_id), decision.commercial_position)
+
+
+@router.get("/commercial-decisions/{decision_id}/action-plan")
+def get_action_plan(decision_id: UUID, request: Request):
+    """Return an approval-gated execution plan without causing external side effects."""
+    x_org_id, _ = _require_identity(request)
+    decision = _fetch_decision(x_org_id, decision_id)
+    if decision.status != "completed" or decision.commercial_position is None:
+        raise HTTPException(status_code=409, detail="A completed decision is required.")
+    return build_action_plan(decision.commercial_position)
+
+
+@router.get("/commercial-decisions/{decision_id}/export.csv")
+def export_decision_csv(decision_id: UUID, request: Request):
+    """Export the decision as a deterministic CSV snapshot for downstream systems."""
+    x_org_id, _ = _require_identity(request)
+    decision = _fetch_decision(x_org_id, decision_id)
+    if decision.status != "completed" or decision.commercial_position is None:
+        raise HTTPException(status_code=409, detail="A completed decision is required.")
+    return Response(
+        content=export_csv(decision.commercial_position),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="vendoredge-{decision_id}.csv"'},
+    )
+
+
+@router.post("/commercial-decisions/{decision_id}/format")
+def render_customer_format(decision_id: UUID, body: DecisionFormatRequest, request: Request):
+    """Render an existing completed decision in a customer-native format.
+
+    This is a pure presentation transform: no new reasoning, no new evidence,
+    and no recalculation.
+    """
+    x_org_id, _ = _require_identity(request)
+    decision = _fetch_decision(x_org_id, decision_id)
+    if decision.status != "completed" or decision.commercial_position is None:
+        raise HTTPException(status_code=409, detail="A completed decision is required.")
+    try:
+        return render_decision(decision.commercial_position, body.format_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.post("/commercial-decisions/{decision_id}/feedback", status_code=201)
-def submit_feedback(decision_id: UUID, body: FeedbackRequest, x_org_id: str = Header(...), x_user_id: str = Header(...)):
+def submit_feedback(decision_id: UUID, body: FeedbackRequest, request: Request, x_org_id: str = Header(...), x_user_id: str = Header(...)):
+    x_org_id, x_user_id = _require_identity(request)
     with get_org_scoped_connection(x_org_id) as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1042,6 +1259,9 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
         with attempt_fencing.HeartbeatTicker(org_id, decision_id, attempt_id, "market_verification"):
             market_verification = verify_market_claim(stated_justification, region=supplier_region)
 
+    pre_confidence_level, pre_confidence_reasons = compute_pre_reasoning_confidence(normalized)
+    stakeholder_protocol = build_stakeholder_decision_protocol(normalized)
+
     def _reasoning_call(stage_name, **extra_kwargs):
         with attempt_fencing.HeartbeatTicker(org_id, decision_id, attempt_id, stage_name):
             return generate_commercial_position(
@@ -1049,6 +1269,8 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
                 computed_financial_impact=financial_impact,
                 market_verification=market_verification,
                 continuation_context=continuation_context,
+                system_confidence_level=pre_confidence_level,
+                stakeholder_protocol=stakeholder_protocol,
                 **extra_kwargs,
             )
 
@@ -1072,6 +1294,13 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
     if financial_impact is not None:
         position.financial_impact = financial_impact
     position.informed_by_case_count = len(history)
+
+    # Release 5: attach a deterministic, evidence-only audit trail before the
+    # final confidence ceiling is applied. It never treats the model's recommendation as evidence.
+    try:
+        position.decision_audit = DecisionAudit(**build_decision_audit(normalized, position))
+    except Exception as e:
+        print(f"Decision audit skipped (non-blocking): {type(e).__name__}: {e}")
 
     if claims_tco_methodology(position.methodology_applied):
         relevant_dimensions = determine_relevant_tco_dimensions(normalized)
@@ -1167,6 +1396,41 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
             print(f"Claim-integrity retry skipped (non-blocking): {type(e).__name__}: {e}")
 
     position = apply_confidence_ceiling(position, normalized)
+    try:
+        position.decision_audit = DecisionAudit(**build_decision_audit(normalized, position))
+    except Exception as e:
+        print(f"Decision audit refresh skipped (non-blocking): {type(e).__name__}: {e}")
+    # Release 6: deterministic what-if analysis. The model does not author these numbers.
+    try:
+        position.sensitivity_analysis = build_sensitivity_analysis(normalized)
+    except Exception as e:
+        print(f"Sensitivity analysis skipped (non-blocking): {type(e).__name__}: {e}")
+    # Release 7: deterministic adversarial stress test. Never another LLM call.
+    try:
+        position.stress_test = build_stress_test(normalized, position)
+        position.alternative_analysis = build_alternative_paths(normalized)
+    except Exception as e:
+        print(f"Stress test skipped (non-blocking): {type(e).__name__}: {e}")
+    # Release 9: deterministic executive control tower. Presentation/control
+    # only; it never changes the recommendation or confidence.
+    try:
+        position.control_tower = ControlTower(**build_control_tower(normalized, position))
+        from app.models import NegotiationPlaybook
+        position.negotiation_playbook = NegotiationPlaybook(**build_negotiation_playbook(position))
+    except Exception as e:
+        print(f"Control tower skipped (non-blocking): {type(e).__name__}: {e}")
+
+    if pre_confidence_reasons:
+        position.confidence.derivation_note += (
+            " Pre-reasoning evidence signals considered: " + "; ".join(pre_confidence_reasons) + "."
+        )
+    # Rebuild once after the final confidence/audit state is settled.
+    try:
+        position.control_tower = ControlTower(**build_control_tower(normalized, position))
+        from app.models import NegotiationPlaybook
+        position.negotiation_playbook = NegotiationPlaybook(**build_negotiation_playbook(position))
+    except Exception as e:
+        print(f"Control tower refresh skipped (non-blocking): {type(e).__name__}: {e}")
 
     attempt_fencing.write_heartbeat(org_id, decision_id, attempt_id, "finalizing")
     write_succeeded = attempt_fencing.write_final_result(

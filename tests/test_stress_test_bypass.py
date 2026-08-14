@@ -20,8 +20,6 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.models import CommercialPosition, Confidence, ConfidenceFactor
 
-os.environ.setdefault("DATABASE_URL", "host=localhost dbname=vendoredge_test user=vendoredge_app password=apppass")
-
 client = TestClient(app)
 
 _CONF = Confidence(

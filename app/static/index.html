@@ -119,6 +119,12 @@
     <div id="pos-walkaway"></div>
     <div id="pos-negotiation-dimensions"></div>
     <div id="pos-talk-track"></div>
+    <div id="pos-decision-audit"></div>
+    <div id="pos-sensitivity"></div>
+    <div id="pos-stress-test"></div>
+  <div id="pos-alternatives"></div>
+  <div id="pos-control-tower"></div>
+  <div id="pos-decision-pack"></div>
     <p style="font-size:13px"><b>What would change this:</b> <span id="pos-disconfirm"></span></p>
     <div id="quick-feedback-prompt" style="margin-top:16px; padding:12px; background:#f7f7f9; border-radius:8px">
       <p style="font-size:13px; font-weight:500; margin:0 0 8px">Did this help you make a better commercial decision?</p>
@@ -131,6 +137,38 @@
         <button class="example-btn" style="margin-top:6px" onclick="submitQuickFeedbackReason()">Send</button>
       </div>
       <p id="quick-feedback-thanks" class="hidden" style="font-size:12.5px; color:#2f7d4f; margin:6px 0 0">Thanks — that's genuinely useful to know.</p>
+    </div>
+    <div id="pilot-experience-card" class="hidden" style="margin-top:10px; padding:12px; background:#f8fbff; border:1px solid #dceaf7; border-radius:8px">
+      <p style="font-size:13px; font-weight:600; margin:0 0 5px">Help us make VendorEdge better</p>
+      <p style="font-size:12.5px; color:#666; margin:0 0 12px">2 minutes. This is about your experience using VendorEdge — it does not change this decision.</p>
+      <div class="field">
+        <label>How easy was VendorEdge to use?</label>
+        <select id="pilot-ease">
+          <option value="very_easy">Very easy</option><option value="easy">Easy</option><option value="okay">Okay</option><option value="difficult">Difficult</option><option value="very_difficult">Very difficult</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>How much did you trust the recommendation?</label>
+        <select id="pilot-trust"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>
+      </div>
+      <div class="field">
+        <label>Did VendorEdge save you time?</label>
+        <select id="pilot-time"><option value="significant">Yes — significant time</option><option value="some">Yes — some time</option><option value="none">No meaningful difference</option><option value="more_time">No — it took more time</option></select>
+      </div>
+      <div class="field">
+        <label>Would you use VendorEdge again?</label>
+        <select id="pilot-reuse"><option value="true">Yes</option><option value="false">No</option></select>
+      </div>
+      <div class="field">
+        <label>What was most valuable?</label>
+        <textarea id="pilot-valuable" rows="2" maxlength="500" placeholder="e.g. The landed-cost comparison made the negotiation position much clearer."></textarea>
+      </div>
+      <div class="field">
+        <label>What was missing or frustrating? <span style="font-weight:400;color:#999">(optional)</span></label>
+        <textarea id="pilot-missing" rows="2" maxlength="500" placeholder="Anything that would make this genuinely better for your work."></textarea>
+      </div>
+      <button class="primary-btn" onclick="submitPilotExperience()">Send pilot feedback</button>
+      <span id="pilot-experience-thanks" class="hidden" style="font-size:12.5px; color:#2f7d4f; margin-left:8px">Thanks — this directly guides the product.</span>
     </div>
     <div id="notify-me-card" style="margin-top:10px; padding:10px 12px; background:#f7f7f9; border-radius:8px; font-size:13px">
       <span id="notify-me-prompt">Need VendorEdge for more procurement decisions?
@@ -223,40 +261,82 @@ const API = "/api/v1";
 // can bookmark. This is a private-link model, not full password login --
 // adequate for a controlled pilot with known, invited testers.
 let HEADERS = null;
+const SESSION_STORAGE_KEY = "vendoredge_session";
+
+function sessionHeaders(token, org, user) {
+  return {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${token}`,
+    // Compatibility metadata only. The server verifies these against the
+    // signed token and never trusts them as the identity source.
+    "x-org-id": org,
+    "x-user-id": user,
+  };
+}
 
 async function ensureWorkspace() {
-  const params = new URLSearchParams(window.location.search);
-  let org = params.get("org");
-  let user = params.get("user");
+  const stored = localStorage.getItem(SESSION_STORAGE_KEY);
+  let session = null;
+  if (stored) {
+    try { session = JSON.parse(stored); } catch (_) { localStorage.removeItem(SESSION_STORAGE_KEY); }
+  }
 
-  if (!org || !user) {
+  // New invite links carry the signed session in the URL fragment, which is
+  // never sent to the server as a referrer or request path.
+  if (!session && window.location.hash.startsWith("#session=")) {
+    const token = decodeURIComponent(window.location.hash.slice("#session=".length));
+    try {
+      const payloadPart = token.split(".")[1];
+      const padded = payloadPart.replace(/-/g, "+").replace(/_/g, "/") + "===";
+      const payload = JSON.parse(atob(padded.slice(0, padded.length - (padded.length % 4))));
+      session = { token, org: payload.org_id, user: payload.sub };
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+      window.history.replaceState({}, "", window.location.pathname + window.location.search);
+      showWorkspaceBanner();
+    } catch (_) { session = null; }
+  }
+
+  // Existing pilot links used ?org=&user=. If the temporary migration bridge
+  // is enabled server-side, exchange that old link once for a signed session.
+  if (!session) {
+    const params = new URLSearchParams(window.location.search);
+    const org = params.get("org");
+    const user = params.get("user");
+    if (org && user) {
+      const legacy = await fetch(`${API}/workspaces/legacy-session`, {
+        method: "POST",
+        headers: { "x-org-id": org, "x-user-id": user },
+      });
+      if (!legacy.ok) {
+        const data = await legacy.json().catch(() => ({}));
+        alert(data.detail || "This workspace link is no longer valid. Please start a new workspace.");
+        window.history.replaceState({}, "", window.location.pathname);
+      } else {
+        const data = await legacy.json();
+        session = { token: data.access_token, org: data.organisation_id, user: data.user_id };
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+        window.history.replaceState({}, "", window.location.pathname);
+        showWorkspaceBanner();
+      }
+    }
+  }
+
+  if (!session) {
     const res = await fetch(`${API}/workspaces`, { method: "POST" });
     if (!res.ok) {
-      // Real fix for a genuine, reported bug: previously this failure was
-      // completely silent -- the code would proceed anyway with broken,
-      // undefined org/user values, and the user would only ever see a
-      // confusing, unrelated "still setting up your session" error much
-      // later when trying to do something else. Now the real reason is
-      // shown immediately, honestly.
       const data = await res.json().catch(() => ({}));
       alert(data.detail || "Could not start your workspace right now. Please refresh and try again in a moment.");
       throw new Error("Workspace creation failed: " + (data.detail || res.status));
     }
     const data = await res.json();
-    org = data.organisation_id;
-    user = data.user_id;
-    const newUrl = `${window.location.pathname}?org=${org}&user=${user}`;
-    window.history.replaceState({}, "", newUrl);
+    session = { token: data.access_token, org: data.organisation_id, user: data.user_id };
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+    window.history.replaceState({}, "", window.location.pathname);
     showWorkspaceBanner();
   }
 
-  HEADERS = {
-    "Content-Type": "application/json",
-    "x-org-id": org,
-    "x-user-id": user,
-  };
-
-  await checkWorkspaceAge(org);
+  HEADERS = sessionHeaders(session.token, session.org, session.user);
+  await checkWorkspaceAge(session.org);
   showStartFreshLink();
 }
 
@@ -275,7 +355,7 @@ const WORKSPACE_AGE_REPROMPT_DAYS = 60;
 
 async function checkWorkspaceAge(org) {
   try {
-    const res = await fetch(`${API}/workspaces/me`, { headers: { "x-org-id": org } });
+    const res = await fetch(`${API}/workspaces/me`, { headers: HEADERS });
     if (!res.ok) return;
     const info = await res.json();
     if (info.days_active >= WORKSPACE_AGE_REPROMPT_DAYS) {
@@ -318,7 +398,7 @@ async function inviteTeammate() {
       return;
     }
     const data = await res.json();
-    const inviteUrl = `${window.location.origin}${window.location.pathname}?org=${data.organisation_id}&user=${data.user_id}`;
+    const inviteUrl = `${window.location.origin}${window.location.pathname}#session=${encodeURIComponent(data.access_token)}`;
     try {
       await navigator.clipboard.writeText(inviteUrl);
       alert("Invite link copied! Send it to your teammate -- they'll join this same workspace with their own identity, and share the same decision history.");
@@ -384,6 +464,42 @@ async function waitForHeaders(maxWaitMs = 8000) {
     await new Promise(r => setTimeout(r, 200));
   }
   return !!HEADERS;
+}
+
+async function submitPilotExperience() {
+  const most_valuable = document.getElementById("pilot-valuable").value.trim();
+  if (!most_valuable) {
+    alert("Please tell us what was most valuable.");
+    return;
+  }
+  const payload = {
+    ease_of_use: document.getElementById("pilot-ease").value,
+    trust_level: document.getElementById("pilot-trust").value,
+    time_saved: document.getElementById("pilot-time").value,
+    would_use_again: document.getElementById("pilot-reuse").value === "true",
+    most_valuable,
+    missing_or_frustrating: document.getElementById("pilot-missing").value.trim() || null,
+  };
+  try {
+    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/pilot-experience`, {
+      method: "POST", headers: HEADERS, body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.detail || "Could not save pilot feedback right now.");
+      return;
+    }
+    try { localStorage.setItem(`vendoredge_pilot_experience_${currentDecisionId}`, "1"); } catch (e) {}
+    document.getElementById("pilot-experience-card").classList.add("hidden");
+    document.getElementById("pilot-experience-thanks").classList.remove("hidden");
+  } catch (e) {
+    alert("Could not reach the server. Please try again in a moment.");
+  }
+}
+
+function shouldShowPilotExperience(decisionId) {
+  try { return localStorage.getItem(`vendoredge_pilot_experience_${decisionId}`) !== "1"; }
+  catch (e) { return true; }
 }
 
 async function clickNotifyMe() {
@@ -568,7 +684,7 @@ function renderSupplierComparison(pos) {
 async function submitQuickFeedback(wasHelpful) {
   document.getElementById("quick-feedback-buttons").classList.add("hidden");
   try {
-    await fetch(`${API}/interest-signal?feature=${wasHelpful ? "helpful_yes" : "helpful_no"}`, { method: "POST" });
+    await fetch(`${API}/interest-signal?feature=${wasHelpful ? "helpful_yes" : "helpful_no"}`, { method: "POST", headers: HEADERS });
   } catch (e) { /* non-critical */ }
   if (wasHelpful) {
     document.getElementById("quick-feedback-thanks").classList.remove("hidden");
@@ -583,7 +699,7 @@ async function submitQuickFeedbackReason() {
   const reason = document.getElementById("quick-feedback-reason").value.trim();
   if (reason) {
     try {
-      await fetch(`${API}/interest-signal?feature=${encodeURIComponent("helpful_no_reason: " + reason.slice(0, 150))}`, { method: "POST" });
+      await fetch(`${API}/interest-signal?feature=${encodeURIComponent("helpful_no_reason: " + reason.slice(0, 150))}`, { method: "POST", headers: HEADERS });
     } catch (e) { /* non-critical */ }
   }
   document.getElementById("quick-feedback-followup").classList.add("hidden");
@@ -755,7 +871,7 @@ async function processOneFile(file, results) {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch(`${API}/extract-file`, { method: "POST", body: formData });
+      const res = await fetch(`${API}/extract-file`, { method: "POST", headers: { "Authorization": HEADERS.Authorization, "x-org-id": HEADERS["x-org-id"], "x-user-id": HEADERS["x-user-id"] }, body: formData });
       const data = await res.json();
       if (!res.ok) {
         results.unsupported.push(`${file.name} (${data.detail || "could not read"})`);
@@ -771,7 +887,7 @@ async function processOneFile(file, results) {
     // PDFs, Word docs) -- still logs real demand, same as the original
     // fake-door test, but now gives useful guidance instead of just an apology.
     try {
-      await fetch(`${API}/interest-signal?feature=binary_file_upload_${name.split(".").pop()}`, { method: "POST" });
+      await fetch(`${API}/interest-signal?feature=binary_file_upload_${name.split(".").pop()}`, { method: "POST", headers: HEADERS });
     } catch (e) { /* non-critical */ }
     results.unsupported.push(`${file.name} (format not supported yet)`);
   }
@@ -1026,6 +1142,11 @@ function handleDecisionResponse(data) {
       ? `<p style="font-size:12px; color:#999; margin:0 0 8px">↳ This continues an earlier case</p>`
       : "";
     renderPosition(currentPositionObj);
+    const pilotCard = document.getElementById("pilot-experience-card");
+    if (pilotCard) {
+      pilotCard.classList.toggle("hidden", !shouldShowPilotExperience(data.id));
+      document.getElementById("pilot-experience-thanks").classList.add("hidden");
+    }
     if (currentHasFeedback) {
       // Reopening a case that already has a recorded outcome -- rebuild the
       // same summary from stored data instead of only showing it once, in
@@ -1144,8 +1265,259 @@ async function submitEvidence() {
   }
 }
 
+function renderDecisionAudit(pos) {
+  const el = document.getElementById("pos-decision-audit");
+  const a = pos.decision_audit;
+  if (!a) { el.innerHTML = ""; return; }
+  const status = a.evidence_integrity_status || "UNKNOWN";
+  const statusLabel = {PROVEN:"Evidence grounded", INFERRED:"Inference present", UNKNOWN:"Evidence gaps", CONTRADICTED:"Evidence conflict"}[status] || status;
+  const statusStyle = {PROVEN:"#2f7d4f", INFERRED:"#7a5c00", UNKNOWN:"#8a6500", CONTRADICTED:"#a33"}[status] || "#666";
+  const evidenceRows = (a.material_evidence || []).map(x => `<div style="padding:6px 0;border-top:1px solid #eee"><b>${escapeHtml(x.label)}</b> <span style="font-size:10px;color:${statusStyle};font-weight:700">${escapeHtml(x.status)}</span><div style="font-size:12px;color:#555">${escapeHtml(x.evidence)}</div></div>`).join("");
+  const uncertaintyRows = (a.uncertainties || []).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const reversalRows = (a.reversal_conditions || []).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const stakeholderRows = (a.stakeholder_tradeoffs || []).map(x => `<div style="padding:5px 0;border-top:1px solid #eee"><b>${escapeHtml(x.stakeholder)}</b> <span style="font-size:10px;color:#777">${escapeHtml(x.type)}</span><div style="font-size:12px">${escapeHtml(x.view)}</div></div>`).join("");
+  el.innerHTML = `
+    <details style="margin:14px 0;border:1px solid #ddd;border-radius:9px;overflow:hidden">
+      <summary style="cursor:pointer;padding:9px 12px;background:#f7f7f9;font-size:12px;font-weight:700">Decision evidence &amp; reversal logic — <span style="color:${statusStyle}">${escapeHtml(statusLabel)}</span></summary>
+      <div style="padding:10px 12px;font-size:12px">
+        <div style="font-weight:700;margin-bottom:4px">What materially supports this decision</div>
+        ${evidenceRows || "<div style='color:#777'>No material evidence was resolved.</div>"}
+        ${(a.inferred_signals || []).length ? `<div style="font-weight:700;margin:12px 0 4px">Inferences — not facts</div><ul style="margin:4px 0 0 18px">${a.inferred_signals.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}
+        ${uncertaintyRows ? `<div style="font-weight:700;margin:12px 0 4px">What remains uncertain</div><ul style="margin:4px 0 0 18px">${uncertaintyRows}</ul>` : ""}
+        ${stakeholderRows ? `<div style="font-weight:700;margin:12px 0 4px">Stakeholder trade-offs</div>${stakeholderRows}` : ""}
+        ${reversalRows ? `<div style="font-weight:700;margin:12px 0 4px">What would make us reconsider</div><ul style="margin:4px 0 0 18px">${reversalRows}</ul>` : ""}
+      </div>
+    </details>`;
+}
+
+function renderSensitivity(pos) {
+  const el = document.getElementById("pos-sensitivity");
+  const a = pos.sensitivity_analysis;
+  if (!a || !a.available || !(a.scenarios || []).length) { el.innerHTML = ""; return; }
+  const rows = a.scenarios.map(x => {
+    const spend = x.annual_spend_usd != null ? "$" + Number(x.annual_spend_usd).toLocaleString(undefined,{maximumFractionDigits:0}) : null;
+    const impact = x.annual_impact_usd != null ? "$" + Number(x.annual_impact_usd).toLocaleString(undefined,{maximumFractionDigits:0}) : null;
+    return `<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid #eee"><span>${escapeHtml(x.scenario)}</span><b>${escapeHtml(spend || impact || "—")}</b></div>`;
+  }).join("");
+  const note = a.mode === "price_change_sensitivity"
+    ? "What-if math only: annual spend × price change. It does not predict supplier behaviour or add unprovided assumptions."
+    : "What-if math only: annual volume × weighted supplier prices. Freight, duty, FX and capacity are not assumed.";
+  el.innerHTML = `<details style="margin:14px 0;border:1px solid #ddd;border-radius:9px;overflow:hidden"><summary style="cursor:pointer;padding:9px 12px;background:#f7f7f9;font-size:12px;font-weight:700">Decision sensitivity — deterministic what-if analysis</summary><div style="padding:10px 12px;font-size:12px"><div style="color:#555;margin-bottom:6px">${escapeHtml(note)}</div>${rows}</div></details>`;
+}
+
+function renderStressTest(pos) {
+  const el = document.getElementById("pos-stress-test");
+  const a = pos.stress_test;
+  if (!a || !a.available) { el.innerHTML = ""; return; }
+  const labels = {SURVIVES_AVAILABLE_TESTS:"Survives available tests", SENSITIVE:"Recommendation is sensitive", NOT_TESTABLE:"Not safely testable"};
+  const styles = {SURVIVES_AVAILABLE_TESTS:"#2f7d4f", SENSITIVE:"#8a6500", NOT_TESTABLE:"#777"};
+  const rows = (a.tests || []).map(x => {
+    const value = x.annual_impact_usd != null ? "$" + Number(x.annual_impact_usd).toLocaleString(undefined,{maximumFractionDigits:0}) : (x.annual_spend_usd != null ? "$" + Number(x.annual_spend_usd).toLocaleString(undefined,{maximumFractionDigits:0}) : "—");
+    return `<div style="padding:7px 0;border-top:1px solid #eee"><div style="display:flex;justify-content:space-between;gap:10px"><b>${escapeHtml(x.name)}</b><span>${escapeHtml(value)}</span></div><div style="font-size:11px;color:#666;margin-top:3px">${escapeHtml(x.scenario || "")}</div></div>`;
+  }).join("");
+  const warnings = (a.warnings || []).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  el.innerHTML = `<details style="margin:14px 0;border:1px solid #ddd;border-radius:9px;overflow:hidden"><summary style="cursor:pointer;padding:9px 12px;background:#f7f7f9;font-size:12px;font-weight:700">Decision stress test — <span style="color:${styles[a.status] || "#777"}">${escapeHtml(labels[a.status] || a.status || "Not tested")}</span></summary><div style="padding:10px 12px;font-size:12px"><div style="color:#555;margin-bottom:6px">${escapeHtml(a.summary || "")}</div>${rows}${warnings ? `<div style="font-weight:700;margin:12px 0 4px">Evidence constraints that could change the decision</div><ul style="margin:4px 0 0 18px">${warnings}</ul>` : ""}<div style="font-size:11px;color:#777;margin-top:10px">${escapeHtml(a.method || "")}</div></div></details>`;
+}
+
+function renderAlternatives(pos) {
+  const el = document.getElementById("pos-alternatives");
+  const a = pos.alternative_analysis;
+  if (!a || !a.available || !(a.alternatives || []).length) { el.innerHTML = ""; return; }
+  const statusLabel = {EVIDENCE_BACKED_PATHS:"Evidence-backed paths", EVIDENCE_BACKED_WITH_OPEN_ITEMS:"Evidence-backed paths — open items remain", NOT_TESTABLE:"Not safely testable"};
+  const statusStyle = a.status === "EVIDENCE_BACKED_WITH_OPEN_ITEMS" ? "#8a6500" : "#2f7d4f";
+  const cards = (a.alternatives || []).map((x, i) => {
+    const gain = (x.what_you_gain || []).map(v => `<li>${escapeHtml(v)}</li>`).join("");
+    const give = (x.what_you_give_up || []).map(v => `<li>${escapeHtml(v)}</li>`).join("");
+    const open = (x.requires_new_evidence || []).map(v => `<li>${escapeHtml(v)}</li>`).join("");
+    const stakeholders = (x.stakeholder_impacts || []).map(v => `<li>${escapeHtml(v)}</li>`).join("");
+    const spend = x.annual_spend_usd != null ? `<div style="font-size:12px;color:#555"><b>Deterministic annual spend:</b> $${Number(x.annual_spend_usd).toLocaleString(undefined,{maximumFractionDigits:0})}</div>` : "";
+    const price = x.unit_price_usd != null ? `<div style="font-size:12px;color:#555"><b>Explicit unit price:</b> $${Number(x.unit_price_usd).toLocaleString(undefined,{maximumFractionDigits:2})}</div>` : "";
+    return `<div style="border:1px solid #e2e2e6;border-radius:9px;padding:10px 12px;margin:8px 0;background:#fff"><div style="display:flex;justify-content:space-between;gap:8px"><b>${escapeHtml(x.name)}</b><span style="font-size:10px;color:#666">Path ${i+1}</span></div><div style="font-size:12px;margin:6px 0">${escapeHtml(x.path)}</div>${spend}${price}<div style="font-size:11px;color:#666;margin-top:6px">${escapeHtml(x.financial_basis || "")}</div>${gain ? `<div style="font-weight:700;margin-top:8px">What you gain</div><ul style="margin:3px 0 0 18px">${gain}</ul>` : ""}${give ? `<div style="font-weight:700;margin-top:8px">What you give up / risk</div><ul style="margin:3px 0 0 18px">${give}</ul>` : ""}${stakeholders ? `<div style="font-weight:700;margin-top:8px">Stakeholder impact</div><ul style="margin:3px 0 0 18px">${stakeholders}</ul>` : ""}${open ? `<div style="font-weight:700;margin-top:8px;color:#7a5c00">Evidence still needed</div><ul style="margin:3px 0 0 18px">${open}</ul>` : ""}<div style="font-size:11px;color:#777;margin-top:8px">${escapeHtml(x.evidence_strength || "")}</div></div>`;
+  }).join("");
+  const warnings = (a.warnings || []).map(v => `<li>${escapeHtml(v)}</li>`).join("");
+  el.innerHTML = `<details style="margin:14px 0;border:1px solid #ddd;border-radius:9px;overflow:hidden"><summary style="cursor:pointer;padding:9px 12px;background:#f7f7f9;font-size:12px;font-weight:700">Commercial alternatives — <span style="color:${statusStyle}">${escapeHtml(statusLabel[a.status] || a.status || "Available")}</span></summary><div style="padding:10px 12px;font-size:12px"><div style="color:#555;margin-bottom:8px">${escapeHtml(a.summary || "")}</div>${cards}${warnings ? `<div style="font-weight:700;margin-top:10px">Open warnings</div><ul style="margin:3px 0 0 18px">${warnings}</ul>` : ""}<div style="font-size:11px;color:#777;margin-top:10px">${escapeHtml(a.method || "")}</div></div></details>`;
+}
+
+function renderControlTower(pos) {
+  const el = document.getElementById("pos-control-tower");
+  const a = pos.control_tower;
+  if (!a || !a.available) { el.innerHTML = ""; return; }
+  const labels = {READY:"Ready to act", CONDITIONAL:"Conditional — resolve key items", HOLD:"Hold — resolve conflicting evidence"};
+  const styles = {READY:"#2f7d4f", CONDITIONAL:"#8a6500", HOLD:"#a23b3b"};
+  const critical = (a.critical_before_action || []).map(x=>`<li>${escapeHtml(x)}</li>`).join("");
+  const important = (a.important_not_blocking || []).map(x=>`<li>${escapeHtml(x)}</li>`).join("");
+  const changers = (a.decision_changers || []).map(x=>`<li>${escapeHtml(x)}</li>`).join("");
+  const conflicts = (a.stakeholder_conflicts || []).map(x=>`<li>${escapeHtml(x)}</li>`).join("");
+  const actions = (a.action_items || []).map(x=>`<div style="padding:7px 0;border-top:1px solid #eee"><span style="font-size:10px;font-weight:700;color:${x.priority === "CRITICAL" ? "#a23b3b" : "#8a6500"}">${escapeHtml(x.priority)}</span><div>${escapeHtml(x.action)}</div></div>`).join("");
+  const meta = `Confidence: ${escapeHtml(a.confidence)} · Evidence: ${escapeHtml(a.evidence_integrity)} · Alternatives: ${Number(a.alternative_count || 0)} · Stress test: ${escapeHtml(a.stress_status || "not tested")}`;
+  el.innerHTML = `<details open style="margin:14px 0;border:1px solid #d7d7dc;border-radius:10px;overflow:hidden;background:#fff"><summary style="cursor:pointer;padding:11px 13px;background:#f7f7f9;font-size:13px;font-weight:800">Commercial Decision Control Tower — <span style="color:${styles[a.readiness] || "#777"}">${escapeHtml(labels[a.readiness] || a.readiness || "Review")}</span></summary><div style="padding:12px 13px;font-size:12px"><div style="font-size:11px;color:#555;margin-bottom:10px">${escapeHtml(a.readiness_reason || "")}</div><div style="font-weight:800;margin-bottom:4px">Recommended action</div><div style="padding:9px 10px;border-radius:7px;background:#f5f5f7;margin-bottom:10px">${escapeHtml(a.recommended_action || "")}</div>${actions ? `<div style="font-weight:800;margin-top:8px">Do these first</div>${actions}` : ""}${critical ? `<div style="font-weight:800;margin-top:12px">Critical before action</div><ul style="margin:4px 0 0 18px">${critical}</ul>` : ""}${important ? `<div style="font-weight:800;margin-top:12px">Important, not blocking</div><ul style="margin:4px 0 0 18px">${important}</ul>` : ""}${changers ? `<div style="font-weight:800;margin-top:12px">What could change the decision</div><ul style="margin:4px 0 0 18px">${changers}</ul>` : ""}${conflicts ? `<div style="font-weight:800;margin-top:12px">Stakeholder conflicts</div><ul style="margin:4px 0 0 18px">${conflicts}</ul>` : ""}<div style="font-size:10px;color:#777;margin-top:11px">${meta}</div><div style="font-size:10px;color:#888;margin-top:5px">${escapeHtml(a.method || "")}</div></div></details>`;
+}
+
+function buildDecisionBriefText(pos) {
+  const lines = [];
+  const add = (title, value) => { if (value !== undefined && value !== null && String(value).trim() !== "") { lines.push(title); lines.push(String(value)); lines.push(""); } };
+  lines.push("VENDOREDGE — COMMERCIAL DECISION BRIEF");
+  lines.push("=".repeat(46));
+  lines.push("");
+  add("BUSINESS QUESTION", currentRawQuestion || "Not recorded");
+  const evidenceLines = Object.keys(currentEvidence || {}).map(k => {
+    const raw = currentEvidence[k];
+    const value = (raw !== null && typeof raw === "object") ? JSON.stringify(raw) : String(raw);
+    return `- ${k.replace(/_/g, " ")}: ${value}`;
+  });
+  add("EVIDENCE SUPPLIED", evidenceLines.join("\n"));
+  add("DECISION", pos.recommendation);
+  add("CONFIDENCE", pos.confidence ? `${pos.confidence.level} — ${pos.confidence.derivation_note || ""}` : "Not available");
+
+  if (pos.financial_impact) {
+    const f = pos.financial_impact;
+    add("FINANCIAL IMPACT", `Potential annual impact: $${Number(f.potential_annual_impact_usd || 0).toLocaleString()}
+Annual spend: $${Number(f.annual_spend_usd || 0).toLocaleString()}
+Requested change: ${f.requested_change_percent}%`);
+  } else {
+    add("FINANCIAL IMPACT", "Not safely calculable from the supplied evidence.");
+  }
+
+  add("WHY THIS WINS", (pos.commercial_insights || []).map(x => `- ${x}`).join("\n"));
+  add("WHAT I AM ASSUMING", (pos.assumptions || []).map(x => `- ${x}`).join("\n"));
+  add("WHAT WOULD CHANGE THE DECISION", pos.disconfirming_condition);
+  add("WALK-AWAY THRESHOLD", pos.walk_away_threshold);
+
+  const audit = pos.decision_audit;
+  if (audit) {
+    add("MATERIAL EVIDENCE", (audit.material_evidence || []).map(x => `- ${typeof x === "string" ? x : JSON.stringify(x)}`).join("\n"));
+    add("UNCERTAINTIES", (audit.uncertainties || []).map(x => `- ${x}`).join("\n"));
+    add("STAKEHOLDER CONFLICTS", (audit.stakeholder_conflict || []).map(x => `- ${x}`).join("\n"));
+    add("REVERSAL CONDITIONS", (audit.reversal_conditions || []).map(x => `- ${x}`).join("\n"));
+  }
+
+  const tower = pos.control_tower;
+  if (tower) {
+    add("DECISION READINESS", `${tower.readiness}: ${tower.readiness_reason}`);
+    add("DO THESE FIRST", (tower.action_items || []).map(x => `- [${x.priority}] ${x.action}`).join("\n"));
+    add("CRITICAL BEFORE ACTION", (tower.critical_before_action || []).map(x => `- ${x}`).join("\n"));
+    add("IMPORTANT, NOT BLOCKING", (tower.important_not_blocking || []).map(x => `- ${x}`).join("\n"));
+  }
+
+  if ((pos.supplier_comparison || []).length) {
+    add("SUPPLIER COMPARISON", pos.supplier_comparison.map(x => {
+      return `- ${x.name}: price=${x.price || "not stated"}; OTIF=${x.otif || "not stated"}; defect=${x.defect_rate || "not stated"}; lead time=${x.lead_time || "not stated"}`;
+    }).join("\n"));
+  }
+
+  if ((pos.negotiation_dimensions || []).length) {
+    add("NEGOTIATION POSITIONS", pos.negotiation_dimensions.map(x => `- ${x.dimension}: opening=${x.opening_ask}; target=${x.target_outcome}; walk-away=${x.walk_away}`).join("\n"));
+  }
+
+  const alts = pos.alternative_analysis;
+  if (alts && alts.available) {
+    add("COMMERCIAL ALTERNATIVES", (alts.alternatives || []).map((x, i) => `${i + 1}. ${x.name}: ${x.path}\n   Gain: ${(x.what_you_gain || []).join("; ")}\n   Give up: ${(x.what_you_give_up || []).join("; ")}\n   Evidence: ${x.evidence_strength}`).join("\n"));
+  }
+
+  const stress = pos.stress_test;
+  if (stress) {
+    add("STRESS TEST", `${stress.status || "Not tested"}: ${stress.summary || ""}`);
+  }
+
+  add("METHODOLOGY", pos.methodology_applied);
+  lines.push("VendorEdge note: This brief is a structured rendering of the decision already produced by VendorEdge. It does not add new assumptions or calculations.");
+  return lines.join("\n").trim();
+}
+
+function renderDecisionPack(pos) {
+  const el = document.getElementById("pos-decision-pack");
+  if (!pos) { el.innerHTML = ""; return; }
+  el.innerHTML = `
+    <details style="margin:14px 0;border:1px solid #ddd;border-radius:9px;overflow:hidden">
+      <summary style="cursor:pointer;padding:10px 12px;background:#f7f7f9;font-size:12px;font-weight:800">Decision Pack — ready to take into your meeting</summary>
+      <div style="padding:11px 12px;font-size:12px">
+        <div style="color:#666;margin-bottom:9px">A concise, auditable brief built from the completed decision. No new AI call and no new calculations.</div>
+        <textarea id="decision-pack-text" readonly style="width:100%;min-height:230px;box-sizing:border-box;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.45;border:1px solid #ddd;border-radius:7px;padding:9px;background:#fafafa"></textarea>
+        <div style="margin-top:9px;display:flex;gap:6px;flex-wrap:wrap">
+          <button class="secondary-btn" onclick="copyDecisionPack()">Copy decision brief</button>
+          <button class="secondary-btn" onclick="downloadDecisionPack()">Download .txt</button>
+          <button class="secondary-btn" onclick="downloadDecisionCSV()">Export CSV</button>
+          <button class="secondary-btn" onclick="loadActionPlan()">Show action plan</button>
+          <span id="decision-pack-confirm" class="copy-confirm hidden">Copied ✓</span>
+        </div>
+        <div style="margin-top:12px;border-top:1px solid #eee;padding-top:10px">
+          <div style="font-weight:600;font-size:12px;margin-bottom:5px">Bring Your Own Format</div>
+          <div style="font-size:11px;color:#777;margin-bottom:6px">Paste your company's template using {{recommendation}}, {{financial_impact}}, {{confidence}}, {{why_this_wins}}, {{opening_position}}, {{walk_away}}, {{assumptions}}, {{stakeholder_conflicts}}, {{evidence_integrity}}, or {{action_plan}}.</div>
+          <textarea id="custom-format-template" rows="5" placeholder="CFO decision: {{recommendation}}
+Confidence: {{confidence}}
+Financial impact: {{financial_impact}}
+Approval required: {{action_plan}}" style="width:100%;box-sizing:border-box;border:1px solid #ddd;border-radius:7px;padding:9px;font-size:11.5px"></textarea>
+          <button class="secondary-btn" onclick="renderCustomFormat()">Render my format</button>
+          <pre id="custom-format-result" class="hidden" style="white-space:pre-wrap;background:#fafafa;border:1px solid #ddd;border-radius:7px;padding:9px;font-size:11px;max-height:260px;overflow:auto"></pre>
+        </div>
+        <div id="action-plan-result" class="hidden" style="margin-top:10px;border-top:1px solid #eee;padding-top:10px"></div>
+      </div>
+    </details>`;
+  document.getElementById("decision-pack-text").value = buildDecisionBriefText(pos);
+}
+
+async function copyDecisionPack() {
+  const text = document.getElementById("decision-pack-text")?.value || "";
+  try {
+    await navigator.clipboard.writeText(text);
+    const el = document.getElementById("decision-pack-confirm");
+    if (el) { el.classList.remove("hidden"); setTimeout(() => el.classList.add("hidden"), 2000); }
+  } catch (err) {
+    const box = document.getElementById("decision-pack-text");
+    if (box) { box.focus(); box.select(); }
+  }
+}
+
+function downloadDecisionPack() {
+  const text = document.getElementById("decision-pack-text")?.value || "";
+  const blob = new Blob([text], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `vendoredge-decision-brief-${currentDecisionId || "case"}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function downloadDecisionCSV() {
+  if (!currentDecisionId) return;
+  window.open(`${API}/commercial-decisions/${currentDecisionId}/export.csv`, "_blank");
+}
+
+async function renderCustomFormat() {
+  const template = document.getElementById("custom-format-template")?.value.trim();
+  const out = document.getElementById("custom-format-result");
+  if (!template || !currentDecisionId) return;
+  try {
+    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/custom-format`, {
+      method: "POST", headers: HEADERS, body: JSON.stringify({ template })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Could not render the format.");
+    out.textContent = data.body || "";
+    out.classList.remove("hidden");
+  } catch (err) { alert(err.message); }
+}
+
+async function loadActionPlan() {
+  const out = document.getElementById("action-plan-result");
+  if (!currentDecisionId) return;
+  try {
+    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/action-plan`, { headers: HEADERS });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Could not load action plan.");
+    out.innerHTML = `<div style="font-weight:600;font-size:12px;margin-bottom:6px">Approval-gated action plan</div>` +
+      data.actions.map(a => `<div style="padding:8px;border:1px solid #eee;border-radius:7px;margin:5px 0;font-size:11.5px"><b>${a.stage}: ${a.title}</b><br><span style="color:#666">${a.status}${a.approval_required ? " · human approval required" : ""}</span><br>${a.instruction || ""}</div>`).join("") +
+      `<div style="font-size:10.5px;color:#888;margin-top:6px">${data.safety_note}</div>`;
+    out.classList.remove("hidden");
+  } catch (err) { alert(err.message); }
+}
+
 function renderPosition(pos) {
   renderDecisionSnapshot(pos);
+  renderControlTower(pos);
 
   // Only shown when there's genuinely real history -- never a hollow
   // "informed by 0 cases" claim, the same empty-moat problem flagged
@@ -1169,16 +1541,16 @@ function renderPosition(pos) {
 
   document.getElementById("pos-commercial-insights").innerHTML =
     `<p style="font-size:11px; font-weight:600; letter-spacing:0.03em; color:#6a5acd; text-transform:uppercase; margin:0 0 6px; font-style:normal">Why this commercial position wins</p>` +
-    pos.commercial_insights.map(i => `<p style="margin:4px 0">• ${i}</p>`).join("");
+    pos.commercial_insights.map(i => `<p style="margin:4px 0">• ${escapeHtml(i)}</p>`).join("");
   const hypothesisEl = document.getElementById("pos-hypothesis");
   if (pos.commercial_hypothesis) {
-    hypothesisEl.innerHTML = `<p style="font-size:13px; color:#7a5c00; background:#fff3d6; border-radius:6px; padding:8px 10px"><b>Hypothesis (unconfirmed):</b> ${pos.commercial_hypothesis}</p>`;
+    hypothesisEl.innerHTML = `<p style="font-size:13px; color:#7a5c00; background:#fff3d6; border-radius:6px; padding:8px 10px"><b>Hypothesis (unconfirmed):</b> ${escapeHtml(pos.commercial_hypothesis)}</p>`;
   } else {
     hypothesisEl.innerHTML = "";
   }
   const methodologyEl = document.getElementById("pos-methodology");
   if (pos.methodology_applied) {
-    methodologyEl.innerHTML = `<p style="font-size:12.5px; color:#3a5a7a; background:#eaf3fb; border-radius:6px; padding:6px 10px"><b>Approach used:</b> ${pos.methodology_applied}</p>`;
+    methodologyEl.innerHTML = `<p style="font-size:12.5px; color:#3a5a7a; background:#eaf3fb; border-radius:6px; padding:6px 10px"><b>Approach used:</b> ${escapeHtml(pos.methodology_applied)}</p>`;
   } else {
     methodologyEl.innerHTML = "";
   }
@@ -1188,6 +1560,10 @@ function renderPosition(pos) {
   renderSupplierComparison(pos);
   renderNegotiationDimensions(pos);
   renderTalkTrack(pos);
+  renderDecisionAudit(pos);
+  renderSensitivity(pos);
+  renderStressTest(pos);
+  renderAlternatives(pos);
   document.getElementById("pos-reasoning").innerText = pos.reasoning;
 
   const fiEl = document.getElementById("pos-financial-impact");
@@ -1212,24 +1588,24 @@ function renderPosition(pos) {
 
   document.getElementById("pos-badge").innerHTML =
     `<span class="badge">Recommendation Confidence: ${pos.confidence.level.charAt(0).toUpperCase() + pos.confidence.level.slice(1)}</span>` +
-    (pos.confidence_calibration_note ? `<p style="font-size:11.5px; color:#888; margin:6px 0 0; font-style:italic">${pos.confidence_calibration_note}</p>` : "");
+    (pos.confidence_calibration_note ? `<p style="font-size:11.5px; color:#888; margin:6px 0 0; font-style:italic">${escapeHtml(pos.confidence_calibration_note)}</p>` : "");
 
   document.getElementById("pos-factors").innerHTML = `
     ${supportingFactors.length ? `
       <div style="margin-top:8px">
         <div style="font-size:12px; font-weight:600; color:#2f7d4f">Supported by</div>
-        ${supportingFactors.map(f => `<div class="factor" style="color:#2f7d4f">✓ ${f.factor}</div>`).join("")}
+        ${supportingFactors.map(f => `<div class="factor" style="color:#2f7d4f">✓ ${escapeHtml(f.factor)}</div>`).join("")}
       </div>` : ""}
     ${limitingFactors.length ? `
       <div style="margin-top:8px">
         <div style="font-size:12px; font-weight:600; color:#a33">Limited by</div>
-        ${limitingFactors.map(f => `<div class="factor" style="color:#a33">✗ ${f.factor}</div>`).join("")}
+        ${limitingFactors.map(f => `<div class="factor" style="color:#a33">✗ ${escapeHtml(f.factor)}</div>`).join("")}
       </div>` : ""}
   `;
   document.getElementById("pos-derivation").innerText = pos.confidence.derivation_note;
   document.getElementById("pos-assumption").innerHTML =
     "<ul style='margin:4px 0 0 18px;padding:0'>" +
-    pos.assumptions.map(a => `<li>${a}</li>`).join("") +
+    pos.assumptions.map(a => `<li>${escapeHtml(a)}</li>`).join("") +
     "</ul>";
   // Note: opening_position is intentionally NOT rendered again here --
   // it's already surfaced as "Next Action" in the Decision Snapshot above.
@@ -1238,7 +1614,7 @@ function renderPosition(pos) {
   // double-render).
   const walkawayEl = document.getElementById("pos-walkaway");
   if (pos.walk_away_threshold) {
-    walkawayEl.innerHTML = `<p style="font-size:13px; background:#fdeaea; border-radius:6px; padding:8px 10px"><b>Walk-away threshold:</b> ${pos.walk_away_threshold}</p>`;
+    walkawayEl.innerHTML = `<p style="font-size:13px; background:#fdeaea; border-radius:6px; padding:8px 10px"><b>Walk-away threshold:</b> ${escapeHtml(pos.walk_away_threshold)}</p>`;
   } else {
     walkawayEl.innerHTML = "";
   }
@@ -1286,6 +1662,7 @@ function buildCaseSummaryText(outcomeDescription, verdictValue, alignmentValue, 
   lines.push(`Recorded: ${dateStr}`);
 
   return lines.join("\n");
+  renderDecisionPack(pos);
 }
 
 function renderCaseSummary(outcomeDescription, verdictValue, alignmentValue, recordedAt) {

@@ -127,6 +127,21 @@ CREATE TABLE IF NOT EXISTS decision_feedback (
 );
 ALTER TABLE decision_feedback ADD COLUMN IF NOT EXISTS unexpected_insight TEXT;
 
+CREATE TABLE IF NOT EXISTS pilot_experience_feedback (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    commercial_decision_id UUID NOT NULL REFERENCES commercial_decisions(id) ON DELETE CASCADE,
+    submitted_by_user_id UUID NOT NULL REFERENCES users(id),
+    ease_of_use VARCHAR(20) NOT NULL CHECK (ease_of_use IN ('very_easy','easy','okay','difficult','very_difficult')),
+    trust_level VARCHAR(10) NOT NULL CHECK (trust_level IN ('high','medium','low')),
+    time_saved VARCHAR(20) NOT NULL CHECK (time_saved IN ('significant','some','none','more_time')),
+    would_use_again BOOLEAN NOT NULL,
+    most_valuable TEXT NOT NULL CHECK (length(trim(most_valuable)) > 0),
+    missing_or_frustrating TEXT,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (commercial_decision_id, submitted_by_user_id)
+);
+ALTER TABLE pilot_experience_feedback ADD COLUMN IF NOT EXISTS missing_or_frustrating TEXT;
+
 CREATE TABLE IF NOT EXISTS interest_signals (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     feature VARCHAR(100) NOT NULL,
@@ -206,27 +221,33 @@ CREATE POLICY org_isolation_cd ON commercial_decisions
     USING (organisation_id = current_setting('app.current_org_id')::UUID);
 
 -- CRITICAL: the application must NEVER connect to the database as its
--- superuser/owner account -- discovered via a real, live test during MVP
--- build. Role created automatically; uses current_database() instead of a
--- hardcoded name so this works on any hosting provider's auto-named database.
+-- superuser/owner account. The application role is provisioned OUTSIDE this
+-- schema using deployment-time credentials; no production password is stored
+-- in source control. Migration code then grants the minimum application
+-- privileges to that externally-provisioned role.
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'vendoredge_app') THEN
-        CREATE ROLE vendoredge_app LOGIN PASSWORD 'change_this_before_production';
+    IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'vendoredge_app') THEN
+        EXECUTE format('GRANT CONNECT ON DATABASE %I TO vendoredge_app', current_database());
+        GRANT USAGE ON SCHEMA public TO vendoredge_app;
+        GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO vendoredge_app;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO vendoredge_app;
     END IF;
 END
 $$;
-DO $$
-BEGIN
-    EXECUTE format('GRANT CONNECT ON DATABASE %I TO vendoredge_app', current_database());
-END
-$$;
-GRANT USAGE ON SCHEMA public TO vendoredge_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO vendoredge_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO vendoredge_app;
 
 CREATE INDEX IF NOT EXISTS idx_cd_organisation_id ON commercial_decisions(organisation_id);
 CREATE INDEX IF NOT EXISTS idx_cd_status ON commercial_decisions(status);
+
+ALTER TABLE pilot_experience_feedback ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pilot_experience_feedback FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_isolation_pef ON pilot_experience_feedback;
+CREATE POLICY org_isolation_pef ON pilot_experience_feedback
+    USING (EXISTS (
+        SELECT 1 FROM commercial_decisions cd
+        WHERE cd.id = pilot_experience_feedback.commercial_decision_id
+        AND cd.organisation_id = current_setting('app.current_org_id')::UUID
+    ));
 
 ALTER TABLE decision_feedback ENABLE ROW LEVEL SECURITY;
 ALTER TABLE decision_feedback FORCE ROW LEVEL SECURITY;

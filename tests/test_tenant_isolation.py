@@ -16,10 +16,7 @@ import uuid
 import psycopg2
 import pytest
 
-TEST_DSN = os.environ.get(
-    "TEST_DATABASE_URL",
-    "host=localhost dbname=vendoredge_test user=vendoredge_app password=apppass",
-)
+TEST_DSN = os.environ.get("TEST_DATABASE_URL")
 
 
 def _connect():

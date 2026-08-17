@@ -1,83 +1,154 @@
-## Current CTO milestone
+# VendorEdge — Commercial Decision Intelligence
 
-Release 11 adds the customer-ready Decision Pack; see `CTO_RELEASE_11.md`.
+**Release: R25.2 — Commercial DNA + World-Class UX Hardening**
 
-# VendorEdge MVP — How to Run This Yourself
+VendorEdge is an evidence-first procurement decision system designed for messy,
+high-value commercial situations.
 
-## What you need first
-1. **Docker Desktop** — free, download from docker.com, install it like any normal app.
-2. **A fresh Anthropic API key** — the one you revoke-and-replace, saved somewhere safe, not in any chat.
+Its product chain is:
 
-## Setup (one time only)
-1. Open the folder this project is in.
-2. Find the file called `.env.example`. Make a copy of it and rename the copy to exactly `.env` (no ".example" at the end).
-3. Open `.env` in any text editor. Replace `paste-your-real-key-here` with your real Anthropic key. Save.
+**Messy evidence → normalization → trust → commercial truth → economics → decision flips → war room → procurement memory → outcome intelligence → Commercial DNA → action**
 
-## Running it
-Open a terminal in this folder and type:
+The governing product test is the **Holy Shit Test**:
+
+> Give VendorEdge a genuinely messy, high-value procurement situation and get a commercially material insight, decision boundary, negotiation move, or organizational learning that is not trivial to reproduce with a generic AI prompt.
+
+## R19–R25
+
+**R25.2 hardening:** production security, evidence-firewall, tenant isolation, connection pooling, secure invitations, file-upload defenses, model routing, and a decision-first Commercial Intelligence UX pass.
+
+- **R19 — Trust Certification:** deterministic evidence/provenance/claim/confidence integrity checks.
+- **R20 — Commercial Truth Model:** one structured representation of the commercial situation.
+- **R21 — Decision Flip Map:** exact deterministic boundaries where safe; qualitative reversal conditions where not.
+- **R22 — Commercial War Room:** buyer, supplier, market and stakeholder positions without invented counterpart psychology.
+- **R23 — Procurement Memory:** supplier/category/decision history with sparse-history safeguards.
+- **R24 — Outcome Intelligence:** expected vs actual outcomes, attribution-aware misses and learning signals.
+- **R25 — Commercial DNA:** conservative organization-level signals from recorded outcomes; no unsupported causality or forecasting.
+
+All R19–R25 intelligence layers are deterministic presentation/analysis layers over the validated commercial decision. They do not make an additional LLM call and do not mutate the original recommendation.
+
+## Architecture principles
+
+1. **Evidence firewall:** evidence is treated as data, not instructions.
+2. **Supplier attribution:** supplier-specific claims remain tied to the named supplier.
+3. **Deterministic economics:** financial calculations are owned by Python, not the LLM.
+4. **Model-agnostic reasoning:** reasoning output is schema-validated and subsequently checked by deterministic gates.
+5. **Unknown stays unknown:** missing FX, freight, duty, market, capacity or quality data is not silently invented.
+6. **Adversarial testing:** contradiction, claim-integrity, stress and trust checks challenge the recommendation.
+7. **Confidence calibration:** confidence is system-owned and evidence-gated.
+8. **Traceability:** decision evidence and provenance are persisted.
+9. **Tenant isolation:** signed sessions plus PostgreSQL Row-Level Security.
+10. **Outcome learning:** organizational patterns require real recorded outcomes and minimum sample sizes.
+
+## Run locally with Docker
+
+1. Copy `.env.example` to `.env`.
+2. Set `ANTHROPIC_API_KEY` and a random `VENDOREDGE_AUTH_SECRET` (32+ characters).
+3. Run:
+
+```bash
+docker compose up --build
 ```
-docker compose up
+
+4. Open `http://localhost:8000`.
+
+For a completely fresh local database, remove the compose volume before restarting:
+
+```bash
+docker compose down -v
+docker compose up --build
 ```
-Wait a minute or two the first time — it's downloading and setting everything up, including the database, automatically. You'll see a lot of text scroll by; that's normal.
 
-Once it settles down, the app is running at: **http://localhost:8000**
+## Deploy to Render
 
-## How to actually try it
-Open your web browser and go to: **http://localhost:8000**
+This repository includes `render.yaml` and a production Dockerfile.
 
-You'll see a real screen — type a question or click one of the two example buttons. That's it.
+### Fastest path
 
-## What's proven to work right now, and what isn't yet
-**Proven, tested for real, by me, before handing this to you:**
-- The database keeps every company's data completely separate from every other company's — tested by deliberately trying to break it, and it held.
-- The system correctly asks for missing information instead of guessing.
-- Once given full information, it produces a real recommendation with its reasoning visible.
-- Nobody can secretly edit an answer after it's finalized.
-- The screen itself, end to end.
+1. Push the repository to GitHub.
+2. In Render, create a **Blueprint** from the repository.
+3. Render provisions the web service and PostgreSQL database from `render.yaml`.
+4. Enter the `ANTHROPIC_API_KEY` secret when prompted.
+5. Deploy.
+6. Verify `/health` returns `{"status":"ok"}`.
 
-**Not yet proven, because it needs your real key, which I never had access to:**
-- The actual "thinking" — the real AI call that reads a real question and reasons about it. The code is written and structured correctly, but you'll be the first to actually see it run for real.
-- This exact one-command Docker setup — Docker isn't available in my own testing environment, so this specific packaging step is new the moment you run it. If something doesn't work on the first try, that's useful information, not a sign anything is fundamentally broken — tell me exactly what error you see and I'll fix it.
+The Blueprint uses the Singapore region for the web service and database. The running application uses the `vendoredge_app` database role and FORCE RLS is enabled on every tenant table. The migration connection can be supplied separately where the hosting platform supports it; Render's managed database connection is suitable for the included lean deployment path. No database password is committed to the repository.
 
-## What's coming next
-- Payment/subscribe flow (once this loop is confirmed working with your real key)
-- The one-page PDF export
-- Proper login (right now everyone shares one demo account, on purpose, to keep this first test simple)
+### Production secrets
 
-## Changes in this pass (workflow, not architecture)
-Nothing in Classification, the Evidence Engine, the Reasoning Pipeline's core logic, Commercial Position generation, or the table structure changed. This pass added, on top of that foundation:
-- **My Cases**: `GET /commercial-decisions` lists every case for the org, flagged with whether its outcome has been recorded.
-- **Organizational learning, wired in**: the reasoner now receives this org's own past recorded outcomes for the same content type before generating a new position (previously `decision_feedback` was stored but never read back).
-- **Outcome capture as documentation, not a survey (Sprint 1)**: recording an outcome now generates a copy/downloadable case summary (question, evidence, position, outcome) — reopening a completed case later shows the same summary again, not just in the original session.
-- **"Decision Taken" capture (Sprint 2)**: the outcome form now also asks whether the recommendation was followed as given, modified, or ignored in favor of a different direction — closing the gap in the original workflow diagram (Position → Decision Taken → Outcome), which previously skipped straight from Position to Outcome with no record of what the human actually did in between. This required one new required column on `decision_feedback` (`decision_alignment`) — the only schema change beyond the RLS fix below.
-- **Pre-launch legal pages**: `privacy-policy.html`, `terms-of-use.html`, `ai-disclaimer.html` in `app/static/` — DRAFT TEMPLATES, clearly flagged as such on the page itself, not legal advice. Have a lawyer review before real external users see them, especially the liability/warranty sections and anything tied to your jurisdiction. Linked from a footer on every screen, plus a one-time "before you start" acknowledgment modal on first visit (stored in the browser's `localStorage`, not the database — nothing server-side changed for this) and a short disclaimer line directly under every generated commercial position, since that's the actual moment of risk.
-- **Security fix**: `decision_feedback` had no Row-Level Security policy at all (latent, since nothing had queried across it until this pass added the history lookback). It now has one, matching the existing pattern on `users` and `commercial_decisions`.
+Never commit:
 
-**Not yet proven, same caveat as above:** I don't have a live Postgres or Anthropic key in my own environment, so none of this was run end-to-end against a real database — it's been read carefully against the existing schema and query patterns, and syntax/AST-checked, but you'll be the first to actually run it. If `docker compose up` throws anything, especially from `pytest`, that's useful signal, not proof something's broken — tell me the exact error.
+- `ANTHROPIC_API_KEY`
+- `VENDOREDGE_AUTH_SECRET`
+- `DATABASE_URL`
+- `MIGRATION_DATABASE_URL` (when using a separate migration credential)
+- `.env`
 
-**If you already have a running Postgres volume from before:** the RLS fix on `decision_feedback` won't take effect until the schema is reloaded (`docker compose down -v` then `docker compose up`, or equivalent) — Postgres init scripts only run once, against a fresh volume.
+`VENDOREDGE_AUTH_SECRET` is generated by Render through the Blueprint. `ANTHROPIC_API_KEY` is intentionally marked `sync: false` and must be entered in Render.
 
-## CTO Releases 13–15
-- Release 13: deterministic negotiation playbook.
-- Release 14: Bring Your Own Format renderers for CFO/category/supplier/one-page outputs.
-- Release 15: deterministic pilot-readiness metrics using real feedback and outcomes.
+## Tests
 
-## CTO Releases 13–15
-- Release 13: deterministic negotiation playbook.
-- Release 14: Bring Your Own Format customer-native renderers.
-- Release 15: deterministic pilot-readiness metrics from real feedback and outcomes.
+The repository contains the complete cumulative regression suite through R25.
 
-## Test database configuration
+The repository includes a real PostgreSQL-backed CI workflow. CI creates a non-superuser application role, loads the schema with the migration role, then runs the complete pytest suite against the application role so RLS tests cannot accidentally pass under a superuser.
 
-Tests use `TEST_DATABASE_URL` exclusively. Do not point it at production. If it
-is not set, database-backed tests are skipped rather than guessing credentials.
-See `.env.test.example` for the placeholder format.
+Local/package validation includes:
 
-## Production database credentials
+- Python compilation
+- Frontend JavaScript syntax validation
+- Cumulative R19–R25 regression coverage
+- Evidence-firewall adversarial tests
+- Tenant/RLS hardening tests
+- Connection-pool tenant-context isolation tests
+- Invitation-token security tests
+- Nested XLSX/ZIP expansion limits
+- Production model-routing checks
 
-Production database credentials are supplied by the hosting platform, never
-stored in source control. Configure `DATABASE_URL` for the application role and
-`MIGRATION_DATABASE_URL` for the privileged migration connection. Set
-`APP_DATABASE_USER` (default `vendoredge_app`) and `APP_DATABASE_PASSWORD` in the
-hosting secret store so startup can provision/rotate the non-superuser
-application role without putting its password in `db/schema.sql`.
+The final environment used for this build does not have network access to install the PostgreSQL/Anthropic Python dependencies, so the full live pytest suite was deliberately not represented as locally passed. GitHub CI is configured to execute it with PostgreSQL 16 and the declared dependencies.
+
+The current default model routing is deliberately stage-specific: Claude Sonnet 4.6 for classification/market verification and Claude Opus 4.8 for final commercial reasoning, with deployment overrides available through environment variables. Anthropic currently lists these models as active; the older Sonnet 4 snapshot used by earlier VendorEdge releases has been retired.
+
+To run database-backed tests locally, provide a dedicated `TEST_DATABASE_URL` and run:
+
+```bash
+pytest -q
+```
+
+Never point `TEST_DATABASE_URL` at production.
+
+## Security notes
+
+- Protected API requests require a signed bearer session.
+- Compatibility headers are never authoritative.
+- Legacy workspace links are disabled by default.
+- PostgreSQL RLS is enabled and forced on tenant-scoped tables.
+- Uploaded files are capped at 5 MB.
+- ZIP evidence is additionally protected against oversized archives and excessive member counts.
+- The Docker container runs as a non-root user.
+- HTML rendering escapes model/evidence-controlled values before inserting them into the DOM.
+- Generic server errors do not expose raw stack traces to users.
+
+## Current product boundary
+
+VendorEdge currently supports the procurement case types implemented by the existing classifier (`price_increase` and `quote_comparison`) plus the evidence/document formats already supported by the application (`.xlsx`, `.pdf`, `.eml`, `.zip`, and pasted text).
+
+Scanned PDFs requiring OCR are intentionally not represented as supported evidence. That boundary is explicit rather than pretending OCR exists.
+
+## Files of interest
+
+- `app/routes/decisions.py` — production API and orchestration
+- `app/pipeline/normalize.py` — evidence normalization
+- `app/pipeline/reasoner.py` — model-based commercial reasoning
+- `app/pipeline/trust_certification.py` — R19
+- `app/pipeline/commercial_model.py` — R20
+- `app/pipeline/decision_flip_map.py` — R21
+- `app/pipeline/commercial_war_room.py` — R22
+- `app/pipeline/procurement_memory.py` — R23
+- `app/pipeline/outcome_intelligence.py` — R24
+- `app/pipeline/commercial_dna.py` — R25
+- `db/schema.sql` — idempotent PostgreSQL schema and RLS policies
+- `render.yaml` — Render deployment blueprint
+
+## Important
+
+This is a procurement decision-intelligence product, not an autonomous purchasing agent. VendorEdge does not place purchase orders or make irreversible commercial commitments. Human approval remains required for downstream actions.

@@ -82,25 +82,28 @@ def run_migrations():
 
 
 def ensure_demo_org_exists():
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
+    """Create the demo workspace through the same tenant-scoped app path.
+
+    The deterministic demo ID is used as the initial tenant context, so this
+    works even with FORCE RLS and does not require the everyday app connection
+    to be a superuser.
+    """
+    if not os.environ.get("DATABASE_URL"):
         return
-    conn = psycopg2.connect(dsn)
-    try:
+    from app.database import get_org_scoped_connection
+
+    with get_org_scoped_connection(DEMO_ORG_ID) as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT 1 FROM organisations WHERE id = %s", (DEMO_ORG_ID,))
             if cur.fetchone():
-                return  # already seeded, nothing to do
+                return
             cur.execute(
                 "INSERT INTO organisations (id, name) VALUES (%s, 'Demo Organisation')",
                 (DEMO_ORG_ID,),
             )
-            cur.execute("SET app.current_org_id = %s", (DEMO_ORG_ID,))
             cur.execute(
                 "INSERT INTO users (id, organisation_id, email, password_hash) "
                 "VALUES (%s, %s, 'demo@vendoredge.dev', 'not-a-real-password-yet')",
                 (DEMO_USER_ID, DEMO_ORG_ID),
             )
-        conn.commit()
-    finally:
-        conn.close()
+

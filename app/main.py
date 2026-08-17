@@ -12,6 +12,7 @@ load_dotenv()
 from app.routes.decisions import router as decisions_router
 from app.seed import ensure_demo_org_exists, run_migrations
 from app.auth import require_session, verify_membership, _secret
+from app.database import close_pool
 
 
 @asynccontextmanager
@@ -54,7 +55,10 @@ async def lifespan(app: FastAPI):
             "The app will start, but every request will fail until this is resolved -- "
             "check that the database is reachable at the configured DATABASE_URL."
         )
-    yield
+    try:
+        yield
+    finally:
+        close_pool()
 
 
 app = FastAPI(title="VendorEdge MVP", version="0.1.0", lifespan=lifespan)
@@ -74,6 +78,7 @@ async def tenant_auth_middleware(request: Request, call_next):
     if path.startswith("/api/v1/") and not (
         path == "/api/v1/workspaces" and request.method.upper() == "POST"
         or path == "/api/v1/workspaces/legacy-session" and request.method.upper() == "POST"
+        or path == "/api/v1/workspaces/accept-invite" and request.method.upper() == "POST"
     ):
         try:
             claims = require_session(request)
@@ -83,6 +88,32 @@ async def tenant_auth_middleware(request: Request, call_next):
         except HTTPException as exc:
             return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
     return await call_next(request)
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """Apply baseline browser security headers to every response.
+
+    VendorEdge currently uses inline UI JavaScript/styles, so the CSP keeps
+    those narrowly scoped to the same document while still blocking remote
+    script injection, framing, plugin content and unexpected form targets.
+    """
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+    if request.url.scheme == "https":
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; "
+        "form-action 'self'; frame-ancestors 'none'"
+    )
+    return response
 
 
 @app.middleware("http")
@@ -100,6 +131,12 @@ async def no_cache_html_middleware(request: Request, call_next):
     """
     response = await call_next(request)
     path = request.url.path
+    if path.startswith("/api/v1/"):
+        # Commercial cases can contain confidential pricing, supplier terms
+        # and stakeholder information. Never allow an intermediary/browser
+        # cache to retain an API response.
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
     if path == "/" or path.endswith(".html"):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
         response.headers["Pragma"] = "no-cache"

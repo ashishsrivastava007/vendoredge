@@ -1,18 +1,11 @@
 """
-Regression tests for the STRESS_TEST_ORG_ID escape hatch added for the
-10-case manual validation exercise. The critical things proven here:
-1. Without the env var set, the pilot limit works exactly as before --
-   completely unaffected by this change.
-2. With the env var set to a DIFFERENT org, that org's limit still
-   applies -- the bypass does not leak to any org other than the one
-   explicitly named.
-3. With the env var set to MATCH the org under test, the bypass
-   correctly allows more than 3 decisions.
+Regression tests for the removal of the STRESS_TEST_ORG_ID production
+quota bypass. Production code must never contain an environment-controlled
+path that can silently disable a customer usage limit. Validation runs now
+use their own explicitly provisioned workspace with a higher limit.
 
 Zero real LLM calls -- classify() and generate_commercial_position() are
-mocked throughout, per the explicit no-real-API-calls-during-development
-instruction. Only the deterministic count-and-compare logic is under
-test here.
+mocked throughout.
 """
 import os
 from unittest.mock import patch
@@ -73,52 +66,46 @@ def test_normal_org_still_blocked_at_the_real_limit_without_the_env_var():
     assert statuses[3] == 429
 
 
-def test_different_org_is_not_affected_by_another_orgs_stress_test_flag():
-    """Critical isolation proof: setting STRESS_TEST_ORG_ID to one org
-    must NOT loosen the limit for any OTHER org -- the bypass must be
-    genuinely narrow, not a global toggle."""
+def test_stress_test_env_var_cannot_loosen_another_org_limit():
+    """A leftover stress-test environment variable must not affect quotas."""
     org_a = client.post("/api/v1/workspaces", headers={"x-forwarded-for": "10.99.99.1"}).json()
     org_b = client.post("/api/v1/workspaces", headers={"x-forwarded-for": "10.99.99.1"}).json()
     headers_b = {"x-org-id": org_b["organisation_id"], "x-user-id": org_b["user_id"]}
 
-    # Stress-test mode is enabled, but for org A, not org B.
+    # A legacy stress-test variable is deliberately ignored by production code.
     os.environ["STRESS_TEST_ORG_ID"] = org_a["organisation_id"]
     try:
         statuses = _create_n_decisions(headers_b, 4)
         assert statuses[:3] == [200, 200, 200]
-        assert statuses[3] == 429, "Org B must still be blocked at 3 -- the bypass leaked to an unnamed org"
+        assert statuses[3] == 429
     finally:
         os.environ.pop("STRESS_TEST_ORG_ID", None)
 
 
-def test_named_stress_test_org_can_exceed_the_normal_limit():
-    """The actual bypass working correctly, for the one org it's meant for."""
+def test_legacy_stress_test_flag_cannot_exceed_normal_limit():
+    """Even the named org remains subject to the real customer limit."""
     org_res = client.post("/api/v1/workspaces", headers={"x-forwarded-for": "10.99.99.1"}).json()
     headers = {"x-org-id": org_res["organisation_id"], "x-user-id": org_res["user_id"]}
 
     os.environ["STRESS_TEST_ORG_ID"] = org_res["organisation_id"]
     try:
-        # 10 real cases for the stress test, well beyond the normal
-        # limit of 3 -- every one should succeed.
-        statuses = _create_n_decisions(headers, 10)
-        assert all(s == 200 for s in statuses), f"Expected all 10 to succeed, got {statuses}"
+        statuses = _create_n_decisions(headers, 4)
+        assert statuses[:3] == [200, 200, 200]
+        assert statuses[3] == 429
     finally:
         os.environ.pop("STRESS_TEST_ORG_ID", None)
 
 
-def test_removing_the_env_var_restores_normal_enforcement_for_the_same_org():
-    """Proves the bypass is genuinely reversible -- once the env var is
-    unset, even the previously-exempted org goes back to normal
-    enforcement, not permanently grandfathered in."""
+def test_quota_enforcement_remains_after_legacy_flag_is_removed():
+    """Quota enforcement remains deterministic regardless of the old flag."""
     org_res = client.post("/api/v1/workspaces", headers={"x-forwarded-for": "10.99.99.1"}).json()
     headers = {"x-org-id": org_res["organisation_id"], "x-user-id": org_res["user_id"]}
 
     os.environ["STRESS_TEST_ORG_ID"] = org_res["organisation_id"]
-    _create_n_decisions(headers, 3)  # use up the normal limit while exempted
-    os.environ.pop("STRESS_TEST_ORG_ID", None)  # turn the exemption off
+    _create_n_decisions(headers, 3)
+    os.environ.pop("STRESS_TEST_ORG_ID", None)
 
-    # This org already has 3 decisions this month; without the exemption,
-    # the 4th must now be correctly rejected again.
+    # This org already has 3 decisions this month; the 4th must be rejected.
     with patch("app.routes.decisions.classify", return_value=_MOCK_CLASSIFICATION), \
          patch("app.routes.decisions.generate_commercial_position", return_value=_MOCK_POSITION):
         r = client.post(

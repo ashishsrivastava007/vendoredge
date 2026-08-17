@@ -150,6 +150,7 @@ def normalize_evidence(
                 region=entry.get("region"),
                 currency=entry.get("currency"),
                 price_display=entry.get("price_display"),
+                price_amount=parse_numeric_value(str(entry.get("price_display"))) if entry.get("price_display") else None,
                 lead_time_weeks=entry.get("lead_time_weeks"),
                 otif_percent=entry.get("otif_percent"),
                 defect_rate_percent=entry.get("defect_rate_percent"),

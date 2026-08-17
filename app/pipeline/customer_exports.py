@@ -7,7 +7,7 @@ import re
 from app.models import CommercialPosition
 
 ALLOWED_TOKENS = {
-    "recommendation", "financial_impact", "confidence", "why_this_wins",
+    "recommendation", "financial_impact", "confidence", "why_this_wins", "decision_passport", "decision_cockpit", "commercial_truth_model",
     "opening_position", "walk_away", "disconfirming_condition", "assumptions",
     "reasoning", "evidence_integrity", "stakeholder_conflicts", "action_plan",
 }
@@ -20,6 +20,9 @@ def _values(p: CommercialPosition, action_plan: dict | None = None) -> dict[str,
     evidence = p.decision_audit.evidence_integrity_status if p.decision_audit else "UNKNOWN"
     return {
         "recommendation": p.recommendation,
+        "decision_passport": json.dumps(getattr(p, "decision_passport", None) or {}, indent=2),
+        "decision_cockpit": json.dumps(getattr(p, "decision_cockpit", None) or {}, indent=2),
+        "commercial_truth_model": json.dumps(getattr(p, "commercial_truth_model", None) or {}, indent=2),
         "financial_impact": fin,
         "confidence": p.confidence.level,
         "why_this_wins": p.why_this_wins or "Not separately stated.",

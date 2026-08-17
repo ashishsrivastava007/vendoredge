@@ -23,41 +23,84 @@ def _min_level(a: str, b: str) -> str:
     return a if _LEVEL_RANK[a] <= _LEVEL_RANK[b] else b
 
 
-def _stakeholder_mentions_supplier(statement: str, supplier_names: list[str]) -> set[str]:
-    lowered = statement.lower()
-    found: set[str] = set()
+def _supplier_aliases(name: str) -> set[str]:
+    parts = [p for p in re.split(r"\s+", name.strip()) if p]
+    aliases = {name.lower().strip()}
+    if parts:
+        aliases.add(parts[0].lower())
+    # Preserve common legal-name forms while avoiding unsafe one-letter aliases.
+    if len(parts) >= 2 and len(parts[0]) >= 4:
+        aliases.add(" ".join(parts[:2]).lower())
+    return aliases
+
+
+def _stakeholder_supplier_stance(statement: str, supplier_names: list[str]) -> dict[str, str]:
+    """Extract only explicit directional supplier choices from a stakeholder view.
+
+    This is intentionally conservative. Mere mention of two suppliers is NOT a
+    conflict. We look for preference/recommendation verbs and simple comparative
+    constructions such as 'safer than'. Anything ambiguous remains unclassified.
+    """
+    text = statement.lower()
+    stances: dict[str, str] = {}
     for name in supplier_names:
-        first = name.split()[0].lower() if name else ""
-        if name.lower() in lowered or (len(first) >= 4 and re.search(rf"\b{re.escape(first)}\b", lowered)):
-            found.add(name)
-    return found
+        aliases = sorted(_supplier_aliases(name), key=len, reverse=True)
+        if not any(re.search(rf"\b{re.escape(a)}\b", text) for a in aliases):
+            continue
+        label = name
+        escaped = "(?:" + "|".join(re.escape(a) for a in aliases) + ")"
+        if re.search(rf"(?:prefers?|recommend(?:s|ed)?|favors?|supports?|select(?:s|ed)?|wants?|chooses?)\s+{escaped}", text):
+            stances[label] = "positive"
+        elif re.search(rf"{escaped}\s+(?:is|seems|looks)\s+(?:safer|better|stronger|more reliable|preferred)", text):
+            stances[label] = "positive"
+        elif re.search(rf"{escaped}\s+(?:is|seems|looks)\s+(?:riskier|worse|weaker|less reliable|not preferred)", text):
+            stances[label] = "negative"
+        elif re.search(rf"(?:avoid|reject|exclude|oppose|do not choose|does not prefer)\s+{escaped}", text):
+            stances[label] = "negative"
+
+    # Comparative forms: 'A is safer than B' => A positive, B negative.
+    for a_name in supplier_names:
+        a_aliases = sorted(_supplier_aliases(a_name), key=len, reverse=True)
+        for b_name in supplier_names:
+            if a_name == b_name:
+                continue
+            b_aliases = sorted(_supplier_aliases(b_name), key=len, reverse=True)
+            a = "(?:" + "|".join(re.escape(x) for x in a_aliases) + ")"
+            b = "(?:" + "|".join(re.escape(x) for x in b_aliases) + ")"
+            if re.search(rf"{a}\s+(?:is|seems|looks)\s+(?:safer|better|stronger|more reliable|preferred)\s+than\s+{b}", text):
+                stances[a_name] = "positive"
+                stances[b_name] = "negative"
+    return stances
 
 
 def stakeholder_conflict_summary(normalized: NormalizedEvidence) -> tuple[bool, list[str]]:
-    """Return whether stakeholder views contain a material, supplier-choice conflict.
+    """Return material supplier-choice conflicts only when direction is explicit.
 
-    This deliberately detects only the high-signal case where different
-    stakeholders express competing supplier choices. It does not pretend to
-    understand arbitrary natural-language disagreement deterministically.
+    A statement mentioning two suppliers is not itself a conflict. The prior
+    implementation treated any two names in disjoint stakeholder statements as
+    competing preferences, which could invert a statement such as 'NordValve is
+    safer than EuroMotion' when all three names were present.
     """
     suppliers = [s.supplier_name for s in normalized.suppliers if s.supplier_name]
     choice_views = []
     for view in normalized.stakeholder_views:
-        if view.view_type not in {"preference", "recommendation", "constraint", "risk_concern"}:
+        if view.view_type not in {"preference", "recommendation", "constraint", "risk_concern", "experience"}:
             continue
-        mentioned = _stakeholder_mentions_supplier(view.statement, suppliers)
-        if mentioned:
-            choice_views.append((view.stakeholder_name, mentioned, view.view_type))
+        stances = _stakeholder_supplier_stance(view.statement, suppliers)
+        if stances:
+            choice_views.append((view.stakeholder_name, stances, view.view_type))
 
     conflicts: list[str] = []
-    for i, (name_a, suppliers_a, type_a) in enumerate(choice_views):
-        for name_b, suppliers_b, type_b in choice_views[i + 1 :]:
-            if name_a == name_b or suppliers_a == suppliers_b:
+    for i, (name_a, stances_a, type_a) in enumerate(choice_views):
+        for name_b, stances_b, type_b in choice_views[i + 1:]:
+            if name_a == name_b:
                 continue
-            if suppliers_a.isdisjoint(suppliers_b):
+            positives_a = {s for s, stance in stances_a.items() if stance == "positive"}
+            positives_b = {s for s, stance in stances_b.items() if stance == "positive"}
+            if positives_a and positives_b and positives_a.isdisjoint(positives_b):
                 conflicts.append(
-                    f"{name_a} ({type_a}) favors/flags {', '.join(sorted(suppliers_a))} while "
-                    f"{name_b} ({type_b}) favors/flags {', '.join(sorted(suppliers_b))}"
+                    f"{name_a} ({type_a}) favors {', '.join(sorted(positives_a))} while "
+                    f"{name_b} ({type_b}) favors {', '.join(sorted(positives_b))}"
                 )
     return bool(conflicts), conflicts
 

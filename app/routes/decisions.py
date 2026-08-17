@@ -10,6 +10,9 @@ per explicit request — this makes real debugging possible instead of guessing.
 import json
 import traceback
 import time
+import hashlib
+import secrets
+from datetime import timedelta
 from collections import defaultdict
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
@@ -19,6 +22,7 @@ from app.models import (
     CreateDecisionRequest, RespondRequest, FeedbackRequest, ContinueCaseRequest,
     CommercialDecisionResponse, WorkspaceResponse, WorkspaceInfoResponse, PilotLeadRequest, ControlTower,
     GeneralFeedbackRequest, DecisionAudit, PilotExperienceRequest, DecisionFormatRequest, CustomFormatRequest,
+    InviteResponse, AcceptInviteRequest,
 )
 from app.database import get_org_scoped_connection
 from app.auth import create_session_token
@@ -45,6 +49,15 @@ from app.pipeline.sensitivity import build_sensitivity_analysis
 from app.pipeline.stress_test import build_stress_test
 from app.pipeline.alternatives import build_alternative_paths
 from app.pipeline.control_tower import build_control_tower
+from app.pipeline.decision_passport import build_decision_passport
+from app.pipeline.decision_cockpit import build_decision_cockpit
+from app.pipeline.trust_certification import build_trust_certification
+from app.pipeline.commercial_model import build_commercial_truth_model
+from app.pipeline.decision_flip_map import build_decision_flip_map
+from app.pipeline.commercial_war_room import build_commercial_war_room
+from app.pipeline.procurement_memory import build_procurement_memory
+from app.pipeline.outcome_intelligence import build_outcome_intelligence
+from app.pipeline.commercial_dna import build_commercial_dna
 from app.pipeline.negotiation_playbook import build_negotiation_playbook
 from app.pipeline.decision_formats import render_decision
 from app.pipeline.customer_actions import build_action_plan
@@ -87,6 +100,9 @@ _WORKSPACE_RATE_LIMIT_WINDOW_SECONDS = 3600
 _validation_run_log: dict[str, list[float]] = defaultdict(list)
 _VALIDATION_RATE_LIMIT_MAX = 2
 _VALIDATION_RATE_LIMIT_WINDOW_SECONDS = 3600
+_invite_accept_log: dict[str, list[float]] = defaultdict(list)
+_INVITE_ACCEPT_RATE_LIMIT_MAX = 20
+_INVITE_ACCEPT_RATE_LIMIT_WINDOW_SECONDS = 3600
 
 
 def _check_validation_rate_limit(org_id: str):
@@ -110,6 +126,15 @@ def _check_workspace_rate_limit(client_ip: str):
         )
     recent.append(now)
     _workspace_creation_log[client_ip] = recent
+
+
+def _check_invite_accept_rate_limit(client_ip: str):
+    now = time.time()
+    recent = [t for t in _invite_accept_log[client_ip] if now - t < _INVITE_ACCEPT_RATE_LIMIT_WINDOW_SECONDS]
+    if len(recent) >= _INVITE_ACCEPT_RATE_LIMIT_MAX:
+        raise HTTPException(429, "Too many invitation attempts from this connection. Please try again later.")
+    recent.append(now)
+    _invite_accept_log[client_ip] = recent
 
 
 @router.post("/extract-file")
@@ -153,19 +178,12 @@ def submit_general_feedback(request: Request, body: GeneralFeedbackRequest, x_or
     moment or question, unlike the quick-feedback and outcome fields.
     No reply mechanism, since there's no expectation of one for this.
     """
-    import psycopg2
-    from app.database import _get_dsn
-
-    conn = psycopg2.connect(_get_dsn())
-    try:
+    with get_org_scoped_connection(x_org_id) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO general_feedback (organisation_id, message) VALUES (%s, %s)",
                 (x_org_id, body.message),
             )
-        conn.commit()
-    finally:
-        conn.close()
     return {"received": True}
 
 
@@ -179,11 +197,7 @@ def submit_pilot_lead(request: Request, body: PilotLeadRequest, x_org_id: str = 
     optional follow-through: enough to actually reach out to a real
     interested person, nothing more.
     """
-    import psycopg2
-    from app.database import _get_dsn
-
-    conn = psycopg2.connect(_get_dsn())
-    try:
+    with get_org_scoped_connection(x_org_id) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO pilot_leads
@@ -191,9 +205,6 @@ def submit_pilot_lead(request: Request, body: PilotLeadRequest, x_org_id: str = 
                    VALUES (%s, %s, %s, %s, %s, %s)""",
                 (x_org_id, body.email, body.name, body.linkedin, body.next_case_category, body.comment),
             )
-        conn.commit()
-    finally:
-        conn.close()
     return {"received": True}
 
 
@@ -205,45 +216,23 @@ def log_interest_signal(request: Request, feature: str):
     upload) without actually building it. Cheap, real signal on whether a
     feature is worth the engineering cost, before committing to it.
     """
-    import psycopg2
-    from app.database import _get_dsn
-
-    conn = psycopg2.connect(_get_dsn())
-    try:
+    org_id, _ = _require_identity(request)
+    with get_org_scoped_connection(org_id) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO interest_signals (feature) VALUES (%s)", (feature,)
+                "INSERT INTO interest_signals (organisation_id, feature) VALUES (%s, %s)",
+                (org_id, feature),
             )
-        conn.commit()
-    finally:
-        conn.close()
     return {"logged": True}
 
 
 def _enforce_monthly_usage_limit(org_id: str):
-    """
-    Deterministic, real enforcement -- counts this org's actual decisions
-    created since the start of the current calendar month and compares
-    against monthly_decision_limit. Raises a clean 429 if exceeded, before
-    any real API cost is incurred. This is the actual protection behind the
-    pricing page's "15/month" claim, which previously enforced nothing.
+    """Enforce the real monthly decision limit before any paid model call.
 
-    STRESS_TEST_ORG_ID escape hatch: added specifically for the 10-case
-    manual validation exercise. Deliberately narrow -- bypasses the count
-    check ONLY for the single organisation ID named in this env var, which
-    is unset in production and must be set explicitly by whoever runs the
-    test. This does NOT change monthly_decision_limit's default (still 3
-    for every real org), does NOT touch authentication, tenant isolation,
-    or any other safety control -- it only skips this one count comparison,
-    for this one named org, for the duration this env var happens to be
-    set. Real API costs are still incurred per case, same as any other
-    decision; this does not bypass that, only the case-count gate.
+    There is deliberately no production bypass. Internal validation runs use
+    a dedicated workspace whose database limit is explicitly provisioned for
+    that run.
     """
-    import os
-    stress_test_org = os.environ.get("STRESS_TEST_ORG_ID")
-    if stress_test_org and stress_test_org == org_id:
-        return
-
     with get_org_scoped_connection(org_id) as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -270,7 +259,7 @@ def _enforce_monthly_usage_limit(org_id: str):
         )
 
 
-def _log_unsupported_category(category: str):
+def _log_unsupported_category(category: str, organisation_id: str):
     """
     Same real-demand-evidence pattern as log_interest_signal, applied to
     unsupported question types instead of a feature button. Reuses the same
@@ -279,54 +268,84 @@ def _log_unsupported_category(category: str):
     feature` after the pilot shows real, ranked demand across BOTH unbuilt
     features and unsupported question categories in one place.
     """
-    import psycopg2
-    from app.database import _get_dsn
-
-    conn = psycopg2.connect(_get_dsn())
     try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO interest_signals (feature) VALUES (%s)",
-                (f"unsupported:{category}",),
-            )
-        conn.commit()
-    finally:
-        conn.close()
+        with get_org_scoped_connection(organisation_id) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO interest_signals (organisation_id, feature) VALUES (%s, %s)",
+                    (organisation_id, f"unsupported:{category}"),
+                )
+    except Exception as e:
+        print(f"Unsupported-category log skipped (non-blocking): {type(e).__name__}: {e}")
 
 
-@router.post("/workspaces/invite", response_model=WorkspaceResponse)
+@router.post("/workspaces/invite", response_model=InviteResponse)
 def invite_teammate(request: Request, x_org_id: str = Header(...)):
-    x_org_id, _ = _require_identity(request)
-    """
-    Creates a new user identity within the SAME organisation -- not a new
-    workspace. This is the actual missing piece behind "Team -- up to 15
-    users, shared learning": previously there was no way for a colleague to
-    join an existing organisation at all, only to create their own new,
-    isolated one. This closes that gap using the exact same private-link
-    model already in place, just scoped to an existing org_id instead of a
-    fresh one.
-    """
-    import psycopg2
-    from app.database import _get_dsn
+    """Create a short-lived bearer invitation, never a live session token.
 
-    new_user_id = uuid4()
-    conn = psycopg2.connect(_get_dsn())
-    try:
+    The inviter receives only an invitation secret. The invited person must
+    redeem that secret through /workspaces/accept-invite, which creates a fresh
+    identity and session for them. This prevents the inviter from accidentally
+    handing another person a copy of the inviter's authenticated session.
+    """
+    x_org_id, inviter_user_id = _require_identity(request)
+    invite_secret = secrets.token_urlsafe(32)
+    invite_token = f"{x_org_id}.{invite_secret}"
+    token_hash = hashlib.sha256(invite_token.encode("utf-8")).hexdigest()
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    invite_id = uuid4()
+    with get_org_scoped_connection(x_org_id) as conn:
         with conn.cursor() as cur:
-            # Confirm the org genuinely exists before inviting into it.
-            cur.execute("SELECT id FROM organisations WHERE id = %s", (x_org_id,))
-            if not cur.fetchone():
-                raise HTTPException(status_code=404, detail="Workspace not found")
-            cur.execute("SET app.current_org_id = %s", (x_org_id,))
             cur.execute(
-                "INSERT INTO users (id, organisation_id, email, password_hash) "
-                "VALUES (%s, %s, %s, 'no-password-yet')",
-                (str(new_user_id), x_org_id, f"{new_user_id}@workspace.local"),
+                """INSERT INTO workspace_invites
+                   (id, organisation_id, invited_by_user_id, token_hash, expires_at)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (str(invite_id), x_org_id, str(inviter_user_id), token_hash, expires_at),
             )
-        conn.commit()
-    finally:
-        conn.close()
-    return WorkspaceResponse(organisation_id=UUID(x_org_id), user_id=new_user_id, access_token=create_session_token(x_org_id, str(new_user_id)))
+    return InviteResponse(organisation_id=UUID(x_org_id), invite_token=invite_token, expires_at=expires_at)
+
+
+@router.post("/workspaces/accept-invite", response_model=WorkspaceResponse)
+def accept_invite(request: Request, body: AcceptInviteRequest):
+    """Redeem a single-use invitation into a brand-new user session."""
+    client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.client.host
+    _check_invite_accept_rate_limit(client_ip)
+    try:
+        org_part, secret = body.invite_token.split(".", 1)
+        org_id = str(UUID(org_part))
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid invitation link.")
+    if len(secret) < 32:
+        raise HTTPException(status_code=400, detail="Invalid invitation link.")
+
+    token_hash = hashlib.sha256(body.invite_token.encode("utf-8")).hexdigest()
+    new_user_id = uuid4()
+    with get_org_scoped_connection(org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT id, expires_at FROM workspace_invites
+                   WHERE token_hash = %s AND accepted_at IS NULL
+                     AND expires_at > now()
+                   FOR UPDATE""",
+                (token_hash,),
+            )
+            invite = cur.fetchone()
+            if not invite:
+                raise HTTPException(status_code=400, detail="This invitation is invalid, expired, or already used.")
+            cur.execute(
+                """INSERT INTO users (id, organisation_id, email, password_hash)
+                   VALUES (%s, %s, %s, 'invite-session-no-password')""",
+                (str(new_user_id), org_id, f"{new_user_id}@workspace.local"),
+            )
+            cur.execute(
+                "UPDATE workspace_invites SET accepted_at = now(), accepted_by_user_id = %s WHERE id = %s",
+                (str(new_user_id), str(invite["id"])),
+            )
+    return WorkspaceResponse(
+        organisation_id=UUID(org_id),
+        user_id=new_user_id,
+        access_token=create_session_token(org_id, str(new_user_id)),
+    )
 
 
 @router.post("/workspaces", response_model=WorkspaceResponse)
@@ -346,27 +365,19 @@ def create_workspace(request: Request):
     client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.client.host
     _check_workspace_rate_limit(client_ip)
 
-    import psycopg2
-    from app.database import _get_dsn
-
     org_id = uuid4()
     user_id = uuid4()
-    conn = psycopg2.connect(_get_dsn())
-    try:
+    with get_org_scoped_connection(str(org_id)) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO organisations (id, name) VALUES (%s, %s)",
                 (str(org_id), f"Workspace {str(org_id)[:8]}"),
             )
-            cur.execute("SET app.current_org_id = %s", (str(org_id),))
             cur.execute(
                 "INSERT INTO users (id, organisation_id, email, password_hash) "
                 "VALUES (%s, %s, %s, 'no-password-yet')",
                 (str(user_id), str(org_id), f"{user_id}@workspace.local"),
             )
-        conn.commit()
-    finally:
-        conn.close()
     return WorkspaceResponse(organisation_id=org_id, user_id=user_id, access_token=create_session_token(str(org_id), str(user_id)))
 
 
@@ -428,24 +439,17 @@ def run_two_case_validation(request: Request):
     # pilot workspace, so this can never affect real quota.
     org_id = uuid_module.uuid4()
     user_id = uuid_module.uuid4()
-    import psycopg2
-    from app.database import _get_dsn
-    conn = psycopg2.connect(_get_dsn())
-    try:
+    with get_org_scoped_connection(str(org_id)) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO organisations (id, name, monthly_decision_limit) VALUES (%s, %s, 10)",
                 (str(org_id), f"Validation Run {str(org_id)[:8]}"),
             )
-            cur.execute("SET app.current_org_id = %s", (str(org_id),))
             cur.execute(
                 "INSERT INTO users (id, organisation_id, email, password_hash) "
                 "VALUES (%s, %s, %s, 'no-password-yet')",
                 (str(user_id), str(org_id), f"{user_id}@validation.local"),
             )
-        conn.commit()
-    finally:
-        conn.close()
 
     validation_token = create_session_token(str(org_id), str(user_id), ttl_days=1)
     headers = {
@@ -551,7 +555,7 @@ def _log_full_error(context: str, exc: Exception) -> str:
     )
 
 
-def _log_fallback_fired(fallback_name: str, content_type: str | None = None, is_conflict: bool = False):
+def _log_fallback_fired(fallback_name: str, content_type: str | None = None, is_conflict: bool = False, organisation_id: str | None = None):
     """
     Real instrumentation for the deterministic extraction fallbacks
     (region, annual spend, requested percent, freight, incoterm, duty,
@@ -572,20 +576,16 @@ def _log_fallback_fired(fallback_name: str, content_type: str | None = None, is_
     same discipline as every other non-critical logging in this codebase.
     """
     try:
-        import psycopg2
-        from app.database import _get_dsn
+        if not organisation_id:
+            return
         from app.model_config import CLASSIFIER_MODEL
-        conn = psycopg2.connect(_get_dsn())
-        try:
+        with get_org_scoped_connection(organisation_id) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO fallback_events (fallback_type, content_type, model_version, is_conflict) "
-                    "VALUES (%s, %s, %s, %s)",
-                    (fallback_name, content_type, CLASSIFIER_MODEL, is_conflict),
+                    "INSERT INTO fallback_events (organisation_id, fallback_type, content_type, model_version, is_conflict) "
+                    "VALUES (%s, %s, %s, %s, %s)",
+                    (organisation_id, fallback_name, content_type, CLASSIFIER_MODEL, is_conflict),
                 )
-            conn.commit()
-        finally:
-            conn.close()
     except Exception as e:
         print(f"Fallback-firing log skipped (non-blocking): {type(e).__name__}: {e}")
 
@@ -630,7 +630,7 @@ def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTas
         # so it can never block the (already honest) rejection response.
         category = classification.get("unsupported_category", "other")
         try:
-            _log_unsupported_category(category)
+            _log_unsupported_category(category, x_org_id)
         except Exception:
             pass
         category_label = category.replace("_", " ").title()
@@ -668,14 +668,14 @@ def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTas
         stakeholder_views=classification.get("stakeholder_views"),
     )
     for field in conflicts:
-        _log_fallback_fired(field, content_type, is_conflict=True)
+        _log_fallback_fired(field, content_type, is_conflict=True, organisation_id=x_org_id)
     # Real, honest telemetry: every field whose final value came from the
     # deterministic fallback (not the model) is logged here too, same
     # signal as before the migration, just sourced from one place now
     # instead of two duplicated call sites.
     for field, prov in normalized.provenance.items():
         if prov.source == "deterministic_fallback" and not prov.conflicting:
-            _log_fallback_fired(field, content_type)
+            _log_fallback_fired(field, content_type, organisation_id=x_org_id)
 
     stored_evidence = normalized.as_flat_evidence_dict()
     # Persist per-supplier data too, under a reserved key -- without this,
@@ -762,7 +762,7 @@ def _restart_reasoning_from_stored_evidence(org_id: str, decision_id, attempt_id
         stakeholder_views=restored_stakeholders,
     )
     for field in conflicts:
-        _log_fallback_fired(field, row["classified_content_type"], is_conflict=True)
+        _log_fallback_fired(field, row["classified_content_type"], is_conflict=True, organisation_id=org_id)
     background_tasks.add_task(_run_reasoning_safe, org_id, decision_id, attempt_id, normalized, row["raw_question"])
     return _fetch_decision(org_id, decision_id)
 
@@ -873,7 +873,7 @@ def respond(decision_id: UUID, body: RespondRequest, background_tasks: Backgroun
         stakeholder_views=restored_stakeholders,
     )
     for field in conflicts:
-        _log_fallback_fired(field, row["classified_content_type"], is_conflict=True)
+        _log_fallback_fired(field, row["classified_content_type"], is_conflict=True, organisation_id=x_org_id)
 
     missing = check_missing_evidence(normalized)
     if missing:
@@ -971,7 +971,7 @@ def continue_case(decision_id: UUID, body: ContinueCaseRequest, background_tasks
         stakeholder_views=restored_stakeholders,
     )
     for field in conflicts:
-        _log_fallback_fired(field, parent["classified_content_type"], is_conflict=True)
+        _log_fallback_fired(field, parent["classified_content_type"], is_conflict=True, organisation_id=x_org_id)
 
     background_tasks.add_task(
         _run_reasoning_safe, x_org_id, new_decision_id, new_attempt_id, normalized, body.what_happened,
@@ -1107,10 +1107,12 @@ def submit_feedback(decision_id: UUID, body: FeedbackRequest, request: Request, 
             cur.execute(
                 """INSERT INTO decision_feedback
                    (commercial_decision_id, submitted_by_user_id, decision_alignment,
-                    outcome_description, validation_verdict, unexpected_insight)
-                   VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, outcome_recorded_at""",
+                    outcome_description, validation_verdict, unexpected_insight,
+                    actual_financial_impact_usd, actual_measurement_basis)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id, outcome_recorded_at""",
                 (str(decision_id), x_user_id, body.decision_alignment,
-                 body.outcome_description, body.validation_verdict, body.unexpected_insight),
+                 body.outcome_description, body.validation_verdict, body.unexpected_insight,
+                 body.actual_financial_impact_usd, body.actual_measurement_basis),
             )
             return cur.fetchone()
 
@@ -1136,7 +1138,8 @@ def _get_org_history(org_id, content_type, exclude_decision_id) -> list[dict]:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT cd.commercial_position, df.outcome_description,
-                          df.validation_verdict, df.unexpected_insight
+                          df.validation_verdict, df.unexpected_insight,
+                          df.actual_financial_impact_usd, df.actual_measurement_basis
                    FROM decision_feedback df
                    JOIN commercial_decisions cd ON cd.id = df.commercial_decision_id
                    WHERE cd.classified_content_type = %s AND cd.id != %s
@@ -1171,7 +1174,8 @@ def _get_supplier_specific_history(org_id, supplier_name, exclude_decision_id) -
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT cd.raw_question, cd.commercial_position, cd.created_at,
-                          df.outcome_description, df.validation_verdict, df.decision_alignment
+                          df.outcome_description, df.validation_verdict, df.decision_alignment,
+                          df.actual_financial_impact_usd, df.actual_measurement_basis
                    FROM commercial_decisions cd
                    LEFT JOIN decision_feedback df ON df.commercial_decision_id = cd.id
                    WHERE cd.user_supplied_inputs->>'supplier_name' ILIKE %s
@@ -1318,7 +1322,7 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
                     retried_position.financial_impact = financial_impact
                 retried_position.informed_by_case_count = len(history)
                 still_uncovered = check_tco_coverage(retried_position, relevant_dimensions)
-                _log_fallback_fired("tco_retry_fired", content_type)
+                _log_fallback_fired("tco_retry_fired", content_type, organisation_id=org_id)
                 if len(still_uncovered) < len(uncovered):
                     position = retried_position
             except Exception as e:
@@ -1344,14 +1348,14 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
                 if financial_impact is not None:
                     retried_position.financial_impact = financial_impact
                 retried_position.informed_by_case_count = len(history)
-                _log_fallback_fired("kraljic_retry_fired", content_type)
+                _log_fallback_fired("kraljic_retry_fired", content_type, organisation_id=org_id)
                 still_missing = check_kraljic_reasoning_coverage(retried_position)
                 if len(still_missing) < len(missing_kraljic):
                     position = retried_position
             except Exception as e:
                 print(f"Kraljic-consistency retry skipped (non-blocking): {type(e).__name__}: {e}")
 
-    contradictions = check_all_contradictions(position)
+    contradictions = check_all_contradictions(position, normalized)
     if contradictions:
         try:
             correction_text = (
@@ -1364,8 +1368,8 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
             if financial_impact is not None:
                 retried_position.financial_impact = financial_impact
             retried_position.informed_by_case_count = len(history)
-            _log_fallback_fired("contradiction_retry_fired", content_type)
-            still_contradicting = check_all_contradictions(retried_position)
+            _log_fallback_fired("contradiction_retry_fired", content_type, organisation_id=org_id)
+            still_contradicting = check_all_contradictions(retried_position, normalized)
             if len(still_contradicting) < len(contradictions):
                 position = retried_position
         except Exception as e:
@@ -1386,7 +1390,7 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
             if financial_impact is not None:
                 retried_position.financial_impact = financial_impact
             retried_position.informed_by_case_count = len(history)
-            _log_fallback_fired("claim_integrity_retry_fired", content_type)
+            _log_fallback_fired("claim_integrity_retry_fired", content_type, organisation_id=org_id)
             still_overstating = check_all_claim_overstatements(
                 retried_position, normalized, raw_question, is_continuation=continuation_context is not None,
             )
@@ -1408,9 +1412,12 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
     # Release 7: deterministic adversarial stress test. Never another LLM call.
     try:
         position.stress_test = build_stress_test(normalized, position)
-        position.alternative_analysis = build_alternative_paths(normalized)
     except Exception as e:
         print(f"Stress test skipped (non-blocking): {type(e).__name__}: {e}")
+    try:
+        position.alternative_analysis = build_alternative_paths(normalized)
+    except Exception as e:
+        print(f"Alternative-path analysis skipped (non-blocking): {type(e).__name__}: {e}")
     # Release 9: deterministic executive control tower. Presentation/control
     # only; it never changes the recommendation or confidence.
     try:
@@ -1431,6 +1438,62 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
         position.negotiation_playbook = NegotiationPlaybook(**build_negotiation_playbook(position))
     except Exception as e:
         print(f"Control tower refresh skipped (non-blocking): {type(e).__name__}: {e}")
+
+    # Release 19: deterministic trust certification. It is deliberately
+    # computed before presentation artifacts so the certificate reflects the
+    # final validated decision state and can never be changed by rendering.
+    try:
+        position.trust_certification = build_trust_certification(normalized, position)
+    except Exception as e:
+        print(f"Trust certification skipped (non-blocking): {type(e).__name__}: {e}")
+
+    # Release 20: deterministic Commercial Truth Model. This is the single
+    # structural commercial contract for downstream R21-R25 intelligence.
+    # It is built after R19 trust is final and before presentation layers.
+    try:
+        position.commercial_truth_model = build_commercial_truth_model(normalized, position)
+    except Exception as e:
+        print(f"Commercial Truth Model skipped (non-blocking): {type(e).__name__}: {e}")
+
+    # Release 21: deterministic Decision Flip Map. It is generated only after
+    # the validated position exists, and it can never alter that position.
+    try:
+        position.decision_flip_map = build_decision_flip_map(normalized, position)
+    except Exception as e:
+        print(f"Decision flip map skipped (non-blocking): {type(e).__name__}: {e}")
+
+    # Release 22: deterministic Commercial War Room. It assembles buyer, supplier,
+    # market and stakeholder positions plus explicitly labelled negotiation
+    # scenarios. It never predicts supplier psychology or changes the decision.
+    try:
+        position.commercial_war_room = build_commercial_war_room(normalized, position)
+    except Exception as e:
+        print(f"Commercial war room skipped (non-blocking): {type(e).__name__}: {e}")
+
+    # Release 23: deterministic Procurement Memory. It is built from the
+    # same persisted history already used to inform reasoning, plus recorded
+    # outcomes. It cannot alter the current recommendation.
+    try:
+        position.procurement_memory = build_procurement_memory(
+            normalized, position, normalized.history.org_history, normalized.history.supplier_history
+        )
+    except Exception as e:
+        print(f"Procurement memory skipped (non-blocking): {type(e).__name__}: {e}")
+
+    # Native VendorEdge presentation: deterministic answer-first passport.
+    # It is generated only after confidence, audit, alternatives and stress
+    # state are final, so the top-line card cannot disagree with the detail below.
+    try:
+        position.decision_passport = build_decision_passport(normalized, position)
+    except Exception as e:
+        print(f"Decision passport skipped (non-blocking): {type(e).__name__}: {e}")
+    # Release 18: native Commercial Decision Cockpit. It is deliberately
+    # generated after all deterministic controls are final so the cockpit
+    # cannot disagree with the stored recommendation/confidence.
+    try:
+        position.decision_cockpit = build_decision_cockpit(normalized, position)
+    except Exception as e:
+        print(f"Decision cockpit skipped (non-blocking): {type(e).__name__}: {e}")
 
     attempt_fencing.write_heartbeat(org_id, decision_id, attempt_id, "finalizing")
     write_succeeded = attempt_fencing.write_final_result(
@@ -1533,11 +1596,14 @@ def _fetch_decision(org_id, decision_id) -> CommercialDecisionResponse:
                           df.validation_verdict AS recorded_outcome_verdict,
                           df.outcome_recorded_at AS recorded_outcome_at,
                           df.decision_alignment AS recorded_decision_alignment,
-                          df.unexpected_insight AS recorded_unexpected_insight
+                          df.unexpected_insight AS recorded_unexpected_insight,
+                          df.actual_financial_impact_usd AS recorded_actual_financial_impact_usd,
+                          df.actual_measurement_basis AS recorded_actual_measurement_basis
                    FROM commercial_decisions cd
                    LEFT JOIN LATERAL (
                        SELECT id, outcome_description, validation_verdict, outcome_recorded_at,
-                              decision_alignment, unexpected_insight
+                              decision_alignment, unexpected_insight, actual_financial_impact_usd,
+                              actual_measurement_basis
                        FROM decision_feedback
                        WHERE commercial_decision_id = cd.id
                        ORDER BY outcome_recorded_at DESC
@@ -1604,4 +1670,80 @@ def _fetch_decision(org_id, decision_id) -> CommercialDecisionResponse:
                     "VendorEdge couldn't complete this analysis. You can safely try again -- "
                     "your answers are saved."
                 )
+
+            # R24: outcome intelligence is deliberately computed at read time
+            # from immutable decision data + the latest recorded outcome. It
+            # never writes back into commercial_position.
+            try:
+                position_obj = row_dict.get("commercial_position")
+                feedback = None
+                if row_dict.get("has_outcome_feedback"):
+                    feedback = {
+                        "outcome_description": row_dict.get("recorded_outcome_description"),
+                        "validation_verdict": row_dict.get("recorded_outcome_verdict"),
+                        "decision_alignment": row_dict.get("recorded_decision_alignment"),
+                        "unexpected_insight": row_dict.get("recorded_unexpected_insight"),
+                        "actual_financial_impact_usd": row_dict.get("recorded_actual_financial_impact_usd"),
+                        "actual_measurement_basis": row_dict.get("recorded_actual_measurement_basis"),
+                    }
+                if position_obj:
+                    from app.models import CommercialPosition
+                    pos_model = position_obj if isinstance(position_obj, CommercialPosition) else CommercialPosition(**position_obj)
+                    history_rows = []
+                    if row_dict.get("classified_content_type"):
+                        with get_org_scoped_connection(org_id) as hconn:
+                            with hconn.cursor() as hcur:
+                                hcur.execute(
+                                    """SELECT cd.commercial_position, df.actual_financial_impact_usd
+                                       FROM decision_feedback df
+                                       JOIN commercial_decisions cd ON cd.id = df.commercial_decision_id
+                                       WHERE cd.classified_content_type = %s AND cd.id != %s
+                                         AND df.actual_financial_impact_usd IS NOT NULL
+                                       ORDER BY df.outcome_recorded_at DESC LIMIT 50""",
+                                    (row_dict["classified_content_type"], str(decision_id)),
+                                )
+                                for hr in hcur.fetchall():
+                                    hp = hr.get("commercial_position") or {}
+                                    hf = (hp.get("financial_impact") or {}) if isinstance(hp, dict) else {}
+                                    history_rows.append({
+                                        "expected_financial_impact_usd": hf.get("potential_annual_impact_usd"),
+                                        "actual_financial_impact_usd": hr.get("actual_financial_impact_usd"),
+                                    })
+                    row_dict["outcome_intelligence"] = build_outcome_intelligence(pos_model, feedback, history_rows)
+            except Exception as e:
+                print(f"Outcome intelligence skipped (non-blocking): {type(e).__name__}: {e}")
+
+            # R25: Commercial DNA is deliberately organization-wide and read-time.
+            # Unlike R23's case-local memory, it looks across completed decisions
+            # in this authenticated organization and only uses explicit persisted
+            # outcomes. It never mutates commercial_position or the recommendation.
+            try:
+                dna_rows = []
+                with get_org_scoped_connection(org_id) as dconn:
+                    with dconn.cursor() as dcur:
+                        dcur.execute(
+                            """SELECT cd.id, cd.created_at, cd.classified_content_type,
+                                      cd.commercial_position,
+                                      df.validation_verdict, df.decision_alignment,
+                                      df.actual_financial_impact_usd
+                               FROM commercial_decisions cd
+                               LEFT JOIN LATERAL (
+                                   SELECT validation_verdict, decision_alignment, actual_financial_impact_usd
+                                   FROM decision_feedback
+                                   WHERE commercial_decision_id = cd.id
+                                   ORDER BY outcome_recorded_at DESC
+                                   LIMIT 1
+                               ) df ON true
+                               WHERE cd.status = 'completed' AND cd.id != %s
+                               ORDER BY cd.created_at DESC
+                               LIMIT 100""",
+                            (str(decision_id),),
+                        )
+                        dna_rows = [dict(r) for r in dcur.fetchall()]
+                row_dict["commercial_dna"] = build_commercial_dna(
+                    row_dict.get("classified_content_type"), dna_rows
+                )
+            except Exception as e:
+                print(f"Commercial DNA skipped (non-blocking): {type(e).__name__}: {e}")
+
             return CommercialDecisionResponse(**row_dict)

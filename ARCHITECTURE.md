@@ -76,3 +76,6 @@ Two things worth knowing if you're new to this file:
 - `benchmark/README.md` — how to run the structural regression suite against a live API key.
 - `PILOT_DASHBOARD_QUERIES.md` — ready SQL queries for checking real pilot demand data.
 - `tests/` — every test here reflects a real, previously-live bug, not a speculative edge case. Reading the test names is a reasonable way to learn the project's history.
+## Release 24 — Outcome Intelligence
+R24 closes the decision loop without mutating the immutable commercial position. The read-time outcome layer compares the deterministic expected financial impact with an explicitly structured actual value, preserves the user's outcome narrative, distinguishes reasoning failure from execution failure, and withholds historical realization metrics until at least three structured outcome pairs exist. Free-text outcome descriptions are never parsed into financial numbers.
+

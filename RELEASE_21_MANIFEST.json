@@ -1,0 +1,14 @@
+{
+  "release": "R21",
+  "name": "Decision Flip Map",
+  "version": "R21.1",
+  "mission": "Show exactly what changes the decision without inventing unsupported thresholds.",
+  "deterministic": true,
+  "llm_calls_added": 0,
+  "recommendation_mutation": false,
+  "validation": {
+    "targeted_tests_passed": 25,
+    "full_suite_blocked_by_environment_dependencies": true,
+    "missing_dependencies": ["psycopg2", "anthropic"]
+  }
+}

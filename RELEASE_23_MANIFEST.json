@@ -1,0 +1,22 @@
+{
+  "release": "R23",
+  "name": "Procurement Memory",
+  "version": "R23.1",
+  "mission": "Remember decisions, suppliers, negotiations and outcome-backed lessons without inventing patterns.",
+  "deterministic": true,
+  "llm_calls_added": 0,
+  "recommendation_mutation": false,
+  "new_files": [
+    "app/pipeline/procurement_memory.py",
+    "tests/test_release23_procurement_memory.py",
+    "CTO_RELEASE_23_PROCUREMENT_MEMORY.md",
+    "RELEASE_23_MANIFEST.json"
+  ],
+  "validation": {
+    "r23_targeted": 5,
+    "dependency_free_regression": 54,
+    "python_compileall": "passed",
+    "frontend_js_syntax": "passed",
+    "full_suite": "not_claimed_due_to_missing_anthropic_and_psycopg2"
+  }
+}

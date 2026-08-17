@@ -1,0 +1,17 @@
+{
+  "release": "R22",
+  "name": "Commercial War Room",
+  "version": "R22.1",
+  "mission": "Create an evidence-backed negotiation theatre across buyer, supplier, market and stakeholders without inventing counterpart psychology or changing the decision.",
+  "deterministic": true,
+  "llm_calls_added": 0,
+  "recommendation_mutation": false,
+  "supplier_response_prediction": false,
+  "validation": {
+    "targeted_tests_passed": 21,
+    "javascript_syntax_passed": true,
+    "python_compile_passed": true,
+    "full_suite_blocked_by_environment_dependencies": true,
+    "missing_dependencies": ["psycopg2", "anthropic"]
+  }
+}

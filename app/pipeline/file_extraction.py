@@ -27,6 +27,25 @@ class FileExtractionError(Exception):
     pass
 
 
+def _validate_zip_container(file_bytes: bytes, *, max_entries: int = 2000, max_total_uncompressed: int = 30_000_000, max_member_uncompressed: int = 10_000_000) -> None:
+    """Bound nested ZIP expansion before handing a workbook to openpyxl."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
+            infos = [i for i in archive.infolist() if not i.is_dir()]
+            if len(infos) > max_entries:
+                raise FileExtractionError("This spreadsheet contains too many internal files.")
+            total = 0
+            for info in infos:
+                size = int(info.file_size or 0)
+                if size > max_member_uncompressed:
+                    raise FileExtractionError("This spreadsheet contains an oversized internal file.")
+                total += size
+                if total > max_total_uncompressed:
+                    raise FileExtractionError("This spreadsheet expands beyond the supported safety limit.")
+    except zipfile.BadZipFile as e:
+        raise FileExtractionError("This spreadsheet is not a valid XLSX archive.") from e
+
+
 def extract_text_from_xlsx(file_bytes: bytes, max_chars: int = 8000) -> str:
     """
     Reads every cell of every sheet, row by row, and returns readable text.
@@ -39,6 +58,7 @@ def extract_text_from_xlsx(file_bytes: bytes, max_chars: int = 8000) -> str:
     reasonable size -- a genuinely huge spreadsheet gets truncated with an
     honest note, not silently cut off without saying so.
     """
+    _validate_zip_container(file_bytes)
     try:
         workbook = load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
     except Exception as e:
@@ -139,23 +159,30 @@ def extract_text_from_eml(file_bytes: bytes, max_chars: int = 8000) -> str:
 
 
 def extract_text_from_zip(file_bytes: bytes, max_chars: int = 8000) -> str:
-    """
-    Extracts every supported file found inside a .zip archive, reusing the
-    exact same extractors already built and tested for standalone files --
-    no new parsing logic, just one more container layer. This is the
-    natural fit for "just attach everything" -- a zip is often exactly how
-    someone bundles a case's documents together (an email download, a
-    shared folder export).
+    """Safely extract supported text from a ZIP bundle.
 
-    Genuinely honest about partial failures: if some files inside extract
-    fine and others don't (e.g. a scanned PDF alongside a real quote), both
-    outcomes are reported clearly rather than silently dropping or failing
-    the whole upload over one bad file.
+    ZIPs are useful for messy procurement evidence, but a tiny compressed
+    archive can expand to hundreds of MB (zip bomb) or contain thousands of
+    entries. The outer upload limit alone is therefore not a sufficient
+    safety boundary. We enforce entry-count, per-entry and cumulative
+    uncompressed-size limits *before* reading each member.
     """
+    MAX_ENTRIES = 50
+    MAX_ENTRY_UNCOMPRESSED_BYTES = 5_000_000
+    MAX_TOTAL_UNCOMPRESSED_BYTES = 20_000_000
+
     try:
         archive = zipfile.ZipFile(io.BytesIO(file_bytes))
     except zipfile.BadZipFile:
         raise FileExtractionError("Could not read this file as a valid .zip archive.")
+
+    infos = [info for info in archive.infolist()
+             if not info.is_dir() and "__MACOSX" not in info.filename
+             and not info.filename.split("/")[-1].startswith(".")]
+    if len(infos) > MAX_ENTRIES:
+        raise FileExtractionError(
+            f"This zip contains too many files ({len(infos)}). Maximum supported is {MAX_ENTRIES}."
+        )
 
     extractors_by_ext = {
         ".xlsx": extract_text_from_xlsx,
@@ -164,24 +191,37 @@ def extract_text_from_zip(file_bytes: bytes, max_chars: int = 8000) -> str:
     }
 
     sections, skipped = [], []
-    for name in archive.namelist():
-        # Skip directory entries and common zip artifacts (macOS metadata,
-        # hidden system files) -- these aren't real content, and including
-        # them would just add noise.
-        if name.endswith("/") or "__MACOSX" in name or name.split("/")[-1].startswith("."):
+    total_uncompressed = 0
+    for info in infos:
+        name = info.filename
+        # ZIP metadata is attacker-controlled; reject suspiciously large
+        # members before decompression, rather than trusting archive.read().
+        declared_size = int(info.file_size or 0)
+        if declared_size > MAX_ENTRY_UNCOMPRESSED_BYTES:
+            skipped.append(f"{name} (member exceeds 5MB uncompressed limit)")
+            continue
+        if total_uncompressed + declared_size > MAX_TOTAL_UNCOMPRESSED_BYTES:
+            skipped.append(f"{name} (archive uncompressed-size budget exceeded)")
             continue
 
         lower_name = name.lower()
         try:
-            inner_bytes = archive.read(name)
+            inner_bytes = archive.read(info)
         except Exception:
             skipped.append(f"{name} (could not read from archive)")
+            continue
+        total_uncompressed += len(inner_bytes)
+        if len(inner_bytes) > MAX_ENTRY_UNCOMPRESSED_BYTES:
+            skipped.append(f"{name} (member exceeded 5MB after decompression)")
             continue
 
         if lower_name.endswith((".txt", ".csv")):
             try:
                 text = inner_bytes.decode("utf-8", errors="replace")
-                sections.append(f"--- File: {name} ---\n{text.strip()}")
+                if text.strip():
+                    sections.append(f"--- File: {name} ---\n{text.strip()}")
+                else:
+                    skipped.append(f"{name} (empty text file)")
             except Exception:
                 skipped.append(f"{name} (could not decode as text)")
             continue
@@ -203,10 +243,8 @@ def extract_text_from_zip(file_bytes: bytes, max_chars: int = 8000) -> str:
 
     full_text = "\n\n".join(sections)
     if skipped:
-        full_text += "\n\n[Note: could not read the following from this zip: " + "; ".join(skipped) + "]"
-
+        full_text += "\n\n[Note: could not read the following from this zip: " + "; ".join(skipped[:20]) + "]"
     return _truncate(full_text, max_chars)
-
 
 def _truncate(text: str, max_chars: int) -> str:
     if len(text) > max_chars:

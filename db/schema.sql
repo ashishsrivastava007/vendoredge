@@ -37,6 +37,19 @@ CREATE TABLE IF NOT EXISTS users (
     UNIQUE (organisation_id, email)
 );
 
+-- Invitations are bearer secrets, not sessions. Only a SHA-256 token hash is
+-- stored, and each token is single-use with a short expiry.
+CREATE TABLE IF NOT EXISTS workspace_invites (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organisation_id UUID NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+    invited_by_user_id UUID NOT NULL REFERENCES users(id),
+    token_hash VARCHAR(64) NOT NULL UNIQUE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    accepted_at TIMESTAMPTZ,
+    accepted_by_user_id UUID REFERENCES users(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS commercial_decisions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organisation_id UUID NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
@@ -126,6 +139,16 @@ CREATE TABLE IF NOT EXISTS decision_feedback (
     outcome_recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE decision_feedback ADD COLUMN IF NOT EXISTS unexpected_insight TEXT;
+-- R24: structured realized financial impact. Free-text outcomes remain narrative only.
+ALTER TABLE decision_feedback ADD COLUMN IF NOT EXISTS actual_financial_impact_usd NUMERIC;
+ALTER TABLE decision_feedback ADD COLUMN IF NOT EXISTS actual_measurement_basis VARCHAR(160);
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'decision_feedback_actual_impact_reasonable') THEN
+        ALTER TABLE decision_feedback ADD CONSTRAINT decision_feedback_actual_impact_reasonable
+            CHECK (actual_financial_impact_usd IS NULL OR actual_financial_impact_usd BETWEEN -1000000000000 AND 1000000000000);
+    END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS pilot_experience_feedback (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -144,9 +167,11 @@ ALTER TABLE pilot_experience_feedback ADD COLUMN IF NOT EXISTS missing_or_frustr
 
 CREATE TABLE IF NOT EXISTS interest_signals (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organisation_id UUID REFERENCES organisations(id) ON DELETE CASCADE,
     feature VARCHAR(100) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE interest_signals ADD COLUMN IF NOT EXISTS organisation_id UUID REFERENCES organisations(id) ON DELETE CASCADE;
 
 -- AI Reliability Dashboard: every time a deterministic extraction fallback
 -- (region, annual spend, requested percent, freight) fires -- meaning the
@@ -160,6 +185,7 @@ CREATE TABLE IF NOT EXISTS interest_signals (
 -- of a guess.
 CREATE TABLE IF NOT EXISTS fallback_events (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organisation_id UUID REFERENCES organisations(id) ON DELETE CASCADE,
     fallback_type VARCHAR(50) NOT NULL,
     content_type VARCHAR(50),
     model_version VARCHAR(50) NOT NULL,
@@ -172,6 +198,7 @@ CREATE TABLE IF NOT EXISTS fallback_events (
 -- (it might mean the fallback pattern itself is too naive for that
 -- sentence shape, not just that the model missed something).
 ALTER TABLE fallback_events ADD COLUMN IF NOT EXISTS is_conflict BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE fallback_events ADD COLUMN IF NOT EXISTS organisation_id UUID REFERENCES organisations(id) ON DELETE CASCADE;
 
 -- Pilot demand-capture: only created when a real user takes the real action
 -- of clicking "Notify me" AND completing the short follow-up. The raw click
@@ -214,17 +241,29 @@ DROP POLICY IF EXISTS org_isolation_users ON users;
 CREATE POLICY org_isolation_users ON users
     USING (organisation_id = current_setting('app.current_org_id')::UUID);
 
+ALTER TABLE organisations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE organisations FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_isolation_organisations ON organisations;
+CREATE POLICY org_isolation_organisations ON organisations
+    USING (id = current_setting('app.current_org_id')::UUID);
+
+ALTER TABLE workspace_invites ENABLE ROW LEVEL SECURITY;
+ALTER TABLE workspace_invites FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_isolation_workspace_invites ON workspace_invites;
+CREATE POLICY org_isolation_workspace_invites ON workspace_invites
+    USING (organisation_id = current_setting('app.current_org_id')::UUID);
+
 ALTER TABLE commercial_decisions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE commercial_decisions FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS org_isolation_cd ON commercial_decisions;
 CREATE POLICY org_isolation_cd ON commercial_decisions
     USING (organisation_id = current_setting('app.current_org_id')::UUID);
 
--- CRITICAL: the application must NEVER connect to the database as its
--- superuser/owner account. The application role is provisioned OUTSIDE this
--- schema using deployment-time credentials; no production password is stored
--- in source control. Migration code then grants the minimum application
--- privileges to that externally-provisioned role.
+-- CRITICAL: the application must NEVER connect as a PostgreSQL SUPERUSER.
+-- FORCE ROW LEVEL SECURITY is applied below so even a table owner is still
+-- subject to tenant policies. Where the hosting platform supports separate
+-- migration credentials, use them; the application role should otherwise have
+-- only the CRUD privileges required by the running service.
 DO $$
 BEGIN
     IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'vendoredge_app') THEN
@@ -236,8 +275,36 @@ BEGIN
 END
 $$;
 
+ALTER TABLE interest_signals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE interest_signals FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_isolation_interest_signals ON interest_signals;
+CREATE POLICY org_isolation_interest_signals ON interest_signals
+    USING (organisation_id = current_setting('app.current_org_id')::UUID);
+
+ALTER TABLE fallback_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fallback_events FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_isolation_fallback_events ON fallback_events;
+CREATE POLICY org_isolation_fallback_events ON fallback_events
+    USING (organisation_id = current_setting('app.current_org_id')::UUID);
+
+ALTER TABLE pilot_leads ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pilot_leads FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_isolation_pilot_leads ON pilot_leads;
+CREATE POLICY org_isolation_pilot_leads ON pilot_leads
+    USING (organisation_id = current_setting('app.current_org_id')::UUID);
+
+ALTER TABLE general_feedback ENABLE ROW LEVEL SECURITY;
+ALTER TABLE general_feedback FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_isolation_general_feedback ON general_feedback;
+CREATE POLICY org_isolation_general_feedback ON general_feedback
+    USING (organisation_id = current_setting('app.current_org_id')::UUID);
+
 CREATE INDEX IF NOT EXISTS idx_cd_organisation_id ON commercial_decisions(organisation_id);
 CREATE INDEX IF NOT EXISTS idx_cd_status ON commercial_decisions(status);
+CREATE INDEX IF NOT EXISTS idx_invites_token_hash ON workspace_invites(token_hash);
+CREATE INDEX IF NOT EXISTS idx_invites_org ON workspace_invites(organisation_id);
+CREATE INDEX IF NOT EXISTS idx_interest_org ON interest_signals(organisation_id);
+CREATE INDEX IF NOT EXISTS idx_fallback_org ON fallback_events(organisation_id);
 
 ALTER TABLE pilot_experience_feedback ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pilot_experience_feedback FORCE ROW LEVEL SECURITY;

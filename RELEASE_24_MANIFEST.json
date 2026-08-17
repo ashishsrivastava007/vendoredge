@@ -1,0 +1,26 @@
+{
+  "release": "R24",
+  "name": "Outcome Intelligence",
+  "version": "R24.1",
+  "mission": "Compare expected vs actual outcomes and learn from misses without inventing causality.",
+  "deterministic": true,
+  "llm_calls_added": 0,
+  "recommendation_mutation": false,
+  "new_files": [
+    "app/pipeline/outcome_intelligence.py",
+    "tests/test_release24_outcome_intelligence.py",
+    "CTO_RELEASE_24_OUTCOME_INTELLIGENCE.md",
+    "RELEASE_24_MANIFEST.json"
+  ],
+  "schema_changes": [
+    "decision_feedback.actual_financial_impact_usd",
+    "decision_feedback.actual_measurement_basis"
+  ],
+  "validation": {
+    "r24_targeted": 5,
+    "dependency_free_regression": 36,
+    "python_compileall": "passed",
+    "frontend_js_syntax": "passed",
+    "full_suite": "not_claimed_due_to_environment_missing_psycopg2_and_anthropic"
+  }
+}

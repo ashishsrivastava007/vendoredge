@@ -1,0 +1,24 @@
+{
+  "release": "R20.1",
+  "name": "Commercial Truth Model",
+  "mission": "Turn the validated procurement case into a deterministic structural representation of the commercial situation and provide the contract for R21-R25.",
+  "llm_calls_added": 0,
+  "new_database_tables": 0,
+  "new_database_columns": 0,
+  "changes": [
+    "Added deterministic Commercial Truth Model builder",
+    "Preserved supplier-specific attributes including Incoterm and qualification",
+    "Added same-currency quote comparison without FX conversion",
+    "Added evidence posture, dependencies, stakeholders, decision changers and unknowns",
+    "Added user-visible R20 structural view",
+    "Added {{commercial_truth_model}} custom export token",
+    "Persisted model inside immutable commercial_position JSON"
+  ],
+  "validation": {
+    "r20_r19_r18_r17_and_selected_regression_tests": "61 passed",
+    "python_compileall": "passed",
+    "frontend_javascript_node_check": "passed",
+    "full_database_backed_suite": "not executable in this environment because PostgreSQL driver is unavailable and package installation is network-blocked"
+  },
+  "integrity_note": "R20 does not alter the recommendation or confidence and does not create facts through an LLM."
+}

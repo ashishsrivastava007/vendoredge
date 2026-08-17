@@ -19,6 +19,7 @@ already-existing methodology contracts and the new confidence gate
 function.
 """
 from app.models import CommercialPosition
+from app.pipeline.normalized_evidence import NormalizedEvidence
 
 _NOT_CALCULABLE_PHRASES = [
     "not calculable", "cannot be calculated", "unable to calculate",
@@ -82,7 +83,34 @@ def check_scenario_table_contradiction(position: CommercialPosition) -> list[str
     return contradictions
 
 
-def check_all_contradictions(position: CommercialPosition) -> list[str]:
-    """Runs every registered contradiction check and returns the combined
-    list -- the single entry point _run_reasoning actually calls."""
-    return check_financial_contradiction(position) + check_scenario_table_contradiction(position)
+def check_quote_economics_contradiction(position: CommercialPosition, normalized: NormalizedEvidence | None = None) -> list[str]:
+    """Catch 'not calculable' prose when deterministic quote economics are available.
+
+    Quote-comparison cases do not use the price-increase FinancialImpact schema,
+    so the older contradiction check could miss this exact presentation bug.
+    Only trigger when at least two supplier prices are explicitly present, all
+    currencies match, and annual volume is known -- no FX or hidden costs.
+    """
+    if normalized is None or normalized.content_type != "quote_comparison":
+        return []
+    priced = [s for s in normalized.suppliers if s.price_amount is not None and s.currency]
+    currencies = {str(s.currency).upper() for s in priced}
+    if len(priced) < 2 or len(currencies) != 1 or normalized.common.annual_volume_units is None:
+        return []
+    text = " ".join(filter(None, [position.reasoning, position.recommendation])).lower()
+    for phrase in _NOT_CALCULABLE_PHRASES:
+        if phrase in text:
+            return [
+                f"explicit same-currency supplier prices and annual volume support a direct quote comparison, "
+                f"but the response says '{phrase}'."
+            ]
+    return []
+
+
+def check_all_contradictions(position: CommercialPosition, normalized: NormalizedEvidence | None = None) -> list[str]:
+    """Runs every registered contradiction check and returns the combined list."""
+    return (
+        check_financial_contradiction(position)
+        + check_scenario_table_contradiction(position)
+        + check_quote_economics_contradiction(position, normalized)
+    )

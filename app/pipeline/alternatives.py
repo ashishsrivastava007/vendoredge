@@ -45,7 +45,9 @@ def _supplier_option(s: SupplierEvidence, label: str, rationale: str) -> dict:
         "supplier": s.supplier_name,
         "annual_spend_usd": None,
         "financial_basis": "Annual volume and an explicitly USD-denominated supplier price are both required to calculate spend." if price is None else None,
-        "unit_price_usd": price,
+        "unit_price_usd": price if (s.currency or "").upper() in {"USD", "US DOLLAR", "US DOLLARS"} else None,
+        "unit_price_display": s.price_display,
+        "price_currency": s.currency,
         "what_you_gain": [
             f"Uses the explicitly stated commercial offer from {s.supplier_name}" if price is not None else f"Preserves access to {s.supplier_name} as an explicit option",
         ],
@@ -122,14 +124,16 @@ def build_alternative_paths(normalized: NormalizedEvidence) -> dict:
             warnings.append("No deterministic incumbent supplier entry was resolved; paths are limited to explicit supplier evidence.")
             paths.extend(_supplier_option(s, f"Supplier path — {s.supplier_name}", f"Use {s.supplier_name} as the named supplier option.") for s in suppliers[:3])
     else:
-        priced = [s for s in suppliers if s.price_usd is not None]
+        priced = [s for s in suppliers if s.price_amount is not None or s.price_usd is not None]
         if len(priced) < 2:
             return {"available": False, "status": "NOT_TESTABLE", "summary": "At least two explicitly priced suppliers are required to build alternative paths safely.", "alternatives": [], "warnings": ["Supplier prices are incomplete or not deterministically comparable."]}
-        priced.sort(key=lambda s: float(s.price_usd))
+        currencies = {(str(s.currency).upper() if s.currency else "USD") for s in priced}
+        if len(currencies) != 1:
+            return {"available": False, "status": "NOT_TESTABLE", "summary": "Supplier prices are present but not safely comparable because currencies differ and no FX rate was supplied.", "alternatives": [], "warnings": ["No FX assumptions are permitted."]}
         cheapest = priced[0]
         incumbent = next((s for s in priced if s.is_incumbent), None)
 
-        paths.append(_supplier_option(cheapest, f"Cost-led — {cheapest.supplier_name}", f"Use {cheapest.supplier_name} as the primary source based on the lowest explicitly comparable price."))
+        paths.append(_supplier_option(cheapest, f"Cost-led — {cheapest.supplier_name}", f"Use {cheapest.supplier_name} as the primary source based on the lowest explicitly comparable price in {(cheapest.currency or "USD").upper()} without FX conversion."))
         paths[-1]["stakeholder_impacts"] = _stakeholder_impacts(normalized, cheapest.supplier_name)
 
         if incumbent and incumbent.supplier_name != cheapest.supplier_name:

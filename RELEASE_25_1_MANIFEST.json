@@ -1,0 +1,35 @@
+{
+  "release": "R25.1",
+  "name": "VendorEdge Final World-Class Hardening",
+  "base": "R25 cumulative package",
+  "purpose": "Production hardening before pilot deployment",
+  "hardening": [
+    "evidence_firewall",
+    "tenant_rls",
+    "connection_pooling",
+    "secure_invites",
+    "quota_bypass_removal",
+    "current_model_routing",
+    "nested_archive_safety",
+    "browser_security_headers",
+    "non_superuser_ci",
+    "local_app_role_bootstrap"
+  ],
+  "default_models": {
+    "classifier": "claude-sonnet-4-6",
+    "reasoning": "claude-opus-4-8",
+    "market": "claude-sonnet-4-6"
+  },
+  "validation": {
+    "python_compile": true,
+    "javascript_syntax": true,
+    "yaml_parse": true,
+    "dependency_light_tests_passed": 34,
+    "final_hardening_tests_passed": 11,
+    "final_hardening_tests_skipped_environmental": 3,
+    "live_render_deployment": false,
+    "live_anthropic_api": false,
+    "combined_targeted_tests_passed": 45,
+    "combined_targeted_tests_skipped_environmental": 3
+  }
+}

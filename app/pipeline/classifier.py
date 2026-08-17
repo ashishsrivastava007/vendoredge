@@ -12,6 +12,7 @@ import os
 import re
 from anthropic import Anthropic
 from app.pipeline.evidence import EVIDENCE_REQUIREMENTS, FIELD_PROMPTS
+from app.pipeline.evidence_firewall import EVIDENCE_FIREWALL_SYSTEM_RULES, wrap_untrusted_evidence
 from app.model_config import CLASSIFIER_MODEL
 from app import caps
 
@@ -43,6 +44,8 @@ def _build_field_reference() -> str:
 
 
 CLASSIFICATION_SYSTEM_PROMPT = f"""You are a classification and extraction component inside a commercial procurement decision system. You do not answer the question or reason about its commercial merits.
+
+{EVIDENCE_FIREWALL_SYSTEM_RULES}
 
 Classify the question into exactly one content_type and exactly one decision_type.
 
@@ -154,7 +157,7 @@ def classify(raw_question: str) -> dict:
             max_tokens=max_tokens,
             system=CLASSIFICATION_SYSTEM_PROMPT,
             messages=[
-                {"role": "user", "content": raw_question + CLASSIFICATION_REMINDER + correction}
+                {"role": "user", "content": wrap_untrusted_evidence(raw_question) + CLASSIFICATION_REMINDER + correction}
             ],
         )
         try:
@@ -236,8 +239,8 @@ def _decomposed_extraction(raw_question: str) -> dict:
         response = client.messages.create(
             model=CLASSIFIER_MODEL,
             max_tokens=max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": raw_question}],
+            system=EVIDENCE_FIREWALL_SYSTEM_RULES + "\n\n" + system,
+            messages=[{"role": "user", "content": wrap_untrusted_evidence(raw_question)}],
         )
         _record_usage(stage, response)
         if response.stop_reason == "max_tokens":

@@ -5,7 +5,9 @@ services:
     image: postgres:16
     environment:
       POSTGRES_DB: vendoredge
-      POSTGRES_PASSWORD: superuser_password_not_used_by_app
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local_dev_postgres_password}
+      APP_DATABASE_PASSWORD: ${APP_DATABASE_PASSWORD:-local_dev_app_password}
     ports:
       - "5432:5432"
     volumes:
@@ -13,7 +15,8 @@ services:
       # This is the magic that means you never have to type a database command
       # yourself: Postgres automatically runs this file the very first time
       # the database is created.
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./db/00-create-app-role.sh:/docker-entrypoint-initdb.d/00-create-app-role.sh:ro
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
       # Confirms Postgres is genuinely ready to accept real connections, not
       # just that the container process has started. Fixes a real bug found
@@ -33,15 +36,15 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: "host=db dbname=vendoredge user=vendoredge_app password=local_only_change_me"
+      DATABASE_URL: "host=db dbname=vendoredge user=vendoredge_app password=${APP_DATABASE_PASSWORD:-local_dev_app_password}"
       # A separate, more privileged connection used ONLY for the narrow,
       # automatic startup schema-migration step -- the everyday app
       # connection above intentionally cannot alter the database structure,
       # which is the correct security posture. This one can, but is never
       # used for regular request handling, only the one migration step at boot.
-      MIGRATION_DATABASE_URL: "host=db dbname=vendoredge user=postgres password=superuser_password_not_used_by_app"
+      MIGRATION_DATABASE_URL: "host=db dbname=vendoredge user=postgres password=${POSTGRES_PASSWORD:-local_dev_postgres_password}"
       APP_DATABASE_USER: "vendoredge_app"
-      APP_DATABASE_PASSWORD: "local_only_change_me"
+      APP_DATABASE_PASSWORD: "${APP_DATABASE_PASSWORD:-local_dev_app_password}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
     env_file:
       - .env

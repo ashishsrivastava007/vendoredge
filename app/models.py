@@ -29,6 +29,16 @@ class WorkspaceResponse(BaseModel):
     access_token: str
 
 
+class InviteResponse(BaseModel):
+    organisation_id: UUID
+    invite_token: str
+    expires_at: datetime
+
+
+class AcceptInviteRequest(BaseModel):
+    invite_token: str = Field(..., min_length=40, max_length=300)
+
+
 class WorkspaceInfoResponse(BaseModel):
     organisation_id: UUID
     created_at: datetime
@@ -149,6 +159,8 @@ class DecisionAlternative(BaseModel):
     annual_spend_usd: Optional[float] = None
     financial_basis: str
     unit_price_usd: Optional[float] = None
+    unit_price_display: Optional[str] = None
+    price_currency: Optional[str] = None
     what_you_gain: list[str] = Field(default_factory=list, max_length=6)
     what_you_give_up: list[str] = Field(default_factory=list, max_length=8)
     stakeholder_impacts: list[str] = Field(default_factory=list, max_length=6)
@@ -265,6 +277,36 @@ class CommercialPosition(BaseModel):
     alternative_analysis: Optional[AlternativeAnalysis] = None
     # Release 9: deterministic executive control-tower view.
     control_tower: Optional[ControlTower] = None
+    # Native VendorEdge presentation: answer-first, proof-on-demand decision card.
+    decision_passport: Optional[dict[str, Any]] = None
+    # Release 18: deterministic Commercial Decision Cockpit.
+    decision_cockpit: Optional[dict[str, Any]] = None
+    # Release 19: deterministic Trust Certification. This certifies the
+    # integrity of the decision process; it never certifies the commercial
+    # outcome itself and cannot alter the recommendation.
+    trust_certification: Optional[dict[str, Any]] = None
+    # Release 20: deterministic Commercial Truth Model. This is the structured
+    # commercial situation consumed by later intelligence layers.
+    commercial_truth_model: Optional[dict[str, Any]] = None
+    # Release 21: deterministic Decision Flip Map. Shows evidenced numeric
+    # boundaries and explicitly stated reversal conditions; it never changes
+    # the recommendation or invents a threshold.
+    decision_flip_map: Optional[dict[str, Any]] = None
+    # Release 22: deterministic Commercial War Room. It is an evidence-backed
+    # negotiation theatre and never mutates the recommendation or predicts
+    # counterpart psychology as fact.
+    commercial_war_room: Optional[dict[str, Any]] = None
+    # Release 23: deterministic institutional procurement memory. It records
+    # prior cases, supplier-specific history and outcome-backed lessons without
+    # turning sparse history into false patterns.
+    procurement_memory: Optional[dict[str, Any]] = None
+    # Release 24: deterministic expected-vs-actual outcome intelligence.
+    # Built at read time from immutable decision data + recorded outcome.
+    outcome_intelligence: Optional[dict[str, Any]] = None
+    # Release 25: deterministic organization-level Commercial DNA. Built at
+    # read time from persisted decisions/outcomes; it never mutates the current
+    # recommendation.
+    commercial_dna: Optional[dict[str, Any]] = None
     # Release 13: deterministic negotiation meeting aid.
     negotiation_playbook: Optional[NegotiationPlaybook] = None
     # Release 7: deterministic challenge of the recommendation using only
@@ -282,7 +324,7 @@ class CommercialPosition(BaseModel):
 
 
 class DecisionFormatRequest(BaseModel):
-    format_name: Literal["cfo_brief", "category_review", "supplier_meeting", "one_page"]
+    format_name: Literal["decision_cockpit", "cfo_brief", "category_review", "supplier_meeting", "one_page", "executive_60_second"]
 
 
 class CustomFormatRequest(BaseModel):
@@ -319,6 +361,8 @@ class CommercialDecisionResponse(BaseModel):
     recorded_outcome_at: Optional[datetime] = None
     recorded_decision_alignment: Optional[DecisionAlignment] = None
     recorded_unexpected_insight: Optional[str] = None
+    recorded_actual_financial_impact_usd: Optional[float] = None
+    recorded_actual_measurement_basis: Optional[str] = None
     # Async reasoning hardening: real, honest signals about an in-flight
     # or recoverable case -- never a fabricated progress percentage,
     # only real elapsed time and a real staleness/retry determination.
@@ -360,3 +404,6 @@ class FeedbackRequest(BaseModel):
     # worth capturing, and forcing one would invite padding with something
     # generic just to fill the field, the same trap avoided everywhere else.
     unexpected_insight: Optional[str] = None
+    # R24: optional structured realized financial impact; free text is never parsed.
+    actual_financial_impact_usd: Optional[float] = Field(default=None, ge=-1000000000000, le=1000000000000)
+    actual_measurement_basis: Optional[str] = Field(default=None, max_length=160)

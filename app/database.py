@@ -1,14 +1,20 @@
-"""
-Database connection helper. Implements the pattern specified in the threat model:
-app.current_org_id must be set from the verified JWT claim at the START of every
-request, on every connection acquired from the pool — never assumed to persist,
-never taken from unvalidated input. This is the actual code behind the
-cross-tenant-leakage mitigation, not just a principle.
+"""Tenant-scoped PostgreSQL access for VendorEdge.
+
+All application queries use a bounded connection pool. Tenant context is applied
+with SET LOCAL inside the transaction, so the context cannot leak when a
+connection is returned to the pool. The migration/seed path is intentionally
+separate and may use its privileged migration connection.
 """
 import os
-import psycopg2
-from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
+from threading import Lock
+
+from psycopg2 import pool
+from psycopg2 import OperationalError, InterfaceError
+from psycopg2.extras import RealDictCursor
+
+_POOL: pool.ThreadedConnectionPool | None = None
+_POOL_LOCK = Lock()
 
 
 def _get_dsn() -> str:
@@ -18,26 +24,70 @@ def _get_dsn() -> str:
     return dsn
 
 
+def _pool_bounds() -> tuple[int, int]:
+    minimum = max(1, int(os.environ.get("VENDOREDGE_DB_POOL_MIN", "1")))
+    maximum = max(minimum, int(os.environ.get("VENDOREDGE_DB_POOL_MAX", "10")))
+    return minimum, maximum
+
+
+def _get_pool() -> pool.ThreadedConnectionPool:
+    global _POOL
+    if _POOL is None:
+        with _POOL_LOCK:
+            if _POOL is None:
+                minimum, maximum = _pool_bounds()
+                _POOL = pool.ThreadedConnectionPool(
+                    minimum,
+                    maximum,
+                    dsn=_get_dsn(),
+                    cursor_factory=RealDictCursor,
+                )
+    return _POOL
+
+
 @contextmanager
 def get_org_scoped_connection(organisation_id: str):
+    """Yield a pooled connection scoped to one verified organisation.
+
+    ``SET LOCAL`` makes the tenant identity transaction-local. We always roll
+    back before returning the connection to the pool, so a later request can
+    never inherit the previous request's tenant context.
     """
-    Yields a connection with app.current_org_id set for this request only.
-    Every route handler must use this, never a raw connection, or RLS
-    isolation silently doesn't apply.
-    """
-    conn = psycopg2.connect(_get_dsn(), cursor_factory=RealDictCursor)
     try:
+        conn = _get_pool().getconn()
+    except pool.PoolError as exc:
+        raise RuntimeError("VendorEdge database connection pool is temporarily exhausted.") from exc
+
+    discard = False
+    try:
+        # Ensure a clean transaction state before applying a new tenant context.
+        conn.rollback()
         with conn.cursor() as cur:
-            # Parameterized even though it's a session variable, not user data directly —
-            # org_id here must already be verified against the JWT before this is called,
-            # never passed straight from a request body/header.
-            cur.execute("SET app.current_org_id = %s", (organisation_id,))
+            cur.execute("SELECT set_config('app.current_org_id', %s, true)", (str(organisation_id),))
         yield conn
         conn.commit()
+    except (OperationalError, InterfaceError):
+        discard = True
+        if not conn.closed:
+            conn.rollback()
+        raise
     except Exception:
-        conn.rollback()
+        if not conn.closed:
+            conn.rollback()
         raise
     finally:
-        conn.close()  # closing (not just returning to a pool) for MVP simplicity;
-        # revisit with an explicit RESET on return once real connection pooling
-        # (e.g. pgbouncer) is introduced at scale, per the threat model's defense-in-depth note.
+        # Roll back any remaining transaction state and clear transaction-local
+        # tenant state before reuse. Broken connections are discarded rather
+        # than poisoning the pool for the next request.
+        if not conn.closed:
+            conn.rollback()
+        _get_pool().putconn(conn, close=discard or bool(conn.closed))
+
+
+def close_pool() -> None:
+    """Close all pooled connections during graceful application shutdown."""
+    global _POOL
+    with _POOL_LOCK:
+        if _POOL is not None:
+            _POOL.closeall()
+            _POOL = None

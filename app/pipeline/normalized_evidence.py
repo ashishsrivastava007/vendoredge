@@ -127,6 +127,10 @@ class SupplierEvidence(BaseModel):
     region: Optional[str] = None
     currency: Optional[str] = None
     price_usd: Optional[float] = None
+    # Currency-neutral numeric price parsed from the explicit display string.
+    # This is used only when comparing suppliers quoted in the same currency;
+    # it is never silently converted to USD.
+    price_amount: Optional[float] = None
     price_display: Optional[str] = None
     lead_time_weeks: Optional[float] = None
     otif_percent: Optional[float] = None

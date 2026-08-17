@@ -25,7 +25,7 @@ mode:
 from app.models import CommercialPosition
 from app.pipeline.normalized_evidence import NormalizedEvidence
 from app.pipeline.contradiction_check import check_all_contradictions
-from app.pipeline.decision_integrity import compute_pre_reasoning_confidence as _compute_pre_reasoning_confidence
+from app.pipeline.decision_integrity import compute_pre_reasoning_confidence as _compute_pre_reasoning_confidence, _supplier_aliases
 
 _LEVEL_RANK = {"low": 0, "medium": 1, "high": 2}
 
@@ -56,7 +56,14 @@ def compute_confidence_ceiling(position: CommercialPosition, normalized: Normali
     explanation of exactly which checks triggered it, per Guarantee #1's
     same "no black-box number" discipline.
     """
-    ceiling = "high"
+    # Start from the pre-reasoning evidence ceiling as well as the post-reasoning checks.
+    # This closes the exact contradiction where the pre-pass correctly detected
+    # material stakeholder conflict but the final gate silently reset to HIGH.
+    ceiling, pre_reasons = _compute_pre_reasoning_confidence(normalized)
+    # Keep the pre-pass ceiling authoritative, but avoid duplicating its
+    # generic signals when a more specific post-reasoning check names the same
+    # issue. Stakeholder conflict is retained because it has no separate post
+    # check and must remain visible to the user.
     reasons: list[str] = []
     load_bearing = _LOAD_BEARING_FIELDS.get(normalized.content_type, set())
 
@@ -83,13 +90,14 @@ def compute_confidence_ceiling(position: CommercialPosition, normalized: Normali
     # is genuinely incomplete. Recommending real commercial action on an
     # unready alternative is inherently less certain, even if every other
     # fact in the case is perfectly verified.
-    reasoning_text = (position.reasoning or "") + " " + (position.recommendation or "")
+    reasoning_text = ((position.reasoning or "") + " " + (position.recommendation or "")).lower()
     for supplier in normalized.suppliers:
         if supplier.is_incumbent:
             continue
         if supplier.qualification_status == "complete":
             continue
-        if supplier.supplier_name and supplier.supplier_name in reasoning_text:
+        aliases = _supplier_aliases(supplier.supplier_name) if supplier.supplier_name else set()
+        if supplier.supplier_name and any(alias in reasoning_text for alias in aliases):
             ceiling = _min_level(ceiling, "medium")
             reasons.append(
                 f"recommendation relies on '{supplier.supplier_name}', whose qualification is "
@@ -100,7 +108,7 @@ def compute_confidence_ceiling(position: CommercialPosition, normalized: Normali
     # contradicts its own guaranteed data. This is worse than a missing
     # or conflicting input -- it means the response disagrees with
     # itself, so it gets the hardest cap.
-    if check_all_contradictions(position):
+    if check_all_contradictions(position, normalized):
         ceiling = _min_level(ceiling, "low")
         reasons.append("the final response contains an unresolved internal contradiction")
 
@@ -121,6 +129,16 @@ def compute_confidence_ceiling(position: CommercialPosition, normalized: Normali
                 f"a majority of load-bearing evidence ({', '.join(fallback_only)}) was resolved only "
                 f"by deterministic fallback, never independently confirmed by the model or the user"
             )
+
+    for pre_reason in pre_reasons:
+        lower = pre_reason.lower()
+        already_specific = (
+            ("annual spend" in lower and any("financial impact" in r.lower() or "annual spend" in r.lower() for r in reasons))
+            or ("conflict" in lower and any("conflict" in r.lower() for r in reasons))
+            or ("fallback" in lower and any("fallback" in r.lower() for r in reasons))
+        )
+        if not already_specific:
+            reasons.append(pre_reason)
 
     return ceiling, reasons
 

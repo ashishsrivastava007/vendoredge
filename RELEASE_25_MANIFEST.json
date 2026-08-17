@@ -1,0 +1,56 @@
+{
+  "release": "R25",
+  "name": "Commercial DNA",
+  "version": "R25.2-FINAL",
+  "mission": "Combine trust, commercial structure, flip conditions, negotiation context, procurement memory and measured outcomes into a conservative organization-level intelligence layer.",
+  "deterministic": true,
+  "llm_calls_added": 0,
+  "recommendation_mutation": false,
+  "new_files": [
+    "app/pipeline/commercial_dna.py",
+    "tests/test_release25_commercial_dna.py",
+    "CTO_RELEASE_25_COMMERCIAL_DNA.md",
+    "RELEASE_25_MANIFEST.json"
+  ],
+  "schema_changes": [],
+  "validation": {
+    "r25_targeted": 6,
+    "r18_r25_and_safety_regression": 72,
+    "python_compileall": "passed",
+    "frontend_js_syntax": "passed",
+    "full_suite": "not_claimed_due_to_environment_missing_psycopg2_and_anthropic"
+  },
+  "final_audit": {
+    "baseline": "VendorEdge_Release_18_FINAL_CLEAN.zip",
+    "integrated_releases": [
+      "R19",
+      "R20",
+      "R21",
+      "R22",
+      "R23",
+      "R24",
+      "R25"
+    ],
+    "cumulative_regression_fixed": [
+      "R20 Commercial Truth Model was restored after being absent from later release archives"
+    ],
+    "hardening": [
+      "ZIP bomb limits",
+      "DOM escaping for model-controlled values",
+      "security headers",
+      "API no-store caching",
+      "configurable valid Anthropic model",
+      "web-search pause_turn continuation",
+      "non-root Docker",
+      "Render Blueprint",
+      "GitHub CI"
+    ],
+    "deterministic_tests_passed": 252,
+    "deterministic_tests_skipped": 76,
+    "python_compileall": "passed",
+    "frontend_js_syntax": "passed",
+    "render_yaml_parse": "passed",
+    "live_provider_execution": "not available in build environment",
+    "live_render_execution": "not available in build environment"
+  }
+}

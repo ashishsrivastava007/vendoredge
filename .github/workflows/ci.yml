@@ -1,0 +1,69 @@
+name: VendorEdge CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: vendoredge_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d vendoredge_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      TEST_DATABASE_URL: postgresql://vendoredge_app:vendoredge-ci-password@localhost:5432/vendoredge_test
+      DATABASE_URL: postgresql://vendoredge_app:vendoredge-ci-password@localhost:5432/vendoredge_test
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vendoredge_test
+      APP_DATABASE_USER: vendoredge_app
+      APP_DATABASE_PASSWORD: vendoredge-ci-password
+      VENDOREDGE_AUTH_SECRET: ci-test-secret-longer-than-32-characters
+      ALLOW_LEGACY_WORKSPACE_LINKS: "true"
+      VALIDATION_ENABLED: "false"
+      ANTHROPIC_API_KEY: ci-placeholder-not-used-by-deterministic-tests
+      VENDOREDGE_CLASSIFIER_MODEL: claude-sonnet-4-6
+      VENDOREDGE_REASONING_MODEL: claude-opus-4-8
+      VENDOREDGE_MARKET_MODEL: claude-sonnet-4-6
+      VENDOREDGE_DB_POOL_MIN: "1"
+      VENDOREDGE_DB_POOL_MAX: "10"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Create non-superuser application role
+        run: |
+          PGPASSWORD=postgres psql "postgresql://postgres:postgres@localhost:5432/vendoredge_test" -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE vendoredge_app LOGIN PASSWORD 'vendoredge-ci-password';"
+      - name: Initialize test schema as migration role
+        run: psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema.sql
+      - name: Compile
+        run: python -m compileall -q app benchmark tests
+      - name: Test suite
+        run: pytest -q
+      - name: JavaScript syntax
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          text = Path('app/static/index.html').read_text()
+          blocks = re.findall(r'<script(?:[^>]*)>(.*?)</script>', text, re.S)
+          for i, block in enumerate(blocks):
+              path = Path(f'/tmp/vendoredge-{i}.js')
+              path.write_text(block)
+              subprocess.run(['node', '--check', str(path)], check=True)
+          print(f'Checked {len(blocks)} JavaScript block(s).')
+          PY

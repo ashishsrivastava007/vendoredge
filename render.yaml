@@ -1,0 +1,47 @@
+services:
+  - type: web
+    name: vendoredge
+    runtime: docker
+    plan: starter
+    region: singapore
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: vendoredge-db
+          property: connectionString
+      - key: MIGRATION_DATABASE_URL
+        fromDatabase:
+          name: vendoredge-db
+          property: connectionString
+      - key: APP_DATABASE_USER
+        value: vendoredge_app
+      - key: VENDOREDGE_AUTH_SECRET
+        generateValue: true
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ALLOW_LEGACY_WORKSPACE_LINKS
+        value: "false"
+      - key: VALIDATION_ENABLED
+        value: "false"
+      - key: VENDOREDGE_CLASSIFIER_MODEL
+        value: claude-sonnet-4-6
+      - key: VENDOREDGE_REASONING_MODEL
+        value: claude-opus-4-8
+      - key: VENDOREDGE_MARKET_MODEL
+        value: claude-sonnet-4-6
+      - key: VENDOREDGE_DB_POOL_MIN
+        value: "1"
+      - key: VENDOREDGE_DB_POOL_MAX
+        value: "10"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+databases:
+  - name: vendoredge-db
+    databaseName: vendoredge
+    user: vendoredge_app
+    plan: basic-256mb
+    region: singapore
+    postgresMajorVersion: "16"
+    diskSizeGB: 5

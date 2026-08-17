@@ -21,7 +21,7 @@ import json
 import os
 import re
 from anthropic import Anthropic
-from app.model_config import CLASSIFIER_MODEL
+from app.model_config import MARKET_MODEL
 
 _client: Anthropic | None = None
 
@@ -106,25 +106,33 @@ def verify_market_claim(stated_justification: str, region: str | None = None) ->
 
     try:
         client = _get_client()
+        tools = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}]
+        messages = [{
+            "role": "user",
+            "content": (
+                f"A supplier has justified a price increase by citing: \"{stated_justification}\". "
+                f"{region_instruction} "
+                f"Use web search to check current, real information about whether this specific market "
+                f"claim is accurate right now. Respond with ONLY a JSON object, no other text: "
+                f'{{"claim_checked": "the specific claim being checked", '
+                f'"finding": "supported | contradicted | inconclusive", '
+                f'"verified_note": "one or two sentences on what the search actually found, '
+                f'in plain language, citing roughly what the search showed, and explicitly noting '
+                f'if genuine regional data was unavailable and a global figure was used instead"}}'
+            ),
+        }]
         response = client.messages.create(
-            model=CLASSIFIER_MODEL,
-            max_tokens=600,
-            tools=[{"type": "web_search_20250305", "name": "web_search"}],
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"A supplier has justified a price increase by citing: \"{stated_justification}\". "
-                    f"{region_instruction} "
-                    f"Use web search to check current, real information about whether this specific market "
-                    f"claim is accurate right now. Respond with ONLY a JSON object, no other text: "
-                    f'{{"claim_checked": "the specific claim being checked", '
-                    f'"finding": "supported | contradicted | inconclusive", '
-                    f'"verified_note": "one or two sentences on what the search actually found, '
-                    f'in plain language, citing roughly what the search showed, and explicitly noting '
-                    f'if genuine regional data was unavailable and a global figure was used instead"}}'
-                ),
-            }],
+            model=MARKET_MODEL, max_tokens=600, tools=tools, messages=messages
         )
+
+        # Anthropic server-side tools can return pause_turn for a long-running
+        # search. Continue the same turn once, preserving the tool state,
+        # instead of silently treating a valid search as a failure.
+        if getattr(response, "stop_reason", None) == "pause_turn":
+            continuation_messages = messages + [{"role": "assistant", "content": response.content}]
+            response = client.messages.create(
+                model=MARKET_MODEL, max_tokens=600, tools=tools, messages=continuation_messages
+            )
 
         # Server-side tools (like web_search) can return multiple content
         # blocks (search results, then the model's final text). We want the

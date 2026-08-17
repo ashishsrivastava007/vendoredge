@@ -36,6 +36,55 @@
   .nudge-banner button { margin-left: 8px; }
   #case-summary-text { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12.5px; background: white; border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px; max-height: 340px; overflow-y: auto; }
   .copy-confirm { font-size: 12px; color: #216b3e; margin-left: 8px; }
+
+  /* R25.2 UX — Commercial Intelligence Canvas. Intentionally restrained: premium,
+     information-dense, and decision-first rather than decorative. */
+  :root {
+    --ink:#111318; --muted:#6b707a; --line:#e7e8ec; --panel:#ffffff;
+    --soft:#f6f7f9; --accent:#5b4bd8; --accent-soft:#eeecff; --good:#1d7a4b;
+    --shadow:0 18px 50px rgba(17,19,24,.08);
+  }
+  * { box-sizing:border-box; }
+  body { max-width:1180px; padding:0 28px 72px; background:linear-gradient(180deg,#fbfbfc 0%,#f7f8fa 100%); color:var(--ink); }
+  nav { max-width:1120px; margin:0 auto 34px; padding:20px 0 17px; border-bottom:1px solid rgba(17,19,24,.08); }
+  nav .brand { font-size:16px; letter-spacing:-.02em; }
+  .hero-eyebrow { display:flex; justify-content:center; align-items:center; gap:8px; color:#777b84; font-size:10px; font-weight:800; letter-spacing:.16em; margin:30px 0 14px; }
+  .hero-dot { width:6px; height:6px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 4px var(--accent-soft); }
+  .hero-title { font-size:52px !important; line-height:1.02; letter-spacing:-.055em; font-weight:650 !important; margin:0 auto 14px !important; max-width:850px; }
+  .hero-title em { color:var(--accent); font-style:normal; }
+  .hero-subline { max-width:720px; margin:0 auto !important; text-align:center; color:#5f646e; font-size:16px; line-height:1.6; }
+  .hero-proof-row { display:flex; justify-content:center; align-items:center; gap:13px; color:#888d96; font-size:11px; margin:18px 0 42px; }
+  .hero-proof-row i { width:3px; height:3px; border-radius:50%; background:#c5c7cc; }
+  #ask-screen > h2 { max-width:900px; margin:0 auto 12px; font-size:15px; font-weight:650; letter-spacing:-.01em; }
+  #ask-screen > .sub { max-width:900px; margin:0 auto 14px; text-align:left; font-size:13px; line-height:1.6; color:#747984; }
+  #ask-screen > textarea { display:block; max-width:900px; margin:0 auto; min-height:150px; padding:18px 20px; background:#fff; border:1px solid #dfe1e7; border-radius:16px; box-shadow:0 5px 18px rgba(17,19,24,.04); font-size:15px; line-height:1.55; outline:none; transition:.18s ease; }
+  #ask-screen > textarea:focus { border-color:#9a91ef; box-shadow:0 0 0 4px rgba(91,75,216,.09),0 10px 28px rgba(17,19,24,.06); }
+  .example-btn { background:#fff; border:1px solid #e1e2e7; border-radius:999px; padding:8px 13px; color:#5e636d; transition:.15s ease; }
+  .example-btn:hover { border-color:#b9b5ea; color:#4036a8; transform:translateY(-1px); }
+  .primary-btn { background:var(--ink); border-radius:999px; padding:12px 22px; box-shadow:0 7px 20px rgba(17,19,24,.14); transition:.15s ease; }
+  .primary-btn:hover { transform:translateY(-1px); box-shadow:0 10px 24px rgba(17,19,24,.18); }
+  #position-screen { max-width:1120px; margin:0 auto; }
+  #position-screen > .card:first-of-type { background:transparent; border:0; padding:0; box-shadow:none; }
+  .intelligence-journey { margin:0 0 18px; padding:15px 16px 14px; background:rgba(255,255,255,.88); border:1px solid var(--line); border-radius:18px; box-shadow:var(--shadow); overflow:hidden; }
+  .journey-kicker { font-size:9px; font-weight:800; letter-spacing:.16em; color:#8a8e98; margin:0 0 12px 2px; }
+  .journey-track { display:flex; align-items:center; min-width:880px; }
+  .journey-step { display:grid; grid-template-columns:auto 1fr; column-gap:7px; align-items:center; min-width:105px; opacity:.5; }
+  .journey-step.active { opacity:1; }
+  .journey-step span { grid-row:1 / span 2; width:27px; height:27px; display:grid; place-items:center; border-radius:9px; background:#f0f1f4; color:#777b84; font-size:9px; font-weight:800; }
+  .journey-step.active span { background:var(--accent-soft); color:var(--accent); }
+  .journey-step b { font-size:10.5px; line-height:1.1; }
+  .journey-step small { color:#9296a0; font-size:8.5px; margin-top:2px; }
+  .journey-line { flex:1; height:1px; min-width:14px; background:#dedfe4; margin:0 8px; }
+  #pos-decision-cockpit, #pos-trust-certification, #pos-commercial-truth-model, #pos-decision-flip-map, #pos-commercial-war-room, #pos-procurement-memory, #pos-outcome-intelligence, #pos-commercial-dna { margin:14px 0; }
+  #pos-decision-cockpit > *, #pos-trust-certification > *, #pos-commercial-truth-model > *, #pos-decision-flip-map > *, #pos-commercial-war-room > *, #pos-procurement-memory > *, #pos-outcome-intelligence > *, #pos-commercial-dna > * { border-radius:14px !important; }
+  #loading { max-width:720px; margin:80px auto; background:#fff; border:1px solid var(--line); border-radius:20px; padding:34px; box-shadow:var(--shadow); font-weight:600; color:#454952; }
+  @media (max-width:760px) {
+    body { padding:0 15px 48px; }
+    .hero-title { font-size:38px !important; }
+    .hero-subline { font-size:14px; }
+    .hero-proof-row { flex-wrap:wrap; margin-bottom:28px; }
+    .journey-track { overflow-x:auto; }
+  }
 </style>
 </head>
 <body>
@@ -50,7 +99,13 @@
 
 <div id="ask-screen">
   <div id="nudge-container"></div>
-  <h1>Start a Procurement Case</h1>
+  <div class="hero-eyebrow"><span class="hero-dot"></span> COMMERCIAL DECISION INTELLIGENCE</div>
+  <h1 class="hero-title">Bring the mess.<br><em>Leave with a decision.</em></h1>
+  <p class="hero-subline">VendorEdge turns fragmented commercial evidence into a decision you can defend — and shows you exactly what could change it.</p>
+  <div class="hero-proof-row">
+    <span>Evidence-grounded</span><i></i><span>Deterministic economics</span><i></i><span>Decision traceable</span>
+  </div>
+  <h2>Start a Procurement Case</h2>
   <p class="sub">Don't worry about writing the perfect prompt. Just upload whatever you have --
     supplier emails, RFQs, quotes, contracts, meeting notes, spreadsheets. VendorEdge will
     understand the evidence, identify what's missing, and recommend your commercial position.</p>
@@ -94,9 +149,36 @@
 </div>
 
 <div id="position-screen" class="hidden">
+  <div class="intelligence-journey" aria-label="VendorEdge intelligence journey">
+    <div class="journey-kicker">COMMERCIAL INTELLIGENCE</div>
+    <div class="journey-track">
+      <div class="journey-step active"><span>01</span><b>Evidence</b><small>What we know</small></div>
+      <div class="journey-line"></div>
+      <div class="journey-step active"><span>02</span><b>Truth</b><small>What holds</small></div>
+      <div class="journey-line"></div>
+      <div class="journey-step active"><span>03</span><b>Economics</b><small>What matters</small></div>
+      <div class="journey-line"></div>
+      <div class="journey-step active"><span>04</span><b>Flip</b><small>What changes it</small></div>
+      <div class="journey-line"></div>
+      <div class="journey-step active"><span>05</span><b>War Room</b><small>How to act</small></div>
+      <div class="journey-line"></div>
+      <div class="journey-step active"><span>06</span><b>Memory</b><small>What history says</small></div>
+      <div class="journey-line"></div>
+      <div class="journey-step active"><span>07</span><b>DNA</b><small>What you learn</small></div>
+    </div>
+  </div>
   <div class="card">
     <p style="color:#888; font-size:13px; margin:0 0 8px">Your commercial position</p>
     <div id="pos-thread-indicator"></div>
+    <div id="pos-decision-cockpit"></div>
+    <div id="pos-decision-passport"></div>
+    <div id="pos-trust-certification"></div>
+    <div id="pos-commercial-truth-model"></div>
+    <div id="pos-decision-flip-map"></div>
+    <div id="pos-commercial-war-room"></div>
+    <div id="pos-procurement-memory"></div>
+    <div id="pos-outcome-intelligence"></div>
+    <div id="pos-commercial-dna"></div>
     <div id="pos-snapshot"></div>
     <div id="pos-case-count"></div>
     <p id="pos-why-wins" style="font-size:13.5px; color:#444; font-style:italic; margin:6px 0 0"></p>
@@ -227,6 +309,15 @@
       <textarea id="outcome-description" rows="3" placeholder="e.g. We countered at 6% and the supplier accepted."></textarea>
     </div>
     <div class="field">
+      <label>Actual annual financial impact in USD (optional, structured)</label>
+      <input id="actual-financial-impact-usd" type="number" step="0.01" placeholder="e.g. 121000" />
+      <div style="font-size:11px;color:#888;margin-top:4px">Enter only a measured value on the same annual-impact basis as VendorEdge's estimate. Leave blank if you do not have a defensible number.</div>
+    </div>
+    <div class="field">
+      <label>How was that actual value measured? (optional)</label>
+      <input id="actual-measurement-basis" type="text" maxlength="160" placeholder="e.g. 12-month realized savings vs contracted baseline" />
+    </div>
+    <div class="field">
       <label>What surprised you? (optional, but this is the most valuable part)</label>
       <textarea id="unexpected-insight" rows="2" placeholder="e.g. Supplier was more concerned about contract length than price."></textarea>
     </div>
@@ -281,19 +372,27 @@ async function ensureWorkspace() {
     try { session = JSON.parse(stored); } catch (_) { localStorage.removeItem(SESSION_STORAGE_KEY); }
   }
 
-  // New invite links carry the signed session in the URL fragment, which is
-  // never sent to the server as a referrer or request path.
-  if (!session && window.location.hash.startsWith("#session=")) {
-    const token = decodeURIComponent(window.location.hash.slice("#session=".length));
+  // Invite links carry a single-use invitation secret in the URL fragment.
+  // The fragment is never sent to the server as a request path/referrer. The
+  // secret is redeemed once into a brand-new session for the invited person.
+  if (!session && window.location.hash.startsWith("#invite=")) {
+    const inviteToken = decodeURIComponent(window.location.hash.slice("#invite=".length));
     try {
-      const payloadPart = token.split(".")[1];
-      const padded = payloadPart.replace(/-/g, "+").replace(/_/g, "/") + "===";
-      const payload = JSON.parse(atob(padded.slice(0, padded.length - (padded.length % 4))));
-      session = { token, org: payload.org_id, user: payload.sub };
+      const inviteRes = await fetch(`${API}/workspaces/accept-invite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invite_token: inviteToken }),
+      });
+      const data = await inviteRes.json().catch(() => ({}));
+      if (!inviteRes.ok) throw new Error(data.detail || "This invitation is no longer valid.");
+      session = { token: data.access_token, org: data.organisation_id, user: data.user_id };
       localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
       window.history.replaceState({}, "", window.location.pathname + window.location.search);
       showWorkspaceBanner();
-    } catch (_) { session = null; }
+    } catch (e) {
+      alert(e.message || "This invitation is no longer valid. Please ask the workspace owner for a new invite.");
+      window.history.replaceState({}, "", window.location.pathname + window.location.search);
+    }
   }
 
   // Existing pilot links used ?org=&user=. If the temporary migration bridge
@@ -398,12 +497,12 @@ async function inviteTeammate() {
       return;
     }
     const data = await res.json();
-    const inviteUrl = `${window.location.origin}${window.location.pathname}#session=${encodeURIComponent(data.access_token)}`;
+    const inviteUrl = `${window.location.origin}${window.location.pathname}#invite=${encodeURIComponent(data.invite_token)}`;
     try {
       await navigator.clipboard.writeText(inviteUrl);
-      alert("Invite link copied! Send it to your teammate -- they'll join this same workspace with their own identity, and share the same decision history.");
+      alert("Single-use invite link copied. It expires in 24 hours and creates a separate session for your teammate -- your own session is never shared.");
     } catch (e) {
-      prompt("Copy this invite link and send it to your teammate:", inviteUrl);
+      prompt("Copy this single-use invite link and send it to your teammate:", inviteUrl);
     }
   } catch (e) {
     alert("Could not reach the server. Details: " + e.message);
@@ -602,7 +701,7 @@ function renderCostDriverComparison(pos) {
 
   const rows = pos.cost_driver_comparison.map(d => `
     <tr style="border-top:1px solid #eee">
-      <td style="padding:6px 8px; font-size:12.5px; color:#444">${d.driver}</td>
+      <td style="padding:6px 8px; font-size:12.5px; color:#444">${escapeHtml(String(d.driver ?? ""))}</td>
       <td style="padding:6px 8px; width:38%">${barCell(d.claimed_percent, "#c98a3a")}</td>
       <td style="padding:6px 8px; width:38%">${barCell(d.market_percent, "#3a7ac9")}</td>
     </tr>
@@ -632,8 +731,8 @@ function renderKeyFigures(pos) {
   }
   const rows = pos.key_figures.map((f, i) => `
     <div style="display:flex; justify-content:space-between; align-items:baseline; padding:7px 0; ${i > 0 ? 'border-top:1px solid #eee' : ''}">
-      <span style="font-size:12.5px; color:#777">${f.label}</span>
-      <span style="font-size:14px; font-weight:500">${f.value}</span>
+      <span style="font-size:12.5px; color:#777">${escapeHtml(String(f.label ?? ""))}</span>
+      <span style="font-size:14px; font-weight:500">${escapeHtml(String(f.value ?? ""))}</span>
     </div>
   `).join("");
   el.innerHTML = `
@@ -653,11 +752,11 @@ function renderSupplierComparison(pos) {
   const cell = (v) => v || "&mdash;";
   const rows = pos.supplier_comparison.map(s => `
     <tr style="border-top:1px solid #eee">
-      <td style="padding:7px 10px; font-size:12.5px; font-weight:500">${s.name}</td>
-      <td style="padding:7px 10px; font-size:12.5px; text-align:right">${cell(s.price)}</td>
-      <td style="padding:7px 10px; font-size:12.5px; text-align:right">${cell(s.otif)}</td>
-      <td style="padding:7px 10px; font-size:12.5px; text-align:right">${cell(s.defect_rate)}</td>
-      <td style="padding:7px 10px; font-size:12.5px; text-align:right">${cell(s.lead_time)}</td>
+      <td style="padding:7px 10px; font-size:12.5px; font-weight:500">${escapeHtml(String(s.name ?? ""))}</td>
+      <td style="padding:7px 10px; font-size:12.5px; text-align:right">${escapeHtml(String(cell(s.price)))}</td>
+      <td style="padding:7px 10px; font-size:12.5px; text-align:right">${escapeHtml(String(cell(s.otif)))}</td>
+      <td style="padding:7px 10px; font-size:12.5px; text-align:right">${escapeHtml(String(cell(s.defect_rate)))}</td>
+      <td style="padding:7px 10px; font-size:12.5px; text-align:right">${escapeHtml(String(cell(s.lead_time)))}</td>
     </tr>
   `).join("");
   el.innerHTML = `
@@ -714,10 +813,10 @@ function renderNegotiationDimensions(pos) {
   }
   const rows = pos.negotiation_dimensions.map(d => `
     <tr style="border-top:1px solid #eee">
-      <td style="padding:7px 10px; font-size:12.5px; font-weight:500">${d.dimension}</td>
-      <td style="padding:7px 10px; font-size:12px">${d.opening_ask}</td>
-      <td style="padding:7px 10px; font-size:12px; color:#2f7d4f">${d.target_outcome}</td>
-      <td style="padding:7px 10px; font-size:12px; color:#a33">${d.walk_away}</td>
+      <td style="padding:7px 10px; font-size:12.5px; font-weight:500">${escapeHtml(String(d.dimension ?? ""))}</td>
+      <td style="padding:7px 10px; font-size:12px">${escapeHtml(String(d.opening_ask ?? ""))}</td>
+      <td style="padding:7px 10px; font-size:12px; color:#2f7d4f">${escapeHtml(String(d.target_outcome ?? ""))}</td>
+      <td style="padding:7px 10px; font-size:12px; color:#a33">${escapeHtml(String(d.walk_away ?? ""))}</td>
     </tr>
   `).join("");
   el.innerHTML = `
@@ -744,8 +843,8 @@ function renderTalkTrack(pos) {
   }
   const items = pos.negotiation_talk_track.map((m, i) => `
     <div style="margin:${i > 0 ? '10' : '0'}px 0 0; padding-top:${i > 0 ? '10' : '0'}px; ${i > 0 ? 'border-top:1px solid #eee' : ''}">
-      <div style="font-size:11px; color:#999; margin-bottom:2px">${i + 1}. ${m.trigger}</div>
-      <div style="font-size:13px; color:#333">"${m.line}"</div>
+      <div style="font-size:11px; color:#999; margin-bottom:2px">${i + 1}. ${escapeHtml(String(m.trigger ?? ""))}</div>
+      <div style="font-size:13px; color:#333">"${escapeHtml(String(m.line ?? ""))}"</div>
     </div>
   `).join("");
   el.innerHTML = `
@@ -764,9 +863,9 @@ function renderFinancialScenarios(pos) {
   }
   const rows = pos.financial_scenarios.map(s => `
     <tr style="border-top:1px solid #eee">
-      <td style="padding:7px 10px; font-size:12.5px">${s.scenario}</td>
-      <td style="padding:7px 10px; font-size:12.5px; text-align:right; font-weight:500">${s.annual_spend}</td>
-      <td style="padding:7px 10px; font-size:12.5px; text-align:right; color:${s.vs_baseline.startsWith("-") ? "#2f7d4f" : "#a33"}">${s.vs_baseline}</td>
+      <td style="padding:7px 10px; font-size:12.5px">${escapeHtml(String(s.scenario ?? ""))}</td>
+      <td style="padding:7px 10px; font-size:12.5px; text-align:right; font-weight:500">${escapeHtml(String(s.annual_spend ?? ""))}</td>
+      <td style="padding:7px 10px; font-size:12.5px; text-align:right; color:${s.vs_baseline.startsWith("-") ? "#2f7d4f" : "#a33"}">${escapeHtml(String(s.vs_baseline ?? ""))}</td>
     </tr>
   `).join("");
   el.innerHTML = `
@@ -784,12 +883,372 @@ function renderFinancialScenarios(pos) {
   `;
 }
 
+function renderCommercialTruthModel(pos) {
+  const el = document.getElementById("pos-commercial-truth-model");
+  const m = pos.commercial_truth_model;
+  if (!el || !m) { if (el) el.innerHTML = ""; return; }
+  const parties = m.parties || {};
+  const suppliers = (parties.suppliers || []).slice(0,8);
+  const econ = m.economics || {};
+  const quote = econ.supplier_quote_comparison || {};
+  const dims = (m.commercial_dimensions || []).filter(x => x.status !== "unknown");
+  const deps = (m.dependencies || []).slice(0,6);
+  const unknowns = (m.decision?.unknowns || []).slice(0,5);
+  const changers = (m.decision?.decision_changers || []).slice(0,5);
+  const standing = m.evidence?.standing || "UNKNOWN";
+  const standingColor = {PROVEN:"#1f7a4d",INFERRED:"#9a5b00",UNKNOWN:"#777",CONTRADICTED:"#a23b3b"}[standing] || "#777";
+  const supplierRows = suppliers.map(s => `<tr style="border-top:1px solid #eee"><td style="padding:7px 8px;font-weight:800">${escapeHtml(s.name || "Unknown")}</td><td style="padding:7px 8px">${escapeHtml(String(s.role || ""))}</td><td style="padding:7px 8px">${escapeHtml(String(s.price ?? "—"))}</td><td style="padding:7px 8px">${escapeHtml(String(s.incoterm ?? "—"))}</td><td style="padding:7px 8px">${escapeHtml(String(s.qualification_status ?? "unknown"))}</td></tr>`).join("");
+  const dimPills = dims.map(d => `<span style="display:inline-block;border:1px solid #ddd;border-radius:999px;padding:4px 7px;margin:2px;font-size:10px;font-weight:800">${escapeHtml(String(d.name).replace(/_/g," ").toUpperCase())}</span>`).join("");
+  const depRows = deps.map(d => `<div style="padding:7px 0;border-top:1px solid #eee"><b style="font-size:11px">${escapeHtml(String(d.type).replace(/_/g," "))}</b>${d.supplier ? ` · ${escapeHtml(d.supplier)}` : ""}<div style="font-size:11px;color:#555;margin-top:2px">${escapeHtml(d.decision_effect || "")}</div></div>`).join("");
+  el.innerHTML = `
+    <section style="border:1px solid #cfd5df;border-radius:13px;margin:0 0 12px;overflow:hidden;background:#fff">
+      <div style="padding:11px 14px;background:#f3f5f8;display:flex;justify-content:space-between;gap:10px;align-items:center">
+        <div><div style="font-size:9px;letter-spacing:.14em;font-weight:900;color:#687080">R20 · COMMERCIAL TRUTH MODEL</div><div style="font-size:15px;font-weight:900;margin-top:2px">The situation, structurally</div></div>
+        <div style="font-size:10px;font-weight:900;color:${standingColor};border:1px solid ${standingColor};padding:5px 8px;border-radius:999px">EVIDENCE ${escapeHtml(standing)}</div>
+      </div>
+      <div style="padding:11px 14px">
+        <div style="font-size:12px;color:#555;margin-bottom:9px">VendorEdge has converted the case into a reusable commercial model. Later intelligence layers work from this structure rather than re-reading the raw case.</div>
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px">
+          <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777;font-weight:800">SUPPLIERS</div><div style="font-size:14px;font-weight:900;margin-top:2px">${parties.supplier_count || 0}</div></div>
+          <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777;font-weight:800">ANNUAL SPEND</div><div style="font-size:12px;font-weight:900;margin-top:2px">${econ.annual_spend_usd != null ? "$" + Number(econ.annual_spend_usd).toLocaleString(undefined,{maximumFractionDigits:0}) : "Unknown"}</div></div>
+          <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777;font-weight:800">DIMENSIONS</div><div style="font-size:14px;font-weight:900;margin-top:2px">${dims.length}</div></div>
+          <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777;font-weight:800">DEPENDENCIES</div><div style="font-size:14px;font-weight:900;margin-top:2px">${deps.length}</div></div>
+        </div>
+        ${suppliers.length ? `<div style="margin-top:11px;border:1px solid #eee;border-radius:9px;overflow:auto"><div style="padding:7px 9px;background:#fafafa;font-size:10px;font-weight:900;color:#777">SUPPLIER POSITIONS — ATTRIBUTED</div><table style="width:100%;border-collapse:collapse;font-size:11px"><tr style="font-size:9px;color:#999"><td style="padding:5px 8px">Supplier</td><td style="padding:5px 8px">Role</td><td style="padding:5px 8px">Price</td><td style="padding:5px 8px">Incoterm</td><td style="padding:5px 8px">Qualification</td></tr>${supplierRows}</table></div>` : ""}
+        ${dimPills ? `<div style="margin-top:9px"><div style="font-size:10px;font-weight:900;color:#777;margin-bottom:3px">COMMERCIAL DIMENSIONS WITH EVIDENCE</div>${dimPills}</div>` : ""}
+        ${quote.comparable_quote_prices ? `<div style="margin-top:9px;padding:8px 10px;background:#f6faf7;border-left:3px solid #1f7a4d;border-radius:7px;font-size:11px"><b>Deterministic price comparison:</b> ${escapeHtml(String(quote.lowest_supplier))} is lowest in ${escapeHtml(String(quote.comparison_currency))}; unit spread ${escapeHtml(String(quote.unit_price_spread))}. No FX conversion was introduced.</div>` : ""}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:9px">
+          ${deps.length ? `<details style="border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">DEPENDENCIES</summary><div>${depRows}</div></details>` : ""}
+          ${(unknowns.length || changers.length) ? `<details style="border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">DECISION STRUCTURE</summary>${changers.length ? `<div style="margin-top:6px;font-size:11px"><b>Could change:</b><ul style="margin:4px 0 0 17px">${changers.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>` : ""}${unknowns.length ? `<div style="margin-top:6px;font-size:11px"><b>Still unknown:</b><ul style="margin:4px 0 0 17px">${unknowns.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>` : ""}</details>` : ""}
+        </div>
+        <div style="margin-top:9px;font-size:9.5px;color:#888">${escapeHtml(m.trace?.method || "Deterministic R20 model")}</div>
+      </div>
+    </section>`;
+}
+
+
+function renderTrustCertification(pos) {
+  const el = document.getElementById("pos-trust-certification");
+  const t = pos.trust_certification;
+  if (!el || !t) { if (el) el.innerHTML = ""; return; }
+  const palette = {
+    CERTIFIED: ["CERTIFIED", "#1f7a4d"],
+    CONDITIONAL: ["CONDITIONAL", "#9a5b00"],
+    NOT_CERTIFIED: ["NOT CERTIFIED", "#a23b3b"]
+  };
+  const [label, accent] = palette[t.status] || [t.status || "REVIEW", "#666"];
+  const checks = (t.checks || []).map(c => {
+    const color = c.status === "PASS" ? "#1f7a4d" : (c.status === "WARN" ? "#9a5b00" : "#a23b3b");
+    const icon = c.status === "PASS" ? "✓" : (c.status === "WARN" ? "!" : "✕");
+    const details = (c.details || []).slice(0,3).map(x => `<div style="font-size:10.5px;color:#777;margin-top:2px">${escapeHtml(x)}</div>`).join("");
+    return `<div style="padding:7px 8px;border-top:1px solid #eee"><div style="display:flex;gap:7px;align-items:center"><span style="font-weight:900;color:${color}">${icon}</span><span style="font-size:11px;font-weight:800">${escapeHtml(c.name.replace(/_/g," ").toUpperCase())}</span><span style="margin-left:auto;font-size:9px;font-weight:900;color:${color}">${escapeHtml(c.status)}</span></div>${details}</div>`;
+  }).join("");
+  el.innerHTML = `
+    <section style="border:1px solid #d7d7dc;border-radius:13px;margin:0 0 12px;overflow:hidden;background:#fff">
+      <div style="padding:11px 14px;background:#f7f7f9;display:flex;justify-content:space-between;gap:10px;align-items:center">
+        <div><div style="font-size:9px;letter-spacing:.14em;font-weight:900;color:#777">R19 · TRUST CERTIFICATION</div><div style="font-size:14px;font-weight:900;margin-top:2px">${escapeHtml(t.headline || "Trust status")}</div></div>
+        <div style="font-size:10px;font-weight:900;color:${accent};border:1px solid ${accent};padding:5px 8px;border-radius:999px;white-space:nowrap">${escapeHtml(label)}</div>
+      </div>
+      <div style="padding:10px 14px">
+        <div style="display:flex;gap:8px;font-size:10px;color:#777;margin-bottom:7px"><span>${Number(t.checks_passed || 0)} passed</span><span>·</span><span>${Number(t.checks_warned || 0)} warned</span><span>·</span><span>${Number(t.checks_failed || 0)} failed</span></div>
+        <details><summary style="cursor:pointer;font-size:11px;font-weight:900">Show certification checks</summary><div style="margin-top:5px;border:1px solid #eee;border-radius:8px;overflow:hidden">${checks}</div></details>
+        ${t.limitations && t.limitations.length ? `<div style="margin-top:8px;font-size:10.5px;color:#7a5c00"><b>Conditions:</b> ${t.limitations.map(x=>escapeHtml(x)).join(" · ")}</div>` : ""}
+        <div style="font-size:9.5px;color:#999;margin-top:8px">${escapeHtml(t.disclaimer || "")}</div>
+      </div>
+    </section>`;
+}
+
+function renderDecisionFlipMap(pos) {
+  const el = document.getElementById("pos-decision-flip-map");
+  const f = pos.decision_flip_map;
+  if (!el || !f) { if (el) el.innerHTML = ""; return; }
+  const available = f.available !== false;
+  const frag = f.fragility || {};
+  const flips = (f.flips || []).slice(0,4);
+  const evidence = (f.evidence_required || []).slice(0,4);
+  const warnings = (f.warnings || []).slice(0,3);
+  const flipRows = flips.map(x => `<div style="border-top:1px solid #eee;padding:9px 0"><div style="display:flex;gap:8px;align-items:center"><span style="font-size:9px;font-weight:900;letter-spacing:.08em;color:#7c3aed">${escapeHtml(x.strength || "SIGNAL")}</span><span style="font-size:11px;font-weight:900">${escapeHtml(x.driver || x.type || "Decision driver")}</span></div><div style="font-size:12px;font-weight:800;margin-top:3px">${escapeHtml(x.trigger || "Condition not stated")}</div><div style="font-size:10.5px;color:#666;margin-top:3px">${escapeHtml(x.effect || "")}</div><div style="font-size:9.5px;color:#999;margin-top:4px">${escapeHtml(x.basis || "")}</div></div>`).join("");
+  const evidenceRows = evidence.map(x => `<li>${escapeHtml(x.condition || "Condition not stated")} <span style="color:#888">— evidence required; no numeric threshold inferred</span></li>`).join("");
+  const warningRows = warnings.map(x => `<div style="font-size:10.5px;color:#7a5c00;margin-top:4px">${escapeHtml(x)}</div>`).join("");
+  el.innerHTML = `
+    <section style="border:1px solid #d9d2e9;border-radius:13px;margin:0 0 12px;overflow:hidden;background:#fff">
+      <div style="padding:11px 14px;background:#faf8ff;display:flex;justify-content:space-between;gap:10px;align-items:center">
+        <div><div style="font-size:9px;letter-spacing:.14em;font-weight:900;color:#7656a8">R21 · DECISION FLIP MAP</div><div style="font-size:14px;font-weight:900;margin-top:2px">What would actually change this decision?</div></div>
+        <div style="text-align:right"><div style="font-size:9px;color:#777;font-weight:800">FRAGILITY SIGNAL</div><div style="font-size:11px;font-weight:900;margin-top:2px">${escapeHtml(frag.label || "NOT_ASSESSABLE")}${frag.score == null ? "" : " · " + escapeHtml(String(frag.score)) + "/100"}</div></div>
+      </div>
+      <div style="padding:10px 14px">
+        ${available ? `<div style="font-size:10.5px;color:#666;margin-bottom:8px">${escapeHtml(f.decision_scope || "Deterministic flip boundaries; no recommendation change occurs here.")}</div><div style="border:1px solid #eee;border-radius:9px;padding:0 10px">${flipRows || "<div style='padding:9px 0;font-size:11px'>No deterministic flip boundary is safely calculable from the evidence.</div>"}</div>` : `<div style="padding:10px;border-radius:9px;background:#fff7ed;color:#7a5c00;font-size:11px;font-weight:700">${escapeHtml(f.reason || "A safe flip map is not available from the evidence.")}</div>`}
+        ${evidenceRows ? `<details style="margin-top:9px;border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">EVIDENCE THAT COULD REVERSE THE DECISION</summary><ul style="margin:6px 0 0 18px;font-size:11.5px;line-height:1.5">${evidenceRows}</ul></details>` : ""}
+        ${warningRows ? `<div style="margin-top:8px">${warningRows}</div>` : ""}
+        <div style="font-size:9.5px;color:#999;margin-top:8px">${escapeHtml(f.method || "No new facts or LLM call used.")}</div>
+      </div>
+    </section>`;
+}
+
+function renderCommercialWarRoom(pos) {
+  const el = document.getElementById("pos-commercial-war-room");
+  const w = pos.commercial_war_room;
+  if (!el || !w) { if (el) el.innerHTML = ""; return; }
+  const leverage = (w.buyer_position?.leverage || []).slice(0,5).map(x => `<div style="padding:8px 0;border-top:1px solid #eee"><b>${escapeHtml(x.lever)}</b><div style="font-size:10.5px;color:#666;margin-top:2px">${escapeHtml(x.basis)} · ${escapeHtml(x.strength)}</div></div>`).join("");
+  const suppliers = (w.supplier_positions || []).slice(0,6).map(x => `<div style="border-top:1px solid #eee;padding:8px 0"><b>${escapeHtml(x.supplier)}</b>${(x.facts||[]).slice(0,4).map(f=>`<div style="font-size:10.5px;color:#555">${escapeHtml(f)}</div>`).join("")}<div style="font-size:10px;color:#7a5c00;margin-top:4px">Defensible constraints: ${(x.defensible_constraints||[]).slice(0,2).map(escapeHtml).join(" · ")}</div></div>`).join("");
+  const market = (w.market_position || []).slice(0,5).map(x => `<div style="padding:7px 0;border-top:1px solid #eee"><b>${escapeHtml(x.signal)}</b><div style="font-size:10.5px;color:#666">${escapeHtml(x.basis)}</div></div>`).join("");
+  const stakeholders = (w.stakeholder_positions || []).slice(0,5).map(x => `<div style="padding:7px 0;border-top:1px solid #eee"><b>${escapeHtml(x.stakeholder)}</b> · ${escapeHtml(x.type)}<div style="font-size:10.5px;color:#555">${escapeHtml(x.position)}</div></div>`).join("");
+  const scenarios = (w.negotiation_scenarios || []).slice(0,5).map(x => `<div style="padding:8px 0;border-top:1px solid #eee"><b>${escapeHtml(x.scenario)}</b><div style="font-size:10.5px;margin-top:3px">Buyer move: ${escapeHtml(x.buyer_move || "—")}</div><div style="font-size:10px;color:#777">Target: ${escapeHtml(x.target || "Not stated")} · Walk-away: ${escapeHtml(x.walk_away || "Not stated")}</div><div style="font-size:9.5px;color:#9a5b00;margin-top:3px">Supplier response: not predicted</div></div>`).join("");
+  const attacks = (w.adversarial_challenges || []).slice(0,5).map(x => `<li style="margin:5px 0">${escapeHtml(x.challenge)}<span style="color:#777"> — ${escapeHtml(x.purpose)}</span></li>`).join("");
+  const readiness = w.readiness || "CONDITIONAL";
+  const color = readiness === "READY_FOR_NEGOTIATION" ? "#1f7a4d" : (readiness === "CONDITIONAL" ? "#9a5b00" : "#a23b3b");
+  el.innerHTML = `
+    <section style="border:1px solid #111827;border-radius:15px;margin:0 0 14px;overflow:hidden;background:#fff;box-shadow:0 5px 18px rgba(17,24,39,.07)">
+      <div style="padding:13px 15px;background:#171717;color:#fff;display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+        <div><div style="font-size:9px;letter-spacing:.15em;font-weight:900;opacity:.65">R22 · COMMERCIAL WAR ROOM</div><div style="font-size:17px;font-weight:900;margin-top:3px">Buyer vs Supplier vs Market vs Stakeholders</div><div style="font-size:10.5px;opacity:.7;margin-top:4px">Evidence-backed negotiation theatre · no invented supplier psychology</div></div>
+        <div style="font-size:9px;font-weight:900;color:${color};background:#fff;padding:5px 8px;border-radius:999px;white-space:nowrap">${escapeHtml(readiness.replaceAll("_"," "))}</div>
+      </div>
+      <div style="padding:12px 15px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div style="border:1px solid #eee;border-radius:9px;padding:9px"><div style="font-size:9px;font-weight:900;letter-spacing:.08em;color:#777">BUYER LEVERAGE</div>${leverage || '<div style="font-size:11px;color:#777;margin-top:6px">No explicit leverage safely established.</div>'}</div>
+          <div style="border:1px solid #eee;border-radius:9px;padding:9px"><div style="font-size:9px;font-weight:900;letter-spacing:.08em;color:#777">SUPPLIER POSITIONS</div>${suppliers || '<div style="font-size:11px;color:#777;margin-top:6px">No named supplier position available.</div>'}</div>
+          <div style="border:1px solid #eee;border-radius:9px;padding:9px"><div style="font-size:9px;font-weight:900;letter-spacing:.08em;color:#777">MARKET SIGNALS</div>${market}</div>
+          <div style="border:1px solid #eee;border-radius:9px;padding:9px"><div style="font-size:9px;font-weight:900;letter-spacing:.08em;color:#777">STAKEHOLDER POSITIONS</div>${stakeholders || '<div style="font-size:11px;color:#777;margin-top:6px">No stakeholder view captured.</div>'}</div>
+        </div>
+        <details style="margin-top:10px;border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">NEGOTIATION SCENARIOS</summary><div style="margin-top:5px">${scenarios || '<div style="font-size:11px;color:#777">No evidence-backed negotiation dimensions are available.</div>'}</div></details>
+        <details style="margin-top:8px;border:1px solid #f0dfdf;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900;color:#8b2d2d">RED-TEAM THE WAR ROOM</summary><ul style="margin:6px 0 0 18px;font-size:11px;line-height:1.45">${attacks}</ul></details>
+        ${w.open_blockers?.length ? `<div style="margin-top:9px;padding:8px 10px;background:#fff7ed;border-radius:8px;font-size:10.5px;color:#7a5c00"><b>Open blockers:</b> ${w.open_blockers.map(escapeHtml).join(" · ")}</div>` : ""}
+        <div style="font-size:9.5px;color:#999;margin-top:8px">${escapeHtml(w.simulation_disclaimer || "")}</div>
+      </div>
+    </section>`;
+}
+
+function renderProcurementMemory(pos) {
+  const el = document.getElementById("pos-procurement-memory");
+  const m = pos.procurement_memory;
+  if (!m) { el.innerHTML = ""; return; }
+  const strength = m.memory_strength || "NONE";
+  const strengthMap = {STRONG:["STRONG MEMORY","#1f7a4d"],EMERGING:["EMERGING","#9a5b00"],NONE:["NO PRIOR MEMORY","#777"]};
+  const st = strengthMap[strength] || [strength,"#777"];
+  const facts = (m.remembered_facts || []).slice(0,4).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const lessons = (m.lessons || []).slice(0,4).map(x => `<div style="padding:7px 0;border-top:1px solid #eee"><span style="font-size:9px;font-weight:900;letter-spacing:.06em;color:#777">${escapeHtml(String(x.type || "LESSON").replaceAll("_"," ").toUpperCase())}</span><div style="font-size:11px;margin-top:3px">${escapeHtml(x.lesson || "")}</div></div>`).join("");
+  const cases = (m.prior_cases || []).slice(0,4).map(c => `<div style="padding:7px 0;border-top:1px solid #eee"><div style="font-size:11px;font-weight:800">${escapeHtml(c.question || "Prior case")}</div><div style="font-size:9.5px;color:#777;margin-top:3px">${escapeHtml(c.date || "")}${c.validation_verdict ? " · " + escapeHtml(c.validation_verdict.replaceAll("_"," ")) : ""}${c.outcome_recorded ? " · outcome recorded" : " · no outcome recorded"}</div>${c.outcome ? `<div style="font-size:10.5px;margin-top:3px">Outcome: ${escapeHtml(c.outcome)}</div>` : ""}</div>`).join("");
+  const warnings = (m.warnings || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  el.innerHTML = `
+    <section style="border:1px solid #263238;border-radius:15px;margin:0 0 14px;overflow:hidden;background:#fff;box-shadow:0 5px 18px rgba(17,24,39,.07)">
+      <div style="padding:13px 15px;background:#263238;color:#fff;display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+        <div><div style="font-size:9px;letter-spacing:.15em;font-weight:900;opacity:.65">R23 · PROCUREMENT MEMORY</div><div style="font-size:17px;font-weight:900;margin-top:3px">What VendorEdge remembers</div><div style="font-size:10.5px;opacity:.72;margin-top:4px">Prior decisions, supplier history and outcome-backed lessons — not invented patterns</div></div>
+        <div style="font-size:9px;font-weight:900;color:${st[1]};background:#fff;padding:5px 8px;border-radius:999px;white-space:nowrap">${escapeHtml(st[0])}</div>
+      </div>
+      <div style="padding:12px 15px">
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">SUPPLIER CASES</div><div style="font-size:16px;font-weight:900;margin-top:3px">${escapeHtml(String(m.supplier_case_count ?? 0))}</div></div>
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">ORGANIZATION CASES</div><div style="font-size:16px;font-weight:900;margin-top:3px">${escapeHtml(String(m.organization_case_count ?? 0))}</div></div>
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">MEMORY SCOPE</div><div style="font-size:11px;font-weight:800;margin-top:3px">${escapeHtml((m.supplier_scope || []).join(", ") || "Organization only")}</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+          <div style="border:1px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">REMEMBERED</div><ul style="margin:6px 0 0 18px;font-size:11px;line-height:1.45">${facts || "<li>No prior facts safely available.</li>"}</ul></div>
+          <div style="border:1px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">PATTERN CHECK</div><div style="font-size:11px;margin-top:6px"><b>Supplier:</b> ${escapeHtml(m.supplier_pattern || "Not established.")}</div><div style="font-size:11px;margin-top:7px"><b>Category:</b> ${escapeHtml(m.category_pattern || "Not established.")}</div></div>
+        </div>
+        ${cases ? `<details style="margin-top:9px;border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">PRIOR CASES</summary><div style="margin-top:5px">${cases}</div></details>` : ""}
+        ${lessons ? `<details style="margin-top:8px;border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">LESSONS FROM HISTORY</summary><div style="margin-top:5px">${lessons}</div></details>` : ""}
+        ${warnings ? `<div style="margin-top:9px;padding:8px 10px;background:#fff7ed;border-radius:8px;font-size:10.5px;color:#7a5c00"><b>Memory cautions:</b><ul style="margin:5px 0 0 18px">${warnings}</ul></div>` : ""}
+        <div style="font-size:9.5px;color:#999;margin-top:8px">${escapeHtml(m.honesty_note || "History is context, not proof of future behavior.")}</div>
+      </div>
+    </section>`;
+}
+
+function renderOutcomeIntelligence(pos) {
+  const el = document.getElementById("pos-outcome-intelligence");
+  const o = pos.outcome_intelligence;
+  if (!el || !o || !o.available) { if (el) el.innerHTML = ""; return; }
+  const hasVariance = o.financial_variance_available;
+  const variance = o.financial_variance_usd;
+  const variancePct = o.financial_variance_percent;
+  const verdictMap = {
+    reasoning_held: ["REASONING HELD", "#1f7a4d"],
+    reasoning_wrong_bad_assumption: ["ASSUMPTION MISSED", "#a23b3b"],
+    reasoning_wrong_bad_execution: ["EXECUTION MISSED", "#9a5b00"],
+    ambiguous_unresolved: ["UNRESOLVED", "#777"]
+  };
+  const vm = verdictMap[o.validation_verdict] || ["OUTCOME RECORDED", "#666"];
+  const lessons = (o.learning_signals || []).slice(0,5).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const varianceLabel = hasVariance ? `${variance >= 0 ? "+" : "−"}$${Math.abs(variance).toLocaleString(undefined,{maximumFractionDigits:0})} vs expected${variancePct != null ? ` (${variancePct >= 0 ? "+" : ""}${variancePct}%)` : ""}` : "Not safely quantified";
+  el.innerHTML = `
+    <section style="border:1px solid #7c3aed;border-radius:15px;margin:0 0 14px;overflow:hidden;background:#fff;box-shadow:0 5px 18px rgba(17,24,39,.07)">
+      <div style="padding:13px 15px;background:#f5f3ff;display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+        <div><div style="font-size:9px;letter-spacing:.15em;font-weight:900;color:#6d28d9">R24 · OUTCOME INTELLIGENCE</div><div style="font-size:17px;font-weight:900;margin-top:3px">What actually happened?</div><div style="font-size:10.5px;color:#666;margin-top:4px">Expected vs actual · attribution-aware · no rewriting of the original decision</div></div>
+        <div style="font-size:9px;font-weight:900;color:${vm[1]};background:#fff;padding:5px 8px;border-radius:999px;white-space:nowrap">${escapeHtml(vm[0])}</div>
+      </div>
+      <div style="padding:12px 15px">
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">EXPECTED</div><div style="font-size:13px;font-weight:900;margin-top:3px">${o.expected_financial_impact_usd != null ? "$" + Number(o.expected_financial_impact_usd).toLocaleString(undefined,{maximumFractionDigits:0}) : "Not quantified"}</div></div>
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">ACTUAL</div><div style="font-size:13px;font-weight:900;margin-top:3px">${o.actual_financial_impact_usd != null ? "$" + Number(o.actual_financial_impact_usd).toLocaleString(undefined,{maximumFractionDigits:0}) : "Not recorded"}</div></div>
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">VARIANCE</div><div style="font-size:13px;font-weight:900;margin-top:3px">${escapeHtml(varianceLabel)}</div></div>
+        </div>
+        ${o.outcome_description ? `<div style="border:1px solid #eee;border-radius:10px;padding:10px;margin-top:10px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">RECORDED OUTCOME</div><div style="font-size:11.5px;margin-top:5px;line-height:1.45">${escapeHtml(o.outcome_description)}</div></div>` : ""}
+        ${lessons ? `<div style="border:1px solid #eee;border-radius:10px;padding:10px;margin-top:9px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">WHAT WE SHOULD LEARN</div><ul style="margin:6px 0 0 18px;font-size:11px;line-height:1.5">${lessons}</ul></div>` : ""}
+        <div style="font-size:10px;color:#888;margin-top:9px">${escapeHtml(o.historical_realization_note || "")}</div>
+        <div style="font-size:9.5px;color:#999;margin-top:6px">${escapeHtml(o.attribution_note || "")}</div>
+      </div>
+    </section>`;
+}
+
+function renderCommercialDNA(pos) {
+  const el = document.getElementById("pos-commercial-dna");
+  const d = pos.commercial_dna;
+  if (!el || !d || !d.available) { if (el) el.innerHTML = ""; return; }
+  const maturityMap = {
+    INSUFFICIENT_HISTORY: ["INSUFFICIENT HISTORY", "#777"],
+    EMERGING: ["EMERGING SIGNALS", "#9a5b00"],
+    ESTABLISHED_HISTORY: ["ESTABLISHED HISTORY", "#1f7a4d"]
+  };
+  const mm = maturityMap[d.maturity] || [d.maturity || "HISTORY", "#666"];
+  const fin = d.financial_realization || {};
+  const mix = d.outcome_mix || {};
+  const align = d.decision_alignment_mix || {};
+  const signals = (d.signals || []).slice(0,4).map(sig => `
+    <div style="border:1px solid #e8e8e8;border-radius:10px;padding:10px;margin-top:7px">
+      <div style="font-size:9px;font-weight:900;letter-spacing:.06em;color:${sig.severity === "material" ? "#a23b3b" : "#9a5b00"}">${escapeHtml(String(sig.type || "SIGNAL").replaceAll("_"," ").toUpperCase())}</div>
+      <div style="font-size:12px;font-weight:900;margin-top:3px">${escapeHtml(sig.title || "Historical signal")}</div>
+      <div style="font-size:11px;line-height:1.45;margin-top:4px">${escapeHtml(sig.finding || "")}</div>
+      <div style="font-size:9.5px;color:#888;margin-top:4px">Evidence: ${escapeHtml(String(sig.evidence_count ?? 0))} outcome(s) · ${escapeHtml(sig.causality || "Historical signal only.")}</div>
+    </div>`).join("");
+  const action = d.one_behavior_to_change ? `
+    <div style="margin-top:10px;padding:10px;background:#111827;color:#fff;border-radius:10px">
+      <div style="font-size:9px;letter-spacing:.08em;font-weight:900;opacity:.65">ONE BEHAVIOR TO CHANGE</div>
+      <div style="font-size:12px;font-weight:800;margin-top:4px">${escapeHtml(d.one_behavior_to_change)}</div>
+    </div>` : "";
+  const financialAvailable = !!fin.available;
+  const realization = financialAvailable && fin.realization_percent != null ? `${fin.realization_percent}%` : "Not enough data";
+  const variance = financialAvailable && fin.aggregate_variance_usd != null ? `${fin.aggregate_variance_usd >= 0 ? "+" : "−"}$${Math.abs(fin.aggregate_variance_usd).toLocaleString(undefined,{maximumFractionDigits:0})}` : "Not scored";
+  const outcomeTotal = Number(d.recorded_outcome_count || 0);
+  const pctHeld = outcomeTotal ? `${((Number(mix.reasoning_held || 0) / outcomeTotal) * 100).toFixed(1)}%` : "—";
+  const pctChanged = outcomeTotal ? `${(((Number(align.modified || 0) + Number(align.different_direction || 0)) / outcomeTotal) * 100).toFixed(1)}%` : "—";
+  el.innerHTML = `
+    <section style="border:1px solid #111827;border-radius:16px;margin:0 0 14px;overflow:hidden;background:#fff;box-shadow:0 6px 20px rgba(17,24,39,.09)">
+      <div style="padding:15px 16px;background:linear-gradient(135deg,#111827,#3a315b);color:#fff;display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+        <div><div style="font-size:9px;letter-spacing:.16em;font-weight:900;opacity:.62">R25 · COMMERCIAL DNA</div><div style="font-size:19px;font-weight:900;margin-top:3px">How your organization makes — and loses — commercial value</div><div style="font-size:10.5px;opacity:.72;margin-top:4px">Observed decision behavior + measured outcomes · no invented causality</div></div>
+        <div style="font-size:9px;font-weight:900;color:${mm[1]};background:#fff;padding:5px 8px;border-radius:999px;white-space:nowrap">${escapeHtml(mm[0])}</div>
+      </div>
+      <div style="padding:13px 16px">
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">DECISIONS</div><div style="font-size:16px;font-weight:900;margin-top:3px">${escapeHtml(String(d.organization_decision_count ?? 0))}</div></div>
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">RECORDED OUTCOMES</div><div style="font-size:16px;font-weight:900;margin-top:3px">${escapeHtml(String(d.recorded_outcome_count ?? 0))}</div></div>
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">REASONING HELD</div><div style="font-size:14px;font-weight:900;margin-top:3px">${escapeHtml(pctHeld)}</div></div>
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">HUMAN CHANGE</div><div style="font-size:14px;font-weight:900;margin-top:3px">${escapeHtml(pctChanged)}</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+          <div style="border:1px solid #eee;border-radius:10px;padding:10px">
+            <div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">MEASURED VALUE REALIZATION</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:7px">
+              <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777">EXPECTED</div><div style="font-weight:900;font-size:12px;margin-top:3px">${fin.expected_total_usd != null ? "$" + Number(fin.expected_total_usd).toLocaleString(undefined,{maximumFractionDigits:0}) : "—"}</div></div>
+              <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777">ACTUAL</div><div style="font-weight:900;font-size:12px;margin-top:3px">${fin.actual_total_usd != null ? "$" + Number(fin.actual_total_usd).toLocaleString(undefined,{maximumFractionDigits:0}) : "—"}</div></div>
+              <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777">REALIZATION</div><div style="font-weight:900;font-size:12px;margin-top:3px">${escapeHtml(realization)}</div></div>
+              <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777">AGGREGATE VARIANCE</div><div style="font-weight:900;font-size:12px;margin-top:3px">${escapeHtml(variance)}</div></div>
+            </div>
+            <div style="font-size:9.5px;color:#888;margin-top:7px">${escapeHtml(fin.basis || "Structured outcomes only.")}</div>
+          </div>
+          <div style="border:1px solid #eee;border-radius:10px;padding:10px">
+            <div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">THE OBSERVED DNA</div>
+            <div style="font-size:11px;line-height:1.55;margin-top:6px">Held: <b>${escapeHtml(String(mix.reasoning_held || 0))}</b> · Assumption misses: <b>${escapeHtml(String(mix.reasoning_wrong_bad_assumption || 0))}</b> · Execution misses: <b>${escapeHtml(String(mix.reasoning_wrong_bad_execution || 0))}</b> · Unresolved: <b>${escapeHtml(String(mix.ambiguous_unresolved || 0))}</b></div>
+            <div style="font-size:11px;line-height:1.55;margin-top:5px">Followed: <b>${escapeHtml(String(align.followed || 0))}</b> · Modified: <b>${escapeHtml(String(align.modified || 0))}</b> · Different direction: <b>${escapeHtml(String(align.different_direction || 0))}</b></div>
+            <div style="font-size:9.5px;color:#888;margin-top:7px">Current case type: ${escapeHtml(String(d.current_content_type || "unknown").replaceAll("_"," "))} · ${escapeHtml(String(d.current_content_type_outcome_count || 0))} recorded outcome(s) in this case type</div>
+          </div>
+        </div>
+        ${signals ? `<div style="margin-top:10px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">REPEATED COMMERCIAL SIGNALS</div>${signals}</div>` : ""}
+        ${action}
+        <div style="font-size:9.5px;color:#888;margin-top:9px">${escapeHtml(d.maturity_note || "")}</div>
+        <div style="font-size:9.5px;color:#999;margin-top:6px">${escapeHtml(d.honesty_note || "")}</div>
+      </div>
+    </section>`;
+}
+
+function renderDecisionCockpit(pos) {
+  const el = document.getElementById("pos-decision-cockpit");
+  const c = pos.decision_cockpit;
+  if (!c) { el.innerHTML = ""; return; }
+  const readiness = c.readiness || "CONDITIONAL";
+  const readinessMap = {READY:["READY TO ACT","#1f7a4d"],CONDITIONAL:["CONDITIONAL","#9a5b00"],HOLD:["HOLD","#a23b3b"]};
+  const rs = readinessMap[readiness] || [readiness,"#666"];
+  const evidenceMap = {GROUNDED:["GROUNDED","#1f7a4d"],GAPS:["GAPS","#9a5b00"],CONFLICT:["CONFLICT","#a23b3b"],LIMITED:["LIMITED","#666"]};
+  const es = evidenceMap[c.evidence_signal] || [c.evidence_signal || "LIMITED","#666"];
+  const econ = c.economics || {};
+  const why = (c.why || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const blockers = (c.blockers || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const changers = (c.decision_changers || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const unknowns = (c.unknowns || []).slice(0,4).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const stakeholders = (c.stakeholder_flags || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  el.innerHTML = `
+    <section style="border:1px solid #111827;border-radius:16px;margin:0 0 14px;overflow:hidden;background:#fff;box-shadow:0 5px 18px rgba(17,24,39,.08)">
+      <div style="padding:15px 16px;background:linear-gradient(135deg,#111827,#25324a);color:#fff;display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+        <div><div style="font-size:10px;letter-spacing:.16em;font-weight:800;opacity:.68">VENDOREDGE</div><div style="font-size:19px;font-weight:900;margin-top:3px">Commercial Decision Cockpit</div><div style="font-size:11px;opacity:.72;margin-top:4px">Decision first · proof on demand · no new facts created here</div></div>
+        <div style="text-align:right"><div style="font-size:9px;letter-spacing:.08em;opacity:.68">STATUS</div><div style="font-size:12px;font-weight:900;color:${rs[1]};background:#fff;padding:5px 8px;border-radius:999px;margin-top:4px">${escapeHtml(rs[0])}</div></div>
+      </div>
+      <div style="padding:14px 16px">
+        <div style="font-size:18px;font-weight:900;line-height:1.25;margin-bottom:13px">${escapeHtml(c.verdict || pos.recommendation || "Review the evidence")}</div>
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">CONFIDENCE</div><div style="font-size:14px;font-weight:900;margin-top:3px">${escapeHtml(String(c.confidence || "medium").toUpperCase())}</div></div>
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">ECONOMICS</div><div style="font-size:12px;font-weight:800;margin-top:3px">${escapeHtml(econ.headline || "Not safely quantified")}</div></div>
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">EVIDENCE</div><div style="font-size:12px;font-weight:900;color:${es[1]};margin-top:3px">${escapeHtml(es[0])}</div></div>
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">ALTERNATIVES</div><div style="font-size:14px;font-weight:900;margin-top:3px">${escapeHtml(String(c.alternative_count ?? 0))}</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1.2fr .8fr;gap:12px;margin-top:13px">
+          <div style="border:1px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">WHY THIS POSITION</div><ul style="margin:6px 0 0 18px;font-size:12px;line-height:1.5">${why || "<li>No concise rationale resolved.</li>"}</ul></div>
+          <div style="border:1px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">NEXT MOVE</div><div style="font-size:13px;font-weight:800;margin-top:6px">${escapeHtml(c.next_move || "Review evidence before acting.")}</div></div>
+        </div>
+        ${blockers ? `<div style="margin-top:10px;padding:10px;background:#fff7ed;border-left:3px solid #d97706;border-radius:8px"><div style="font-size:10px;font-weight:900;color:#9a5b00">BEFORE MONEY MOVES</div><ul style="margin:5px 0 0 18px;font-size:12px">${blockers}</ul></div>` : ""}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+          ${changers ? `<details style="border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">DECISION FLIP — what changes it?</summary><ul style="margin:6px 0 0 18px;font-size:12px;line-height:1.45">${changers}</ul></details>` : ""}
+          ${unknowns ? `<details style="border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">UNKNOWN — what still matters?</summary><ul style="margin:6px 0 0 18px;font-size:12px;line-height:1.45">${unknowns}</ul></details>` : ""}
+        </div>
+        ${stakeholders ? `<details style="margin-top:9px;border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">STAKEHOLDER SIGNALS</summary><ul style="margin:6px 0 0 18px;font-size:12px;line-height:1.45">${stakeholders}</ul></details>` : ""}
+        <div style="margin-top:10px;font-size:10px;color:#888">Stress test: ${escapeHtml(c.stress_status || "NOT_TESTED")} · ${escapeHtml(String(c.evidence_total || 0))} evidence signals · ${escapeHtml(String(c.alternative_count || 0))} commercial paths</div>
+      </div>
+    </section>`;
+}
+
+function renderDecisionPassport(pos) {
+  const el = document.getElementById("pos-decision-passport");
+  const p = pos.decision_passport;
+  if (!p) { el.innerHTML = ""; return; }
+  const readiness = p.readiness || "CONDITIONAL";
+  const readinessLabel = {READY:"READY TO ACT", CONDITIONAL:"CONDITIONAL", HOLD:"HOLD"}[readiness] || readiness;
+  const readinessStyle = {READY:"#2f7d4f", CONDITIONAL:"#8a6500", HOLD:"#a23b3b"}[readiness] || "#666";
+  const confidence = (p.confidence || "medium").toUpperCase();
+  const economics = p.economics || {};
+  const why = (p.why || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const blockers = (p.critical_before_action || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const changers = (p.decision_changers || []).slice(0,2).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const unknowns = (p.unknowns || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const economicsText = economics.available ? economics.headline : "Not safely quantified";
+  const evidence = p.evidence_integrity || "UNKNOWN";
+  el.innerHTML = `
+    <div style="border:1px solid #1f2937;border-radius:12px;margin:0 0 14px;overflow:hidden;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.05)">
+      <div style="padding:11px 14px;background:#111827;color:#fff;display:flex;justify-content:space-between;gap:10px;align-items:center">
+        <div><div style="font-size:10px;letter-spacing:.12em;font-weight:800;opacity:.72">VENDOREDGE NATIVE FORMAT</div><div style="font-size:16px;font-weight:800;margin-top:2px">Decision Passport</div></div>
+        <div style="text-align:right"><div style="font-size:10px;opacity:.7">DECISION STATUS</div><div style="font-size:12px;font-weight:900;color:${readinessStyle}">${escapeHtml(readinessLabel)}</div></div>
+      </div>
+      <div style="padding:13px 14px">
+        <div style="font-size:15px;font-weight:800;line-height:1.35;margin-bottom:12px">${escapeHtml(p.decision || pos.recommendation || "Review the evidence")}</div>
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-bottom:12px">
+          <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777;font-weight:800">CONFIDENCE</div><div style="font-size:13px;font-weight:800;margin-top:2px">${escapeHtml(confidence)}</div></div>
+          <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777;font-weight:800">ECONOMICS</div><div style="font-size:12px;font-weight:800;margin-top:2px">${escapeHtml(economicsText)}</div></div>
+          <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777;font-weight:800">EVIDENCE</div><div style="font-size:12px;font-weight:800;margin-top:2px">${escapeHtml(evidence)}</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><div style="font-size:10px;font-weight:800;color:#777;letter-spacing:.05em">WHY</div><ul style="margin:5px 0 0 18px;font-size:12px;line-height:1.45">${why || "<li>No concise reason was resolved.</li>"}</ul></div>
+          <div><div style="font-size:10px;font-weight:800;color:#777;letter-spacing:.05em">NEXT MOVE</div><div style="font-size:12.5px;font-weight:700;margin-top:5px">${escapeHtml(p.next_move || "Review the evidence before acting.")}</div></div>
+        </div>
+        ${blockers ? `<div style="margin-top:12px;padding:8px 10px;background:#fff7ed;border-radius:8px"><div style="font-size:10px;font-weight:800;color:#9a5b00">BEFORE ACTION</div><ul style="margin:4px 0 0 18px;font-size:12px">${blockers}</ul></div>` : ""}
+        ${changers ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:800">What would change this decision</summary><ul style="margin:5px 0 0 18px;font-size:12px">${changers}</ul></details>` : ""}
+        ${unknowns ? `<details style="margin-top:7px"><summary style="cursor:pointer;font-size:11px;font-weight:800">Unknowns that still matter</summary><ul style="margin:5px 0 0 18px;font-size:12px">${unknowns}</ul></details>` : ""}
+        <div style="margin-top:10px;font-size:10px;color:#888">${escapeHtml(p.alternative_count || 0)} commercial paths · stress test: ${escapeHtml(p.stress_status || "NOT_TESTED")}</div>
+      </div>
+    </div>`;
+}
+
 function renderDecisionSnapshot(pos) {
   const el = document.getElementById("pos-snapshot");
   const fmt = (n) => "$" + Number(n).toLocaleString(undefined, {maximumFractionDigits: 0});
-  const financialLine = pos.financial_impact
-    ? fmt(pos.financial_impact.potential_annual_impact_usd) + "/yr"
-    : "Not calculable from evidence given";
+  const financialLine = pos.decision_passport?.economics?.available
+    ? pos.decision_passport.economics.headline
+    : (pos.financial_impact ? fmt(pos.financial_impact.potential_annual_impact_usd) + "/yr" : "Not safely quantified");
   const limitingFactor = (pos.confidence.factors.find(f => f.weight === "decreases confidence") || {}).factor;
   const topRisk = limitingFactor || "None flagged";
   const nextAction = pos.opening_position || pos.walk_away_threshold || "See full reasoning below";
@@ -937,13 +1396,13 @@ function renderCasesList(cases) {
     } else if (c.status === "completed" && c.has_outcome_feedback) {
       badge = `<span class="badge recorded">Outcome recorded</span>`;
     } else {
-      badge = `<span class="badge">${c.status.replace(/_/g, " ")}</span>`;
+      badge = `<span class="badge">${escapeHtml(c.status.replace(/_/g, " "))}</span>`;
     }
     const date = new Date(c.created_at).toLocaleDateString();
-    return `<div class="case-row" onclick="openCase('${c.id}')">
-      <p class="q">${c.raw_question}</p>
+    return `<div class="case-row" onclick="openCase('${escapeHtml(String(c.id))}')">
+      <p class="q">${escapeHtml(c.raw_question)}</p>
       ${badge}
-      <div class="meta">${date}${c.classified_content_type ? " · " + c.classified_content_type.replace(/_/g, " ") : ""}</div>
+      <div class="meta">${escapeHtml(date)}${c.classified_content_type ? " · " + escapeHtml(c.classified_content_type.replace(/_/g, " ")) : ""}</div>
     </div>`;
   }).join("");
 }
@@ -1171,6 +1630,8 @@ function handleDecisionResponse(data) {
       document.getElementById("continue-what-happened").value = "";
       document.getElementById("outcome-description").value = "";
       document.getElementById("unexpected-insight").value = "";
+      document.getElementById("actual-financial-impact-usd").value = "";
+      document.getElementById("actual-measurement-basis").value = "";
     }
     show("position-screen");
   } else if (data.status === "reasoning") {
@@ -1429,7 +1890,7 @@ function renderDecisionPack(pos) {
   if (!pos) { el.innerHTML = ""; return; }
   el.innerHTML = `
     <details style="margin:14px 0;border:1px solid #ddd;border-radius:9px;overflow:hidden">
-      <summary style="cursor:pointer;padding:10px 12px;background:#f7f7f9;font-size:12px;font-weight:800">Decision Pack — ready to take into your meeting</summary>
+      <summary style="cursor:pointer;padding:10px 12px;background:#f7f7f9;font-size:12px;font-weight:800">Decision Pack — ready to take into your meeting · Bring Your Own Format</summary>
       <div style="padding:11px 12px;font-size:12px">
         <div style="color:#666;margin-bottom:9px">A concise, auditable brief built from the completed decision. No new AI call and no new calculations.</div>
         <textarea id="decision-pack-text" readonly style="width:100%;min-height:230px;box-sizing:border-box;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.45;border:1px solid #ddd;border-radius:7px;padding:9px;background:#fafafa"></textarea>
@@ -1441,8 +1902,23 @@ function renderDecisionPack(pos) {
           <span id="decision-pack-confirm" class="copy-confirm hidden">Copied ✓</span>
         </div>
         <div style="margin-top:12px;border-top:1px solid #eee;padding-top:10px">
-          <div style="font-weight:600;font-size:12px;margin-bottom:5px">Bring Your Own Format</div>
-          <div style="font-size:11px;color:#777;margin-bottom:6px">Paste your company's template using {{recommendation}}, {{financial_impact}}, {{confidence}}, {{why_this_wins}}, {{opening_position}}, {{walk_away}}, {{assumptions}}, {{stakeholder_conflicts}}, {{evidence_integrity}}, or {{action_plan}}.</div>
+          <div style="font-weight:800;font-size:12px;margin-bottom:5px">Standard VendorEdge formats</div>
+          <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center">
+            <select id="native-format-select" style="width:auto;min-width:190px;padding:7px;border:1px solid #ccc;border-radius:7px;font-size:12px">
+              <option value="decision_cockpit">Commercial Decision Cockpit</option>
+              <option value="executive_60_second">60-Second Executive</option>
+              <option value="cfo_brief">CFO Brief</option>
+              <option value="category_review">Category Review</option>
+              <option value="supplier_meeting">Supplier Meeting</option>
+              <option value="one_page">One Page</option>
+            </select>
+            <button class="secondary-btn" style="margin:0" onclick="renderNativeFormat()">Render format</button>
+          </div>
+          <pre id="native-format-result" class="hidden" style="white-space:pre-wrap;background:#fafafa;border:1px solid #ddd;border-radius:7px;padding:9px;font-size:11px;max-height:280px;overflow:auto;margin-top:8px"></pre>
+        </div>
+        <div style="margin-top:12px;border-top:1px solid #eee;padding-top:10px">
+          <div style="font-weight:800;font-size:12px;margin-bottom:5px">Bring Your Own Format</div>
+          <div style="font-size:11px;color:#777;margin-bottom:6px">Paste your company template. Supported tokens include {{recommendation}}, {{decision_cockpit}}, {{commercial_truth_model}}, {{decision_passport}}, {{financial_impact}}, {{confidence}}, {{why_this_wins}}, {{opening_position}}, {{walk_away}}, {{assumptions}}, {{stakeholder_conflicts}}, {{evidence_integrity}}, or {{action_plan}}.</div>
           <textarea id="custom-format-template" rows="5" placeholder="CFO decision: {{recommendation}}
 Confidence: {{confidence}}
 Financial impact: {{financial_impact}}
@@ -1486,6 +1962,21 @@ function downloadDecisionCSV() {
   window.open(`${API}/commercial-decisions/${currentDecisionId}/export.csv`, "_blank");
 }
 
+async function renderNativeFormat() {
+  const format = document.getElementById("native-format-select")?.value;
+  const out = document.getElementById("native-format-result");
+  if (!format || !currentDecisionId) return;
+  try {
+    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/format`, {
+      method: "POST", headers: HEADERS, body: JSON.stringify({format_name: format}),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Could not render format.");
+    out.textContent = `${data.title}\n\n${data.body}`;
+    out.classList.remove("hidden");
+  } catch (err) { alert(err.message); }
+}
+
 async function renderCustomFormat() {
   const template = document.getElementById("custom-format-template")?.value.trim();
   const out = document.getElementById("custom-format-result");
@@ -1509,13 +2000,22 @@ async function loadActionPlan() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Could not load action plan.");
     out.innerHTML = `<div style="font-weight:600;font-size:12px;margin-bottom:6px">Approval-gated action plan</div>` +
-      data.actions.map(a => `<div style="padding:8px;border:1px solid #eee;border-radius:7px;margin:5px 0;font-size:11.5px"><b>${a.stage}: ${a.title}</b><br><span style="color:#666">${a.status}${a.approval_required ? " · human approval required" : ""}</span><br>${a.instruction || ""}</div>`).join("") +
-      `<div style="font-size:10.5px;color:#888;margin-top:6px">${data.safety_note}</div>`;
+      data.actions.map(a => `<div style="padding:8px;border:1px solid #eee;border-radius:7px;margin:5px 0;font-size:11.5px"><b>${escapeHtml(String(a.stage ?? ""))}: ${escapeHtml(String(a.title ?? ""))}</b><br><span style="color:#666">${escapeHtml(String(a.status ?? ""))}${a.approval_required ? " · human approval required" : ""}</span><br>${escapeHtml(String(a.instruction || ""))}</div>`).join("") +
+      `<div style="font-size:10.5px;color:#888;margin-top:6px">${escapeHtml(String(data.safety_note || ""))}</div>`;
     out.classList.remove("hidden");
   } catch (err) { alert(err.message); }
 }
 
 function renderPosition(pos) {
+  renderTrustCertification(pos);
+  renderCommercialTruthModel(pos);
+  renderDecisionFlipMap(pos);
+  renderCommercialWarRoom(pos);
+  renderProcurementMemory(pos);
+  renderOutcomeIntelligence(pos);
+  renderCommercialDNA(pos);
+  renderDecisionCockpit(pos);
+  renderDecisionPassport(pos);
   renderDecisionSnapshot(pos);
   renderControlTower(pos);
 
@@ -1701,11 +2201,19 @@ async function submitOutcome() {
   const decision_alignment = document.getElementById("alignment-select").value;
   const unexpected_insight_raw = document.getElementById("unexpected-insight").value.trim();
   const unexpected_insight = unexpected_insight_raw || null;
+  const actualRaw = document.getElementById("actual-financial-impact-usd").value.trim();
+  const actual_financial_impact_usd = actualRaw === "" ? null : Number(actualRaw);
+  const actual_measurement_basis_raw = document.getElementById("actual-measurement-basis").value.trim();
+  const actual_measurement_basis = actual_measurement_basis_raw || null;
+  if (actual_financial_impact_usd !== null && !Number.isFinite(actual_financial_impact_usd)) {
+    alert("Please enter a valid actual financial impact, or leave it blank.");
+    return;
+  }
   if (!outcome_description) return;
   try {
     const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/feedback`, {
       method: "POST", headers: HEADERS,
-      body: JSON.stringify({ outcome_description, validation_verdict, decision_alignment, unexpected_insight }),
+      body: JSON.stringify({ outcome_description, validation_verdict, decision_alignment, unexpected_insight, actual_financial_impact_usd, actual_measurement_basis }),
     });
     if (!res.ok) {
       const data = await res.json();

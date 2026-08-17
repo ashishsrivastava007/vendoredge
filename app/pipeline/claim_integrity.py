@@ -643,6 +643,30 @@ def check_material_caveat_omission(position: CommercialPosition, normalized: Nor
 # Aggregate entry point
 # ---------------------------------------------------------------------------
 
+
+def check_unquantified_tradeoff_overstatement(position: CommercialPosition, normalized: NormalizedEvidence) -> list[str]:
+    """Prevent qualitative risk from being presented as quantitatively outweighing a known price benefit."""
+    text = " ".join(filter(None, [position.recommendation, position.why_this_wins, position.reasoning]))
+    findings: list[str] = []
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        low = sentence.lower()
+        if "outweigh" not in low:
+            continue
+        risk_terms = ("risk", "qualification", "continuity", "lead time", "switching")
+        benefit_terms = ("saving", "savings", "financial benefit", "price benefit", "€", "$", "usd", "eur")
+        if any(t in low for t in risk_terms) and any(t in low for t in benefit_terms):
+            # Allow the claim only when the sentence contains a numeric risk/penalty
+            # amount or percentage. Otherwise the model is comparing unlike units.
+            numeric_markers = re.findall(r"(?:\$|€|£|\b(?:usd|eur|gbp)\b|\b\d+(?:\.\d+)?\s*%)", low)
+            if len(numeric_markers) < 2:
+                findings.append(
+                    "The response says an unquantified risk outweighs a financial benefit. "
+                    "State the risk as an unresolved material risk unless its economic impact is actually quantified."
+                )
+                break
+    return findings
+
+
 def check_all_claim_overstatements(
     position: CommercialPosition,
     normalized: NormalizedEvidence,
@@ -664,4 +688,5 @@ def check_all_claim_overstatements(
         + check_certification_overstatement(position, normalized)
         + check_preferred_supplier_overstatement(position, normalized)
         + check_performance_characterization_overstatement(position, normalized)
+        + check_unquantified_tradeoff_overstatement(position, normalized)
     )

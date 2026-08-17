@@ -1,0 +1,12 @@
+{
+  "release": "R25.2.1",
+  "name": "Quote Comparison Scalar Normalization Hotfix",
+  "base": "R25.2 World-Class Hardened + UX",
+  "status": "production_hotfix",
+  "incident": "Quote comparison cases failed when classifier returned numeric supplier count as JSON integer.",
+  "fix": "Normalize numeric scalar quote-comparison evidence fields to strings at the Pydantic normalization boundary.",
+  "tests": {
+    "targeted_cumulative_passed": 48,
+    "full_local_suite_blocked_by_environment": true
+  }
+}

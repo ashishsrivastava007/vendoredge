@@ -185,6 +185,9 @@ class DecisionAudit(BaseModel):
     stakeholder_conflict: list[str] = Field(default_factory=list, max_length=8)
     reversal_conditions: list[str] = Field(default_factory=list, max_length=6)
     evidence_integrity_status: Literal["PROVEN", "INFERRED", "UNKNOWN", "CONTRADICTED"]
+    # LLM extraction quality warnings are user-visible audit signals. They
+    # never become evidence and never contain raw untrusted model prose.
+    normalization_warnings: list[str] = Field(default_factory=list, max_length=12)
     evidence_counts: dict[str, int] = Field(default_factory=dict)
 
 

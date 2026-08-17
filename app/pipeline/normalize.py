@@ -24,11 +24,75 @@ from app.pipeline.financial_fallback import (
 from app.pipeline.numeric_parsing import parse_numeric_value
 from app.pipeline.evidence import INCOTERMS_WHERE_BUYER_BEARS_FREIGHT
 from app import caps
+import math
+import re
 
 # Real, small epsilon for numeric agreement checks -- two extraction
 # methods producing 2000000.0 vs 2000000.01 should count as agreement,
 # not a spurious conflict from floating-point noise.
 _NUMERIC_AGREEMENT_TOLERANCE = 0.01
+_NUMERIC_STRING_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$")
+
+
+def _coerce_number(value, field_name: str, warnings: list[str], *, allow_percent_suffix: bool = False):
+    """Accept only a real numeric scalar or a strictly numeric string.
+
+    LLM JSON is an external, model-generated boundary. Numeric fields are
+    deliberately strict: we accept harmless representation drift (2 vs
+    "2", 0.8 vs "0.8") but never reinterpret arbitrary prose such as
+    "35 weeks" or "EUR 52" as a number. Invalid values become UNKNOWN at
+    the evidence layer and are surfaced as a normalization warning rather
+    than crashing the request.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        warnings.append(f"schema:{field_name}:boolean_for_numeric")
+        return None
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and not math.isfinite(value):
+            warnings.append(f"schema:{field_name}:non_finite_numeric")
+            return None
+        return float(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if allow_percent_suffix and text.endswith("%"):
+            text = text[:-1].strip()
+        if _NUMERIC_STRING_RE.fullmatch(text):
+            try:
+                number = float(text)
+                if math.isfinite(number):
+                    return number
+            except ValueError:
+                pass
+        warnings.append(f"schema:{field_name}:invalid_numeric_scalar")
+        return None
+    warnings.append(f"schema:{field_name}:unexpected_type")
+    return None
+
+
+def _coerce_text(value, field_name: str, warnings: list[str], *, numeric_scalar_ok: bool = False):
+    """Keep text fields textual; only convert numeric scalars where the
+    extraction contract explicitly permits a number-shaped answer."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value.strip() or None
+    if numeric_scalar_ok and isinstance(value, (int, float)) and not isinstance(value, bool):
+        if isinstance(value, float) and not math.isfinite(value):
+            warnings.append(f"schema:{field_name}:non_finite_numeric_text")
+            return None
+        return str(value)
+    warnings.append(f"schema:{field_name}:unexpected_text_type")
+    return None
+
+
+def _safe_enum(value, allowed: set[str], default: str, field_name: str, warnings: list[str]):
+    if isinstance(value, str) and value in allowed:
+        return value
+    if value is not None:
+        warnings.append(f"schema:{field_name}:invalid_enum")
+    return default
 
 
 def _resolve_field(raw_question, llm_value, fallback_value, field_name, provenance, is_numeric=False):
@@ -95,6 +159,35 @@ def normalize_evidence(
     """
     provenance: dict[str, FieldProvenance] = {}
     conflicts: list[str] = []
+    normalization_warnings: list[str] = []
+
+    # Never let malformed model JSON become a production 500. These are
+    # model-output contracts, not trusted application inputs. A bad shape is
+    # downgraded to missing evidence and remains visible to the caller.
+    if not isinstance(llm_extracted_evidence, dict):
+        normalization_warnings.append("schema:extracted_evidence:expected_object")
+        llm_extracted_evidence = {}
+    if not isinstance(llm_numeric_facts, dict):
+        normalization_warnings.append("schema:numeric_facts:expected_object")
+        llm_numeric_facts = {}
+    if supplier_specific_evidence is not None and not isinstance(supplier_specific_evidence, list):
+        normalization_warnings.append("schema:supplier_specific_evidence:expected_array")
+        supplier_specific_evidence = []
+
+    numeric_field_specs = {
+        "duty_or_tax_rate_percent": True,
+        "annual_volume_units": False,
+        "unit_price_usd": False,
+        "annual_spend_usd": False,
+        "requested_change_percent": True,
+        "switching_cost_usd": False,
+    }
+    for _field, _allow_percent in numeric_field_specs.items():
+        if _field in llm_numeric_facts:
+            llm_numeric_facts[_field] = _coerce_number(llm_numeric_facts.get(_field), f"numeric_facts.{_field}", normalization_warnings, allow_percent_suffix=_allow_percent)
+    if stakeholder_views is not None and not isinstance(stakeholder_views, list):
+        normalization_warnings.append("schema:stakeholder_views:expected_array")
+        stakeholder_views = []
 
     def mark_llm_or_followup(field_name, present_in_dict):
         if field_name in present_in_dict:
@@ -117,7 +210,10 @@ def normalize_evidence(
     multi_supplier_fields_handled: set[str] = set()
     if supplier_specific_evidence:
         for entry in supplier_specific_evidence:
-            name = entry.get("supplier_name")
+            if not isinstance(entry, dict):
+                normalization_warnings.append("schema:supplier_specific_evidence:entry_expected_object")
+                continue
+            name = _coerce_text(entry.get("supplier_name"), "supplier_specific_evidence.supplier_name", normalization_warnings)
             if not name:
                 continue
             # Fix for the confirmed master-case bug: freight is
@@ -144,26 +240,27 @@ def normalize_evidence(
                     source="user_followup", stage_captured="normalize_evidence", supplier_name=name,
                 )
 
+            _price_display = _coerce_text(entry.get("price_display"), f"supplier:{name}:price_display", normalization_warnings, numeric_scalar_ok=True)
             suppliers.append(SupplierEvidence(
                 supplier_name=name,
-                incoterm=normalize_incoterm(entry.get("incoterm")),
-                region=entry.get("region"),
-                currency=entry.get("currency"),
-                price_display=entry.get("price_display"),
-                price_amount=parse_numeric_value(str(entry.get("price_display"))) if entry.get("price_display") else None,
-                lead_time_weeks=entry.get("lead_time_weeks"),
-                otif_percent=entry.get("otif_percent"),
-                defect_rate_percent=entry.get("defect_rate_percent"),
-                payment_terms=entry.get("payment_terms"),
-                capacity_percent=entry.get("capacity_percent"),
-                qualification_status=entry.get("qualification_status") or "unknown",
-                qualification_percent=entry.get("qualification_percent"),
-                is_incumbent=bool(entry.get("is_incumbent")),
-                freight_cost_or_estimate=resolved_freight,
-                production_history_status=entry.get("production_history_status") or "unknown",
-                certification_status=entry.get("certification_status") or "unknown",
-                certification_detail=entry.get("certification_detail"),
-                preferred_supplier_status=entry.get("preferred_supplier_status") or "unknown",
+                incoterm=normalize_incoterm(_coerce_text(entry.get("incoterm"), f"supplier:{name}:incoterm", normalization_warnings)),
+                region=_coerce_text(entry.get("region"), f"supplier:{name}:region", normalization_warnings),
+                currency=_coerce_text(entry.get("currency"), f"supplier:{name}:currency", normalization_warnings),
+                price_display=_coerce_text(entry.get("price_display"), f"supplier:{name}:price_display", normalization_warnings, numeric_scalar_ok=True),
+                price_amount=parse_numeric_value(str(_coerce_text(entry.get("price_display"), f"supplier:{name}:price_display", normalization_warnings, numeric_scalar_ok=True))) if entry.get("price_display") is not None else None,
+                lead_time_weeks=_coerce_number(entry.get("lead_time_weeks"), f"supplier:{name}:lead_time_weeks", normalization_warnings),
+                otif_percent=_coerce_number(entry.get("otif_percent"), f"supplier:{name}:otif_percent", normalization_warnings, allow_percent_suffix=True),
+                defect_rate_percent=_coerce_number(entry.get("defect_rate_percent"), f"supplier:{name}:defect_rate_percent", normalization_warnings, allow_percent_suffix=True),
+                payment_terms=_coerce_text(entry.get("payment_terms"), f"supplier:{name}:payment_terms", normalization_warnings, numeric_scalar_ok=True),
+                capacity_percent=_coerce_number(entry.get("capacity_percent"), f"supplier:{name}:capacity_percent", normalization_warnings, allow_percent_suffix=True),
+                qualification_status=_safe_enum(entry.get("qualification_status"), {"not_started", "in_progress", "complete", "unknown"}, "unknown", f"supplier:{name}:qualification_status", normalization_warnings),
+                qualification_percent=_coerce_number(entry.get("qualification_percent"), f"supplier:{name}:qualification_percent", normalization_warnings, allow_percent_suffix=True),
+                is_incumbent=entry.get("is_incumbent") if isinstance(entry.get("is_incumbent"), bool) else False,
+                freight_cost_or_estimate=_coerce_text(resolved_freight, f"supplier:{name}:freight_cost_or_estimate", normalization_warnings, numeric_scalar_ok=True),
+                production_history_status=_safe_enum(entry.get("production_history_status"), {"established", "limited", "none", "unknown"}, "unknown", f"supplier:{name}:production_history_status", normalization_warnings),
+                certification_status=_safe_enum(entry.get("certification_status"), {"certified", "not_certified", "unknown"}, "unknown", f"supplier:{name}:certification_status", normalization_warnings),
+                certification_detail=_coerce_text(entry.get("certification_detail"), f"supplier:{name}:certification_detail", normalization_warnings, numeric_scalar_ok=True),
+                preferred_supplier_status=_safe_enum(entry.get("preferred_supplier_status"), {"preferred", "not_preferred", "unknown"}, "unknown", f"supplier:{name}:preferred_supplier_status", normalization_warnings),
             ))
             provenance[f"supplier:{name}"] = FieldProvenance(
                 source="llm_extraction", stage_captured="normalize_evidence", supplier_name=name,
@@ -182,6 +279,9 @@ def normalize_evidence(
     # ---- stakeholder views: attributed, never promoted to fact ----
     normalized_stakeholder_views: list[StakeholderView] = []
     for entry in (stakeholder_views or [])[:caps.MAX_STAKEHOLDER_VIEWS]:
+        if not isinstance(entry, dict):
+            normalization_warnings.append("schema:stakeholder_views:entry_expected_object")
+            continue
         name = str(entry.get("stakeholder_name") or "").strip()
         statement = str(entry.get("statement") or "").strip()
         view_type = entry.get("view_type")
@@ -192,10 +292,10 @@ def normalize_evidence(
             continue
         normalized_stakeholder_views.append(StakeholderView(
             stakeholder_name=name,
-            role=entry.get("role"),
+            role=_coerce_text(entry.get("role"), "stakeholder_views.role", normalization_warnings, numeric_scalar_ok=True),
             view_type=view_type,
             statement=statement,
-            basis=entry.get("basis"),
+            basis=_coerce_text(entry.get("basis"), "stakeholder_views.basis", normalization_warnings, numeric_scalar_ok=True),
             explicitly_stated=bool(entry.get("explicitly_stated", True)),
         ))
 
@@ -257,10 +357,10 @@ def normalize_evidence(
     mark_llm_or_followup("supplier_name", llm_extracted_evidence)
 
     common = CommonEvidence(
-        supplier_name=llm_extracted_evidence.get("supplier_name"),
-        supplier_region_or_market=region,
-        supplier_currency=currency,
-        incoterm=incoterm,
+        supplier_name=_coerce_text(llm_extracted_evidence.get("supplier_name"), "supplier_name", normalization_warnings),
+        supplier_region_or_market=_coerce_text(region, "supplier_region_or_market", normalization_warnings),
+        supplier_currency=_coerce_text(currency, "supplier_currency", normalization_warnings),
+        incoterm=_coerce_text(incoterm, "incoterm", normalization_warnings),
         duty_or_tax_rate_percent=duty_rate,
         annual_volume_units=volume,
         unit_price_usd=unit_price,
@@ -315,13 +415,13 @@ def normalize_evidence(
         requested_percent_text_source = llm_extracted_evidence.get("requested_increase_percent")
 
         case_evidence = PriceIncreaseEvidence(
-            current_price_or_terms=current_price_text,
+            current_price_or_terms=_coerce_text(current_price_text, "current_price_or_terms", normalization_warnings, numeric_scalar_ok=True),
             requested_increase_percent=percent,
-            suppliers_stated_justification=llm_extracted_evidence.get("suppliers_stated_justification"),
-            how_critical_is_this_supplier_relationship=llm_extracted_evidence.get("how_critical_is_this_supplier_relationship"),
+            suppliers_stated_justification=_coerce_text(llm_extracted_evidence.get("suppliers_stated_justification"), "suppliers_stated_justification", normalization_warnings, numeric_scalar_ok=True),
+            how_critical_is_this_supplier_relationship=_coerce_text(llm_extracted_evidence.get("how_critical_is_this_supplier_relationship"), "how_critical_is_this_supplier_relationship", normalization_warnings, numeric_scalar_ok=True),
             annual_spend_usd=spend,
             switching_cost_usd=llm_numeric_facts.get("switching_cost_usd"),
-            freight_cost_or_estimate=llm_extracted_evidence.get("freight_cost_or_estimate"),
+            freight_cost_or_estimate=_coerce_text(llm_extracted_evidence.get("freight_cost_or_estimate"), "freight_cost_or_estimate", normalization_warnings, numeric_scalar_ok=True),
         )
     else:
         for f in ("number_of_suppliers_being_compared", "price_per_supplier", "payment_terms_per_supplier",
@@ -329,12 +429,12 @@ def normalize_evidence(
                    "is_this_a_new_or_incumbent_relationship"):
             mark_llm_or_followup(f, llm_extracted_evidence)
         case_evidence = QuoteComparisonEvidence(
-            number_of_suppliers_being_compared=llm_extracted_evidence.get("number_of_suppliers_being_compared"),
-            price_per_supplier=llm_extracted_evidence.get("price_per_supplier"),
-            payment_terms_per_supplier=llm_extracted_evidence.get("payment_terms_per_supplier"),
-            lead_time_per_supplier=llm_extracted_evidence.get("lead_time_per_supplier"),
-            quality_or_defect_history_per_supplier=llm_extracted_evidence.get("quality_or_defect_history_per_supplier"),
-            is_this_a_new_or_incumbent_relationship=llm_extracted_evidence.get("is_this_a_new_or_incumbent_relationship"),
+            number_of_suppliers_being_compared=_coerce_text(llm_extracted_evidence.get("number_of_suppliers_being_compared"), "number_of_suppliers_being_compared", normalization_warnings, numeric_scalar_ok=True),
+            price_per_supplier=_coerce_text(llm_extracted_evidence.get("price_per_supplier"), "price_per_supplier", normalization_warnings, numeric_scalar_ok=True),
+            payment_terms_per_supplier=_coerce_text(llm_extracted_evidence.get("payment_terms_per_supplier"), "payment_terms_per_supplier", normalization_warnings, numeric_scalar_ok=True),
+            lead_time_per_supplier=_coerce_text(llm_extracted_evidence.get("lead_time_per_supplier"), "lead_time_per_supplier", normalization_warnings, numeric_scalar_ok=True),
+            quality_or_defect_history_per_supplier=_coerce_text(llm_extracted_evidence.get("quality_or_defect_history_per_supplier"), "quality_or_defect_history_per_supplier", normalization_warnings, numeric_scalar_ok=True),
+            is_this_a_new_or_incumbent_relationship=_coerce_text(llm_extracted_evidence.get("is_this_a_new_or_incumbent_relationship"), "is_this_a_new_or_incumbent_relationship", normalization_warnings, numeric_scalar_ok=True),
         )
 
     # ---- derived: annual spend resolution (exactly the approved priority) ----
@@ -412,5 +512,6 @@ def normalize_evidence(
         provenance=provenance,
         suppliers=suppliers,
         stakeholder_views=normalized_stakeholder_views,
+        normalization_warnings=normalization_warnings[:caps.MAX_NORMALIZATION_WARNINGS],
     )
     return normalized, conflicts

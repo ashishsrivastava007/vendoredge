@@ -152,3 +152,11 @@ Scanned PDFs requiring OCR are intentionally not represented as supported eviden
 ## Important
 
 This is a procurement decision-intelligence product, not an autonomous purchasing agent. VendorEdge does not place purchase orders or make irreversible commercial commitments. Human approval remains required for downstream actions.
+
+## R25.2.2 — LLM Extraction Contract Hardening
+
+The live Case #1 red-team test exposed a real model-output type mismatch at the
+normalization boundary. R25.2.2 hardens that boundary so harmless scalar
+representation drift is accepted, malformed values degrade to explicit evidence
+gaps with auditable normalization warnings, and malformed extraction containers
+cannot become generic production 500 errors. See `R25_2_2_LLM_EXTRACTION_CONTRACT.md`.

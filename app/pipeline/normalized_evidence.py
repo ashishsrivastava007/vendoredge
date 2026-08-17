@@ -24,7 +24,7 @@ Three-tier structure, deliberately not one giant schema:
 """
 from __future__ import annotations
 from typing import Literal, Optional, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 EvidenceSource = Literal[
@@ -193,15 +193,36 @@ class PriceIncreaseEvidence(BaseModel):
 
 
 class QuoteComparisonEvidence(BaseModel):
-    """Case-specific for quote_comparison. Genuinely per-supplier in
-    real-world shape -- kept separate from price_increase's singular
-    fields rather than forced into a shared structure."""
+    """Case-specific quote-comparison evidence.
+
+    The classifier may return scalar numeric values as JSON (for example,
+    ``2`` rather than ``"2"``) even though these normalized fields are
+    intentionally human-readable strings. Numeric scalars are normalized
+    at this boundary so valid extraction cannot crash the decision pipeline.
+    Structured lists/dicts are not coerced because they indicate a schema
+    mismatch that should remain visible.
+    """
     number_of_suppliers_being_compared: Optional[str] = None
     price_per_supplier: Optional[str] = None
     payment_terms_per_supplier: Optional[str] = None
     lead_time_per_supplier: Optional[str] = None
     quality_or_defect_history_per_supplier: Optional[str] = None
     is_this_a_new_or_incumbent_relationship: Optional[str] = None
+
+    @field_validator(
+        "number_of_suppliers_being_compared",
+        "price_per_supplier",
+        "payment_terms_per_supplier",
+        "lead_time_per_supplier",
+        "quality_or_defect_history_per_supplier",
+        "is_this_a_new_or_incumbent_relationship",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_scalar_evidence(cls, value):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return str(value)
+        return value
 
 
 AnnualSpendResolutionMethod = Literal["direct", "derived_from_price_and_volume", "unresolved"]
@@ -274,6 +295,11 @@ class NormalizedEvidence(BaseModel):
     # They remain separately attributable so conflicting views can be surfaced
     # and weighed without creating false consensus.
     stakeholder_views: list[StakeholderView] = Field(default_factory=list)
+    # Model-output contract warnings. These are intentionally separate from
+    # LLM-vs-fallback conflicts: a malformed extraction is downgraded to
+    # missing evidence and surfaced here, rather than becoming a 500 or an
+    # invented value. Downstream trust logic may display these warnings.
+    normalization_warnings: list[str] = Field(default_factory=list)
 
     def supplier_by_name(self, name: str) -> Optional[SupplierEvidence]:
         for s in self.suppliers:

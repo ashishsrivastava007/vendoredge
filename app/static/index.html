@@ -1744,6 +1744,7 @@ function renderDecisionAudit(pos) {
         <div style="font-weight:700;margin-bottom:4px">What materially supports this decision</div>
         ${evidenceRows || "<div style='color:#777'>No material evidence was resolved.</div>"}
         ${(a.inferred_signals || []).length ? `<div style="font-weight:700;margin:12px 0 4px">Inferences — not facts</div><ul style="margin:4px 0 0 18px">${a.inferred_signals.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}
+        ${(a.normalization_warnings || []).length ? `<div style="margin:12px 0 8px;padding:10px 12px;border:1px solid #e4c46b;background:#fffaf0;border-radius:8px"><div style="font-weight:800;color:#7a5c00">Evidence extraction needs attention</div><div style="margin-top:4px;color:#6b5b2a">${a.normalization_warnings.length} field${a.normalization_warnings.length === 1 ? "" : "s"} could not be reliably extracted. Those values were treated as missing rather than guessed.</div><ul style="margin:6px 0 0 18px">${a.normalization_warnings.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>` : ""}
         ${uncertaintyRows ? `<div style="font-weight:700;margin:12px 0 4px">What remains uncertain</div><ul style="margin:4px 0 0 18px">${uncertaintyRows}</ul>` : ""}
         ${stakeholderRows ? `<div style="font-weight:700;margin:12px 0 4px">Stakeholder trade-offs</div>${stakeholderRows}` : ""}
         ${reversalRows ? `<div style="font-weight:700;margin:12px 0 4px">What would make us reconsider</div><ul style="margin:4px 0 0 18px">${reversalRows}</ul>` : ""}

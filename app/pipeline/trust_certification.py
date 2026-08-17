@@ -128,6 +128,15 @@ def build_trust_certification(normalized: NormalizedEvidence, position: Commerci
     status, summary, details = _traceability(position)
     checks.append(_check("decision_traceability", status, summary, critical=True, details=details))
 
+    normalization_warnings = list(normalized.normalization_warnings[:12])
+    checks.append(_check(
+        "normalization_quality",
+        "WARN" if normalization_warnings else "PASS",
+        (f"{len(normalization_warnings)} evidence extraction warning(s) were downgraded to missing values and surfaced in the decision audit."
+         if normalization_warnings else "LLM extraction passed the normalized evidence contract without warnings."),
+        details=normalization_warnings[:6],
+    ))
+
     status, summary, details = _supplier_attribution(normalized)
     checks.append(_check("supplier_attribution", status, summary, details=details))
 

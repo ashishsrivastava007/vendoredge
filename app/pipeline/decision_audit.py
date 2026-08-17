@@ -92,9 +92,10 @@ def build_decision_audit(normalized: NormalizedEvidence, position: CommercialPos
                 uncertainties.append(f"{view.stakeholder_name}: {view.view_type} — {view.statement}")
 
     conflict_fields = [f for f, p in normalized.provenance.items() if p.conflicting]
+    normalization_warnings = list(normalized.normalization_warnings[:12])
     if conflict_fields:
         status = "CONTRADICTED"
-    elif uncertainties:
+    elif uncertainties or normalization_warnings:
         status = "UNKNOWN"
     else:
         status = "PROVEN"
@@ -134,6 +135,7 @@ def build_decision_audit(normalized: NormalizedEvidence, position: CommercialPos
         "stakeholder_tradeoffs": stakeholder_tradeoffs,
         "stakeholder_conflict": conflict_details,
         "reversal_conditions": reversal_conditions[:6],
+        "normalization_warnings": normalization_warnings,
         "evidence_integrity_status": status,
         "evidence_counts": counts,
     }

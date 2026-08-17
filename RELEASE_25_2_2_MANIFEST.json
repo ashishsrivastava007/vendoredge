@@ -1,0 +1,25 @@
+{
+  "release": "R25.2.2",
+  "name": "LLM Extraction Contract Hardening",
+  "base": "R25.2.1 production hotfix",
+  "mission": "Make the LLM-to-typed-evidence boundary tolerant to harmless representation drift and safe against malformed model output without inventing values or producing production 500s.",
+  "changes": [
+    "typed_numeric_coercion",
+    "strict_numeric_validation",
+    "safe_text_coercion",
+    "enum_guard",
+    "malformed_container_guard",
+    "normalization_warnings"
+  ],
+  "validation": {
+    "dedicated_contract_tests": 6,
+    "dependency_light_regression_passed": 259,
+    "dependency_light_regression_skipped": 3,
+    "python_compile": "PASS",
+    "fresh_package_smoke": "PASS_PENDING_PACKAGING"
+  },
+  "known_environment_limits": [
+    "live PostgreSQL not available in isolated build environment",
+    "live Anthropic API not available in isolated build environment"
+  ]
+}

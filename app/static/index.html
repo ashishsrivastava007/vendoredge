@@ -76,6 +76,17 @@
   .journey-step small { color:#9296a0; font-size:8.5px; margin-top:2px; }
   .journey-line { flex:1; height:1px; min-width:14px; background:#dedfe4; margin:0 8px; }
   #pos-decision-cockpit, #pos-trust-certification, #pos-commercial-truth-model, #pos-decision-flip-map, #pos-commercial-war-room, #pos-procurement-memory, #pos-outcome-intelligence, #pos-commercial-dna { margin:14px 0; }
+  .decision-flow-note { margin:0 0 12px; font-size:11px; color:#7a7f89; letter-spacing:.03em; }
+  .ve-support-group { margin:10px 0; border:1px solid #dfe2e7; border-radius:12px; background:#fff; overflow:hidden; }
+  .ve-support-group > summary { cursor:pointer; list-style:none; padding:13px 14px; font-size:12.5px; font-weight:850; color:#1f2430; background:#fafbfc; }
+  .ve-support-group > summary small { display:block; margin-top:4px; color:#858a94; font-size:10.5px; font-weight:500; line-height:1.4; max-width:820px; }
+  .ve-support-group > summary::-webkit-details-marker { display:none; }
+  .ve-support-group > summary:after { content:'+'; float:right; color:#8a909b; font-size:16px; line-height:12px; }
+  .ve-support-group[open] > summary:after { content:'−'; }
+  .ve-support-body { padding:2px 12px 8px; }
+  .ve-support-body > div { margin:0 !important; }
+  .ve-support-body > div > section { margin:8px 0 !important; box-shadow:none !important; }
+
   #pos-decision-cockpit > *, #pos-trust-certification > *, #pos-commercial-truth-model > *, #pos-decision-flip-map > *, #pos-commercial-war-room > *, #pos-procurement-memory > *, #pos-outcome-intelligence > *, #pos-commercial-dna > * { border-radius:14px !important; }
   #loading { max-width:720px; margin:80px auto; background:#fff; border:1px solid var(--line); border-radius:20px; padding:34px; box-shadow:var(--shadow); font-weight:600; color:#454952; }
   @media (max-width:760px) {
@@ -149,26 +160,9 @@
 </div>
 
 <div id="position-screen" class="hidden">
-  <div class="intelligence-journey" aria-label="VendorEdge intelligence journey">
-    <div class="journey-kicker">COMMERCIAL INTELLIGENCE</div>
-    <div class="journey-track">
-      <div class="journey-step active"><span>01</span><b>Evidence</b><small>What we know</small></div>
-      <div class="journey-line"></div>
-      <div class="journey-step active"><span>02</span><b>Truth</b><small>What holds</small></div>
-      <div class="journey-line"></div>
-      <div class="journey-step active"><span>03</span><b>Economics</b><small>What matters</small></div>
-      <div class="journey-line"></div>
-      <div class="journey-step active"><span>04</span><b>Flip</b><small>What changes it</small></div>
-      <div class="journey-line"></div>
-      <div class="journey-step active"><span>05</span><b>War Room</b><small>How to act</small></div>
-      <div class="journey-line"></div>
-      <div class="journey-step active"><span>06</span><b>Memory</b><small>What history says</small></div>
-      <div class="journey-line"></div>
-      <div class="journey-step active"><span>07</span><b>DNA</b><small>What you learn</small></div>
-    </div>
-  </div>
+  <div class="decision-flow-note">Position → Why → Risk → Action</div>
   <div class="card">
-    <p style="color:#888; font-size:13px; margin:0 0 8px">Your commercial position</p>
+    <p style="color:#777; font-size:11px; font-weight:800; letter-spacing:.12em; margin:0 0 8px; text-transform:uppercase">Your decision</p>
     <div id="pos-thread-indicator"></div>
     <div id="pos-decision-cockpit"></div>
     <div id="pos-decision-passport"></div>
@@ -190,14 +184,10 @@
     <div id="pos-key-figures"></div>
     <div id="pos-supplier-comparison"></div>
     <div id="pos-financial-impact"></div>
-    <div style="margin-top:10px">
-      <div style="font-size:12px; font-weight:600; color:#555; margin-bottom:4px">Commercial Rationale</div>
-      <p id="pos-reasoning" style="font-size:13.5px; line-height:1.5; color:#333"></p>
-    </div>
     <div id="pos-badge"></div>
     <div id="pos-factors"></div>
     <p id="pos-derivation" style="font-size:13px; color:#555; margin-top:10px"></p>
-    <p style="font-size:13px; margin-top:14px"><b>This depends on:</b> <span id="pos-assumption"></span></p>
+    <p id="pos-assumption-wrap" style="font-size:13px; margin-top:14px"><b>This depends on:</b> <span id="pos-assumption"></span></p>
     <div id="pos-walkaway"></div>
     <div id="pos-negotiation-dimensions"></div>
     <div id="pos-talk-track"></div>
@@ -207,7 +197,7 @@
   <div id="pos-alternatives"></div>
   <div id="pos-control-tower"></div>
   <div id="pos-decision-pack"></div>
-    <p style="font-size:13px"><b>What would change this:</b> <span id="pos-disconfirm"></span></p>
+    <p id="pos-disconfirm-wrap" style="font-size:13px"><b>What would change this:</b> <span id="pos-disconfirm"></span></p>
     <div id="quick-feedback-prompt" style="margin-top:16px; padding:12px; background:#f7f7f9; border-radius:8px">
       <p style="font-size:13px; font-weight:500; margin:0 0 8px">Did this help you make a better commercial decision?</p>
       <div id="quick-feedback-buttons">
@@ -903,25 +893,22 @@ function renderCommercialTruthModel(pos) {
   el.innerHTML = `
     <section style="border:1px solid #cfd5df;border-radius:13px;margin:0 0 12px;overflow:hidden;background:#fff">
       <div style="padding:11px 14px;background:#f3f5f8;display:flex;justify-content:space-between;gap:10px;align-items:center">
-        <div><div style="font-size:9px;letter-spacing:.14em;font-weight:900;color:#687080">R20 · COMMERCIAL TRUTH MODEL</div><div style="font-size:15px;font-weight:900;margin-top:2px">The situation, structurally</div></div>
+        <div><div style="font-size:9px;letter-spacing:.14em;font-weight:900;color:#687080">COMMERCIAL FACTS</div><div style="font-size:15px;font-weight:900;margin-top:2px">The situation, structurally</div></div>
         <div style="font-size:10px;font-weight:900;color:${standingColor};border:1px solid ${standingColor};padding:5px 8px;border-radius:999px">EVIDENCE ${escapeHtml(standing)}</div>
       </div>
       <div style="padding:11px 14px">
-        <div style="font-size:12px;color:#555;margin-bottom:9px">VendorEdge has converted the case into a reusable commercial model. Later intelligence layers work from this structure rather than re-reading the raw case.</div>
+        <div style="font-size:12px;color:#555;margin-bottom:9px">Only the commercial facts that materially support the decision are shown here. Source and attribution remain available in the evidence trail.</div>
         <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px">
           <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777;font-weight:800">SUPPLIERS</div><div style="font-size:14px;font-weight:900;margin-top:2px">${parties.supplier_count || 0}</div></div>
-          <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777;font-weight:800">ANNUAL SPEND</div><div style="font-size:12px;font-weight:900;margin-top:2px">${econ.annual_spend_usd != null ? "$" + Number(econ.annual_spend_usd).toLocaleString(undefined,{maximumFractionDigits:0}) : "Unknown"}</div></div>
+          <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777;font-weight:800">ANNUAL SPEND</div><div style="font-size:12px;font-weight:900;margin-top:2px">${econ.quote_annual_spend != null ? Number(econ.quote_annual_spend).toLocaleString(undefined,{maximumFractionDigits:0}) + " " + escapeHtml(String(econ.quote_currency || "")) : (econ.annual_spend_usd != null ? "$" + Number(econ.annual_spend_usd).toLocaleString(undefined,{maximumFractionDigits:0}) : "Unknown")}</div></div>
           <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777;font-weight:800">DIMENSIONS</div><div style="font-size:14px;font-weight:900;margin-top:2px">${dims.length}</div></div>
           <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777;font-weight:800">DEPENDENCIES</div><div style="font-size:14px;font-weight:900;margin-top:2px">${deps.length}</div></div>
         </div>
         ${suppliers.length ? `<div style="margin-top:11px;border:1px solid #eee;border-radius:9px;overflow:auto"><div style="padding:7px 9px;background:#fafafa;font-size:10px;font-weight:900;color:#777">SUPPLIER POSITIONS — ATTRIBUTED</div><table style="width:100%;border-collapse:collapse;font-size:11px"><tr style="font-size:9px;color:#999"><td style="padding:5px 8px">Supplier</td><td style="padding:5px 8px">Role</td><td style="padding:5px 8px">Price</td><td style="padding:5px 8px">Incoterm</td><td style="padding:5px 8px">Qualification</td></tr>${supplierRows}</table></div>` : ""}
         ${dimPills ? `<div style="margin-top:9px"><div style="font-size:10px;font-weight:900;color:#777;margin-bottom:3px">COMMERCIAL DIMENSIONS WITH EVIDENCE</div>${dimPills}</div>` : ""}
         ${quote.comparable_quote_prices ? `<div style="margin-top:9px;padding:8px 10px;background:#f6faf7;border-left:3px solid #1f7a4d;border-radius:7px;font-size:11px"><b>Deterministic price comparison:</b> ${escapeHtml(String(quote.lowest_supplier))} is lowest in ${escapeHtml(String(quote.comparison_currency))}; unit spread ${escapeHtml(String(quote.unit_price_spread))}. No FX conversion was introduced.</div>` : ""}
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:9px">
-          ${deps.length ? `<details style="border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">DEPENDENCIES</summary><div>${depRows}</div></details>` : ""}
-          ${(unknowns.length || changers.length) ? `<details style="border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">DECISION STRUCTURE</summary>${changers.length ? `<div style="margin-top:6px;font-size:11px"><b>Could change:</b><ul style="margin:4px 0 0 17px">${changers.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>` : ""}${unknowns.length ? `<div style="margin-top:6px;font-size:11px"><b>Still unknown:</b><ul style="margin:4px 0 0 17px">${unknowns.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>` : ""}</details>` : ""}
-        </div>
-        <div style="margin-top:9px;font-size:9.5px;color:#888">${escapeHtml(m.trace?.method || "Deterministic R20 model")}</div>
+        ${deps.length ? `<details style="margin-top:9px;border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">COST / DELIVERY DEPENDENCIES</summary><div>${depRows}</div></details>` : ""}
+        <div style="margin-top:9px;font-size:9.5px;color:#888">${escapeHtml(m.trace?.method || "Deterministic commercial model")}</div>
       </div>
     </section>`;
 }
@@ -946,7 +933,7 @@ function renderTrustCertification(pos) {
   el.innerHTML = `
     <section style="border:1px solid #d7d7dc;border-radius:13px;margin:0 0 12px;overflow:hidden;background:#fff">
       <div style="padding:11px 14px;background:#f7f7f9;display:flex;justify-content:space-between;gap:10px;align-items:center">
-        <div><div style="font-size:9px;letter-spacing:.14em;font-weight:900;color:#777">R19 · TRUST CERTIFICATION</div><div style="font-size:14px;font-weight:900;margin-top:2px">${escapeHtml(t.headline || "Trust status")}</div></div>
+        <div><div style="font-size:9px;letter-spacing:.14em;font-weight:900;color:#777">TRUST & EVIDENCE QUALITY</div><div style="font-size:14px;font-weight:900;margin-top:2px">${escapeHtml(t.headline || "Trust status")}</div></div>
         <div style="font-size:10px;font-weight:900;color:${accent};border:1px solid ${accent};padding:5px 8px;border-radius:999px;white-space:nowrap">${escapeHtml(label)}</div>
       </div>
       <div style="padding:10px 14px">
@@ -973,7 +960,7 @@ function renderDecisionFlipMap(pos) {
   el.innerHTML = `
     <section style="border:1px solid #d9d2e9;border-radius:13px;margin:0 0 12px;overflow:hidden;background:#fff">
       <div style="padding:11px 14px;background:#faf8ff;display:flex;justify-content:space-between;gap:10px;align-items:center">
-        <div><div style="font-size:9px;letter-spacing:.14em;font-weight:900;color:#7656a8">R21 · DECISION FLIP MAP</div><div style="font-size:14px;font-weight:900;margin-top:2px">What would actually change this decision?</div></div>
+        <div><div style="font-size:9px;letter-spacing:.14em;font-weight:900;color:#7656a8">DECISION FLIP</div><div style="font-size:14px;font-weight:900;margin-top:2px">What would actually change this decision?</div></div>
         <div style="text-align:right"><div style="font-size:9px;color:#777;font-weight:800">FRAGILITY SIGNAL</div><div style="font-size:11px;font-weight:900;margin-top:2px">${escapeHtml(frag.label || "NOT_ASSESSABLE")}${frag.score == null ? "" : " · " + escapeHtml(String(frag.score)) + "/100"}</div></div>
       </div>
       <div style="padding:10px 14px">
@@ -1000,13 +987,13 @@ function renderCommercialWarRoom(pos) {
   el.innerHTML = `
     <section style="border:1px solid #111827;border-radius:15px;margin:0 0 14px;overflow:hidden;background:#fff;box-shadow:0 5px 18px rgba(17,24,39,.07)">
       <div style="padding:13px 15px;background:#171717;color:#fff;display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
-        <div><div style="font-size:9px;letter-spacing:.15em;font-weight:900;opacity:.65">R22 · COMMERCIAL WAR ROOM</div><div style="font-size:17px;font-weight:900;margin-top:3px">Buyer vs Supplier vs Market vs Stakeholders</div><div style="font-size:10.5px;opacity:.7;margin-top:4px">Evidence-backed negotiation theatre · no invented supplier psychology</div></div>
+        <div><div style="font-size:9px;letter-spacing:.15em;font-weight:900;opacity:.65">NEGOTIATION PLAN</div><div style="font-size:17px;font-weight:900;margin-top:3px">Buyer vs Supplier vs Market vs Stakeholders</div><div style="font-size:10.5px;opacity:.7;margin-top:4px">Evidence-backed negotiation theatre · no invented supplier psychology</div></div>
         <div style="font-size:9px;font-weight:900;color:${color};background:#fff;padding:5px 8px;border-radius:999px;white-space:nowrap">${escapeHtml(readiness.replaceAll("_"," "))}</div>
       </div>
       <div style="padding:12px 15px">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div style="border:1px solid #eee;border-radius:9px;padding:9px"><div style="font-size:9px;font-weight:900;letter-spacing:.08em;color:#777">BUYER LEVERAGE</div>${leverage || '<div style="font-size:11px;color:#777;margin-top:6px">No explicit leverage safely established.</div>'}</div>
-          <div style="border:1px solid #eee;border-radius:9px;padding:9px"><div style="font-size:9px;font-weight:900;letter-spacing:.08em;color:#777">SUPPLIER POSITIONS</div>${suppliers || '<div style="font-size:11px;color:#777;margin-top:6px">No named supplier position available.</div>'}</div>
+          <div style="border:1px solid #eee;border-radius:9px;padding:9px"><div style="font-size:9px;font-weight:900;letter-spacing:.08em;color:#777">SUPPLIER RESPONSE TO TEST</div><div style="font-size:11px;color:#666;margin-top:6px">VendorEdge does not predict a supplier's reaction. It gives you the move and the condition to watch.</div></div>
           <div style="border:1px solid #eee;border-radius:9px;padding:9px"><div style="font-size:9px;font-weight:900;letter-spacing:.08em;color:#777">MARKET SIGNALS</div>${market}</div>
           <div style="border:1px solid #eee;border-radius:9px;padding:9px"><div style="font-size:9px;font-weight:900;letter-spacing:.08em;color:#777">STAKEHOLDER POSITIONS</div>${stakeholders || '<div style="font-size:11px;color:#777;margin-top:6px">No stakeholder view captured.</div>'}</div>
         </div>
@@ -1032,7 +1019,7 @@ function renderProcurementMemory(pos) {
   el.innerHTML = `
     <section style="border:1px solid #263238;border-radius:15px;margin:0 0 14px;overflow:hidden;background:#fff;box-shadow:0 5px 18px rgba(17,24,39,.07)">
       <div style="padding:13px 15px;background:#263238;color:#fff;display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
-        <div><div style="font-size:9px;letter-spacing:.15em;font-weight:900;opacity:.65">R23 · PROCUREMENT MEMORY</div><div style="font-size:17px;font-weight:900;margin-top:3px">What VendorEdge remembers</div><div style="font-size:10.5px;opacity:.72;margin-top:4px">Prior decisions, supplier history and outcome-backed lessons — not invented patterns</div></div>
+        <div><div style="font-size:9px;letter-spacing:.15em;font-weight:900;opacity:.65">HISTORY & LEARNING</div><div style="font-size:17px;font-weight:900;margin-top:3px">What VendorEdge remembers</div><div style="font-size:10.5px;opacity:.72;margin-top:4px">Prior decisions, supplier history and outcome-backed lessons — not invented patterns</div></div>
         <div style="font-size:9px;font-weight:900;color:${st[1]};background:#fff;padding:5px 8px;border-radius:999px;white-space:nowrap">${escapeHtml(st[0])}</div>
       </div>
       <div style="padding:12px 15px">
@@ -1072,7 +1059,7 @@ function renderOutcomeIntelligence(pos) {
   el.innerHTML = `
     <section style="border:1px solid #7c3aed;border-radius:15px;margin:0 0 14px;overflow:hidden;background:#fff;box-shadow:0 5px 18px rgba(17,24,39,.07)">
       <div style="padding:13px 15px;background:#f5f3ff;display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
-        <div><div style="font-size:9px;letter-spacing:.15em;font-weight:900;color:#6d28d9">R24 · OUTCOME INTELLIGENCE</div><div style="font-size:17px;font-weight:900;margin-top:3px">What actually happened?</div><div style="font-size:10.5px;color:#666;margin-top:4px">Expected vs actual · attribution-aware · no rewriting of the original decision</div></div>
+        <div><div style="font-size:9px;letter-spacing:.15em;font-weight:900;color:#6d28d9">OUTCOME LEARNING</div><div style="font-size:17px;font-weight:900;margin-top:3px">What actually happened?</div><div style="font-size:10.5px;color:#666;margin-top:4px">Expected vs actual · attribution-aware · no rewriting of the original decision</div></div>
         <div style="font-size:9px;font-weight:900;color:${vm[1]};background:#fff;padding:5px 8px;border-radius:999px;white-space:nowrap">${escapeHtml(vm[0])}</div>
       </div>
       <div style="padding:12px 15px">
@@ -1123,7 +1110,7 @@ function renderCommercialDNA(pos) {
   el.innerHTML = `
     <section style="border:1px solid #111827;border-radius:16px;margin:0 0 14px;overflow:hidden;background:#fff;box-shadow:0 6px 20px rgba(17,24,39,.09)">
       <div style="padding:15px 16px;background:linear-gradient(135deg,#111827,#3a315b);color:#fff;display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
-        <div><div style="font-size:9px;letter-spacing:.16em;font-weight:900;opacity:.62">R25 · COMMERCIAL DNA</div><div style="font-size:19px;font-weight:900;margin-top:3px">How your organization makes — and loses — commercial value</div><div style="font-size:10.5px;opacity:.72;margin-top:4px">Observed decision behavior + measured outcomes · no invented causality</div></div>
+        <div><div style="font-size:9px;letter-spacing:.16em;font-weight:900;opacity:.62">ORGANIZATIONAL LEARNING</div><div style="font-size:19px;font-weight:900;margin-top:3px">How your organization makes — and loses — commercial value</div><div style="font-size:10.5px;opacity:.72;margin-top:4px">Observed decision behavior + measured outcomes · no invented causality</div></div>
         <div style="font-size:9px;font-weight:900;color:${mm[1]};background:#fff;padding:5px 8px;border-radius:999px;white-space:nowrap">${escapeHtml(mm[0])}</div>
       </div>
       <div style="padding:13px 16px">
@@ -2007,6 +1994,61 @@ async function loadActionPlan() {
   } catch (err) { alert(err.message); }
 }
 
+function organizeDecisionPage() {
+  // Decision page principle: one fact, one home. The open view is the buyer's
+  // decision only. Everything else is supporting intelligence and stays closed
+  // until the user asks for it. Internal intelligence layers are not part of the buyer UX.
+  const hideIds = [
+    "pos-decision-passport", "pos-snapshot", "pos-why-wins",
+    "pos-commercial-insights", "pos-reasoning", "pos-derivation",
+    "pos-disconfirm-wrap", "pos-case-count"
+  ];
+  hideIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.innerHTML = ""; el.style.display = "none"; }
+  });
+
+  const card = document.querySelector("#position-screen .card");
+  if (!card) return;
+  const old = document.getElementById("ve-supporting-intelligence");
+  if (old) old.remove();
+
+  const groups = [
+    ["numbers", "Numbers & commercial evidence", "The figures behind the position — supplier comparison, price basis, TCO and calculations.",
+      ["pos-commercial-truth-model", "pos-cost-drivers", "pos-financial-scenarios", "pos-key-figures", "pos-supplier-comparison", "pos-financial-impact", "pos-methodology"]],
+    ["negotiation", "Negotiation strategy", "How to use the evidence, where to push, and what to say.",
+      ["pos-commercial-war-room", "pos-negotiation-dimensions", "pos-talk-track", "pos-alternatives"]],
+    ["risk", "Risks & decision safeguards", "What can go wrong, what is still unknown, and what evidence would change the call.",
+      ["pos-decision-flip-map", "pos-sensitivity", "pos-stress-test", "pos-decision-audit", "pos-hypothesis", "pos-factors", "pos-assumption-wrap", "pos-walkaway"]],
+    ["execution", "Execution", "The practical actions required to move from decision to result.",
+      ["pos-control-tower", "pos-decision-pack"]],
+    ["history", "History & learning", "Prior decisions and outcomes — shown only when they add something new to this case.",
+      ["pos-procurement-memory", "pos-outcome-intelligence", "pos-commercial-dna"]],
+    ["trust", "Evidence trail & trust checks", "Why VendorEdge trusts the inputs and where the evidence has limits.",
+      ["pos-trust-certification"]]
+  ];
+
+  const wrap = document.createElement("div");
+  wrap.id = "ve-supporting-intelligence";
+  groups.forEach(([key, title, desc, ids]) => {
+    const nodes = ids.map(id => document.getElementById(id)).filter(n => n && n.innerHTML.trim());
+    if (!nodes.length) return;
+    const d = document.createElement("details");
+    d.className = "ve-support-group";
+    d.id = `ve-support-${key}`;
+    const summary = document.createElement("summary");
+    summary.innerHTML = `<span>${escapeHtml(title)}</span><small>${escapeHtml(desc)}</small>`;
+    d.appendChild(summary);
+    const body = document.createElement("div");
+    body.className = "ve-support-body";
+    nodes.forEach(n => { n.style.display = "block"; body.appendChild(n); });
+    d.appendChild(body);
+    wrap.appendChild(d);
+  });
+
+  card.appendChild(wrap);
+}
+
 function renderPosition(pos) {
   renderTrustCertification(pos);
   renderCommercialTruthModel(pos);
@@ -2016,8 +2058,6 @@ function renderPosition(pos) {
   renderOutcomeIntelligence(pos);
   renderCommercialDNA(pos);
   renderDecisionCockpit(pos);
-  renderDecisionPassport(pos);
-  renderDecisionSnapshot(pos);
   renderControlTower(pos);
 
   // Only shown when there's genuinely real history -- never a hollow
@@ -2066,6 +2106,7 @@ function renderPosition(pos) {
   renderStressTest(pos);
   renderAlternatives(pos);
   document.getElementById("pos-reasoning").innerText = pos.reasoning;
+  organizeDecisionPage();
 
   const fiEl = document.getElementById("pos-financial-impact");
   if (pos.financial_impact) {

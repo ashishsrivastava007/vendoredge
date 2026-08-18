@@ -191,9 +191,14 @@ def build_commercial_truth_model(normalized: NormalizedEvidence, position: Comme
     if annual_spend is None and position.financial_impact:
         annual_spend = position.financial_impact.annual_spend_usd
 
+    incumbent = next((s for s in normalized.suppliers if s.is_incumbent and s.price_amount is not None), None)
+    quote_currency = (incumbent.currency if incumbent else next((s.currency for s in normalized.suppliers if s.currency), None))
+    quote_annual_spend = (float(incumbent.price_amount) * float(annual_volume)) if incumbent and annual_volume is not None else None
     economic_exposure = {
         "annual_volume_units": annual_volume,
         "annual_spend_usd": annual_spend,
+        "quote_currency": quote_currency,
+        "quote_annual_spend": quote_annual_spend,
         "financial_impact_usd": position.financial_impact.net_exposure_usd if position.financial_impact else None,
         "switching_cost_usd": getattr(case, "switching_cost_usd", None),
         "duty_rate_percent": normalized.common.duty_or_tax_rate_percent,

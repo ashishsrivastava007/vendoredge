@@ -100,3 +100,29 @@ def test_unquantified_risk_cannot_be_claimed_to_outweigh_price_savings():
     p.why_this_wins = "EuroMotion's qualification risk outweighs its €72,000 annual savings."
     findings = check_unquantified_tradeoff_overstatement(p, n)
     assert findings
+
+
+def test_quote_comparison_never_annualizes_raw_fca_ddp_gap_and_uses_explicit_freight():
+    n = _normalized()
+    n.suppliers = [
+        SupplierEvidence(supplier_name="Atlas Marine Systems", currency="EUR", price_display="EUR 52/unit", price_amount=52, incoterm="DDP", is_incumbent=True, qualification_status="complete"),
+        SupplierEvidence(supplier_name="EuroMotion Poland", currency="EUR", price_display="EUR 45.50/unit", price_amount=45.5, incoterm="FCA", freight_cost_or_estimate="EUR 2.20/unit", qualification_status="in_progress"),
+    ]
+    p = _position("medium")
+    passport = build_decision_passport(n, p)
+    assert passport["economics"]["available"] is True
+    assert "34,400 EUR/year" in passport["economics"]["headline"]
+    assert "54,600" not in passport["economics"]["headline"]
+    assert passport["economics"]["comparison_basis"] == "comparable_landed_price"
+
+
+def test_quote_comparison_with_unquantified_buyer_freight_fails_closed():
+    n = _normalized()
+    n.suppliers = [
+        SupplierEvidence(supplier_name="Atlas Marine Systems", currency="EUR", price_amount=52, incoterm="DDP", is_incumbent=True),
+        SupplierEvidence(supplier_name="EuroMotion Poland", currency="EUR", price_amount=45.5, incoterm="FCA"),
+    ]
+    p = _position("medium")
+    passport = build_decision_passport(n, p)
+    assert passport["economics"]["available"] is False
+    assert "incomplete" in passport["economics"]["headline"].lower()

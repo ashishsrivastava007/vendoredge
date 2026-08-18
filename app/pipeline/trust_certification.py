@@ -171,7 +171,7 @@ def build_trust_certification(normalized: NormalizedEvidence, position: Commerci
         headline = "Trust certification passed with conditions — review the flagged limitations."
     else:
         certificate_status = "CERTIFIED"
-        headline = "Trust certification passed — the decision cleared all R19 structural checks."
+        headline = "Trust checks passed — the decision cleared the required integrity checks."
 
     return {
         "title": "VendorEdge Trust Certification",

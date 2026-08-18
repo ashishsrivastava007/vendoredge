@@ -1,0 +1,19 @@
+{
+  "release": "R25.2.4",
+  "name": "Decision-first UX & Economics Integrity",
+  "status": "candidate-final",
+  "changes": [
+    "decision-first collapsible UX",
+    "removed repetitive visible legacy blocks",
+    "removed R19-R25 buyer-facing labels",
+    "comparable landed-price economics for quote comparison",
+    "fail-closed economics when logistics basis is incomplete",
+    "currency-safe commercial facts display"
+  ],
+  "validation": {
+    "focused_pytest_passed": 20,
+    "focused_pytest_failed": 0,
+    "javascript_syntax": "passed",
+    "full_suite": "not_run_external_dependencies_unavailable"
+  }
+}

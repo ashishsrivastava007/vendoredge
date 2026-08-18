@@ -1,0 +1,11 @@
+{
+  "release": "R25.2.5",
+  "name": "Decision UX Consolidation",
+  "base": "R25.2.4",
+  "principle": "One fact, one home. One decision, one explanation.",
+  "validation": {
+    "javascript_syntax": "passed",
+    "focused_tests": "33 passed / 0 failed",
+    "full_suite": "not run - psycopg2-binary unavailable offline"
+  }
+}

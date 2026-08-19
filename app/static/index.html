@@ -165,7 +165,6 @@
     <p style="color:#777; font-size:11px; font-weight:800; letter-spacing:.12em; margin:0 0 8px; text-transform:uppercase">Your decision</p>
     <div id="pos-thread-indicator"></div>
     <div id="pos-decision-cockpit"></div>
-    <div id="pos-decision-passport"></div>
     <div id="pos-trust-certification"></div>
     <div id="pos-commercial-truth-model"></div>
     <div id="pos-decision-flip-map"></div>
@@ -173,7 +172,6 @@
     <div id="pos-procurement-memory"></div>
     <div id="pos-outcome-intelligence"></div>
     <div id="pos-commercial-dna"></div>
-    <div id="pos-snapshot"></div>
     <div id="pos-case-count"></div>
     <p id="pos-why-wins" style="font-size:13.5px; color:#444; font-style:italic; margin:6px 0 0"></p>
     <div id="pos-commercial-insights" style="font-size:14px; font-style:italic; color:#4a4a6a; border-left:3px solid #6a5acd; padding-left:10px; margin:10px 0"></div>
@@ -1151,41 +1149,48 @@ function renderDecisionCockpit(pos) {
   const c = pos.decision_cockpit;
   if (!c) { el.innerHTML = ""; return; }
   const readiness = c.readiness || "CONDITIONAL";
-  const readinessMap = {READY:["READY TO ACT","#1f7a4d"],CONDITIONAL:["CONDITIONAL","#9a5b00"],HOLD:["HOLD","#a23b3b"]};
+  const readinessMap = {READY:["READY TO ACT","#1f7a4d"],CONDITIONAL:["PROTECT / REVIEW","#9a5b00"],HOLD:["HOLD","#a23b3b"]};
   const rs = readinessMap[readiness] || [readiness,"#666"];
   const evidenceMap = {GROUNDED:["GROUNDED","#1f7a4d"],GAPS:["GAPS","#9a5b00"],CONFLICT:["CONFLICT","#a23b3b"],LIMITED:["LIMITED","#666"]};
   const es = evidenceMap[c.evidence_signal] || [c.evidence_signal || "LIMITED","#666"];
   const econ = c.economics || {};
+  const u = c.decision_under_uncertainty || pos.decision_under_uncertainty || {};
   const why = (c.why || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
   const blockers = (c.blockers || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
   const changers = (c.decision_changers || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
-  const unknowns = (c.unknowns || []).slice(0,4).map(x => `<li>${escapeHtml(x)}</li>`).join("");
-  const stakeholders = (c.stakeholder_flags || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const unknowns = (c.unknowns || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const known = (u.known || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const uUnknowns = (u.unknowns || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const modeMap = {ASK:["ONE ANSWER CAN CHANGE THIS","#9a5b00"],PROTECT:["SAFE DECISION NOW","#9a5b00"],DECIDE:["DECISION READY","#1f7a4d"]};
+  const um = modeMap[u.mode] || [u.label || "DECISION STATUS","#666"];
+  const question = u.question ? `<div style="margin-top:9px;padding:10px;background:#fff7ed;border-left:3px solid #d97706;border-radius:8px"><div style="font-size:10px;font-weight:900;color:#9a5b00">I NEED ONE ANSWER</div><div style="font-size:13px;font-weight:850;margin-top:4px">${escapeHtml(u.question)}</div><div style="font-size:10.5px;color:#666;margin-top:4px">${escapeHtml(u.question_why || "")}</div></div>` : "";
+  const safeguard = u.reversibility ? `<div style="font-size:11px;color:#555;margin-top:7px"><b>Protect the decision:</b> ${escapeHtml(u.reversibility)}</div>` : "";
   el.innerHTML = `
     <section style="border:1px solid #111827;border-radius:16px;margin:0 0 14px;overflow:hidden;background:#fff;box-shadow:0 5px 18px rgba(17,24,39,.08)">
       <div style="padding:15px 16px;background:linear-gradient(135deg,#111827,#25324a);color:#fff;display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
-        <div><div style="font-size:10px;letter-spacing:.16em;font-weight:800;opacity:.68">VENDOREDGE</div><div style="font-size:19px;font-weight:900;margin-top:3px">Commercial Decision Cockpit</div><div style="font-size:11px;opacity:.72;margin-top:4px">Decision first · proof on demand · no new facts created here</div></div>
+        <div><div style="font-size:10px;letter-spacing:.16em;font-weight:800;opacity:.68">VENDOREDGE</div><div style="font-size:19px;font-weight:900;margin-top:3px">Your commercial position</div><div style="font-size:11px;opacity:.72;margin-top:4px">The shortest defensible path from evidence to action.</div></div>
         <div style="text-align:right"><div style="font-size:9px;letter-spacing:.08em;opacity:.68">STATUS</div><div style="font-size:12px;font-weight:900;color:${rs[1]};background:#fff;padding:5px 8px;border-radius:999px;margin-top:4px">${escapeHtml(rs[0])}</div></div>
       </div>
       <div style="padding:14px 16px">
         <div style="font-size:18px;font-weight:900;line-height:1.25;margin-bottom:13px">${escapeHtml(c.verdict || pos.recommendation || "Review the evidence")}</div>
-        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
           <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">CONFIDENCE</div><div style="font-size:14px;font-weight:900;margin-top:3px">${escapeHtml(String(c.confidence || "medium").toUpperCase())}</div></div>
-          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">ECONOMICS</div><div style="font-size:12px;font-weight:800;margin-top:3px">${escapeHtml(econ.headline || "Not safely quantified")}</div></div>
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">COMMERCIAL MONEY</div><div style="font-size:12px;font-weight:800;margin-top:3px">${escapeHtml(econ.headline || "Not safely quantified")}</div></div>
           <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">EVIDENCE</div><div style="font-size:12px;font-weight:900;color:${es[1]};margin-top:3px">${escapeHtml(es[0])}</div></div>
-          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">ALTERNATIVES</div><div style="font-size:14px;font-weight:900;margin-top:3px">${escapeHtml(String(c.alternative_count ?? 0))}</div></div>
         </div>
         <div style="display:grid;grid-template-columns:1.2fr .8fr;gap:12px;margin-top:13px">
-          <div style="border:1px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">WHY THIS POSITION</div><ul style="margin:6px 0 0 18px;font-size:12px;line-height:1.5">${why || "<li>No concise rationale resolved.</li>"}</ul></div>
-          <div style="border:1px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">NEXT MOVE</div><div style="font-size:13px;font-weight:800;margin-top:6px">${escapeHtml(c.next_move || "Review evidence before acting.")}</div></div>
+          <div style="border:1px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">WHY</div><ul style="margin:6px 0 0 18px;font-size:12px;line-height:1.5">${why || "<li>No concise rationale resolved.</li>"}</ul></div>
+          <div style="border:1px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">DO THIS NEXT</div><div style="font-size:13px;font-weight:800;margin-top:6px">${escapeHtml(c.next_move || "Review the evidence before acting.")}</div>${safeguard}</div>
         </div>
         ${blockers ? `<div style="margin-top:10px;padding:10px;background:#fff7ed;border-left:3px solid #d97706;border-radius:8px"><div style="font-size:10px;font-weight:900;color:#9a5b00">BEFORE MONEY MOVES</div><ul style="margin:5px 0 0 18px;font-size:12px">${blockers}</ul></div>` : ""}
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
-          ${changers ? `<details style="border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">DECISION FLIP — what changes it?</summary><ul style="margin:6px 0 0 18px;font-size:12px;line-height:1.45">${changers}</ul></details>` : ""}
-          ${unknowns ? `<details style="border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">UNKNOWN — what still matters?</summary><ul style="margin:6px 0 0 18px;font-size:12px;line-height:1.45">${unknowns}</ul></details>` : ""}
+        <div style="margin-top:10px;border:1px solid #e5e7eb;border-radius:10px;padding:10px;background:#fafafa">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">DECISION UNDER UNCERTAINTY</div><span style="font-size:9px;font-weight:900;color:${um[1]};background:#fff;padding:4px 7px;border-radius:999px;border:1px solid #eee">${escapeHtml(um[0])}</span></div>
+          ${known ? `<div style="font-size:10px;font-weight:900;color:#777;margin-top:8px">KNOWN</div><ul style="margin:4px 0 0 18px;font-size:11.5px;line-height:1.45">${known}</ul>` : ""}
+          ${uUnknowns ? `<details style="margin-top:6px"><summary style="cursor:pointer;font-size:11px;font-weight:800">What is still unknown</summary><ul style="margin:5px 0 0 18px;font-size:11.5px;line-height:1.45">${uUnknowns}</ul></details>` : ""}
+          ${question}
+          ${u.review_trigger ? `<div style="font-size:10.5px;color:#666;margin-top:8px"><b>Review trigger:</b> ${escapeHtml(u.review_trigger)}</div>` : ""}
         </div>
-        ${stakeholders ? `<details style="margin-top:9px;border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">STAKEHOLDER SIGNALS</summary><ul style="margin:6px 0 0 18px;font-size:12px;line-height:1.45">${stakeholders}</ul></details>` : ""}
-        <div style="margin-top:10px;font-size:10px;color:#888">Stress test: ${escapeHtml(c.stress_status || "NOT_TESTED")} · ${escapeHtml(String(c.evidence_total || 0))} evidence signals · ${escapeHtml(String(c.alternative_count || 0))} commercial paths</div>
+        ${changers ? `<details style="margin-top:9px"><summary style="cursor:pointer;font-size:11px;font-weight:900">What would change the recommendation?</summary><ul style="margin:6px 0 0 18px;font-size:12px;line-height:1.45">${changers}</ul></details>` : ""}
       </div>
     </section>`;
 }
@@ -2001,7 +2006,7 @@ function organizeDecisionPage() {
   const hideIds = [
     "pos-decision-passport", "pos-snapshot", "pos-why-wins",
     "pos-commercial-insights", "pos-reasoning", "pos-derivation",
-    "pos-disconfirm-wrap", "pos-case-count"
+    "pos-disconfirm-wrap", "pos-case-count", "pos-badge", "pos-factors", "pos-assumption-wrap"
   ];
   hideIds.forEach(id => {
     const el = document.getElementById(id);

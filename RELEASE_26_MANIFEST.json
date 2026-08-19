@@ -1,0 +1,30 @@
+{
+  "release": "R26.x",
+  "title": "Decision Under Uncertainty",
+  "base": "R25.2.5",
+  "status": "final package",
+  "capabilities": [
+    "canonical deterministic quote economics",
+    "decision-under-uncertainty state model",
+    "targeted high-value missing-information question",
+    "safe decision / protect-now guidance",
+    "reversible commitment principle",
+    "consolidated decision-first UX"
+  ],
+  "validation": {
+    "focused_tests_passed": 15,
+    "focused_tests_failed": 0,
+    "focused_tests_skipped": 2,
+    "javascript_syntax": "passed",
+    "python_compile": "passed",
+    "full_suite": "not runnable in build environment because psycopg2 and anthropic dependencies are unavailable"
+  },
+  "integrity_rules": [
+    "no unsupported savings",
+    "no invented FX",
+    "no invented duty",
+    "no invented freight",
+    "no invented risk probability",
+    "no silent recommendation flip"
+  ]
+}

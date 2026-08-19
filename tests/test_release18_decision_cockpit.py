@@ -14,8 +14,8 @@ def _n():
         derived=DerivedEvidence(currency_calculation_safe=True),
         provenance={"price_per_supplier": FieldProvenance(source="llm_extraction", stage_captured="test")},
         suppliers=[
-            SupplierEvidence(supplier_name="Atlas", currency="EUR", price_amount=52, price_display="€52", is_incumbent=True),
-            SupplierEvidence(supplier_name="EuroMotion", currency="EUR", price_amount=43, price_display="€43"),
+            SupplierEvidence(supplier_name="Atlas", currency="EUR", price_amount=52, price_display="€52", incoterm="DDP", is_incumbent=True),
+            SupplierEvidence(supplier_name="EuroMotion", currency="EUR", price_amount=43, price_display="€43", incoterm="DDP"),
         ],
     )
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any
 from app.models import CommercialPosition
 from app.pipeline.normalized_evidence import NormalizedEvidence
+from app.pipeline.decision_under_uncertainty import build_decision_under_uncertainty
 
 
 def _economics(position: CommercialPosition, passport: dict[str, Any]) -> dict[str, Any]:
@@ -51,6 +52,8 @@ def build_decision_cockpit(normalized: NormalizedEvidence, position: CommercialP
     changers = list((passport.get("decision_changers") or [])[:3])
     next_move = passport.get("next_move") or position.opening_position or "Review the validated decision before acting."
 
+    uncertainty = build_decision_under_uncertainty(normalized, position)
+
     return {
         "title": "VendorEdge Commercial Decision Cockpit",
         "version": "1.0",
@@ -70,6 +73,7 @@ def build_decision_cockpit(normalized: NormalizedEvidence, position: CommercialP
         "stakeholder_flags": _stakeholder_flags(audit),
         "alternative_count": len(alternatives.get("alternatives", [])) if isinstance(alternatives, dict) else 0,
         "stress_status": stress.get("status", "NOT_TESTED") if isinstance(stress, dict) else "NOT_TESTED",
+        "decision_under_uncertainty": uncertainty,
         "negotiation": {
             "opening": position.opening_position,
             "target": position.negotiation_playbook.dimensions[0].get("target") if getattr(position, "negotiation_playbook", None) and position.negotiation_playbook.dimensions else None,

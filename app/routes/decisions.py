@@ -1487,6 +1487,14 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
         position.decision_passport = build_decision_passport(normalized, position)
     except Exception as e:
         print(f"Decision passport skipped (non-blocking): {type(e).__name__}: {e}")
+    # R26: decision-under-uncertainty is computed before the cockpit so the
+    # buyer gets a safe path even when evidence is incomplete.
+    try:
+        from app.pipeline.decision_under_uncertainty import build_decision_under_uncertainty
+        position.decision_under_uncertainty = build_decision_under_uncertainty(normalized, position)
+    except Exception as e:
+        print(f"Decision-under-uncertainty skipped (non-blocking): {type(e).__name__}: {e}")
+
     # Release 18: native Commercial Decision Cockpit. It is deliberately
     # generated after all deterministic controls are final so the cockpit
     # cannot disagree with the stored recommendation/confidence.

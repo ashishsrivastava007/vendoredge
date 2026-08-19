@@ -12,13 +12,7 @@ from app.pipeline.normalized_evidence import NormalizedEvidence
 
 
 def _direct_economics(normalized: NormalizedEvidence, position: CommercialPosition) -> dict:
-    """Return only money that is genuinely comparable on the evidence supplied.
-
-    Quote comparisons are evaluated on a common commercial basis first. A raw
-    FCA-vs-DDP price gap is never presented as savings. Where buyer-borne
-    freight is explicitly quantified for a supplier, it is added deterministically
-    to that supplier's quoted price; otherwise the comparison remains open.
-    """
+    """Single-source commercial economics. Quote comparisons never calculate here."""
     if position.financial_impact is not None:
         f = position.financial_impact
         return {
@@ -27,78 +21,9 @@ def _direct_economics(normalized: NormalizedEvidence, position: CommercialPositi
             "headline": f"{f.potential_annual_impact_usd:,.0f} USD/year potential impact",
             "basis": "Deterministic annual spend × stated price change.",
         }
-
     if normalized.content_type == "quote_comparison":
-        priced = [s for s in normalized.suppliers if s.price_amount is not None and s.currency]
-        volume = normalized.common.annual_volume_units
-        currencies = {s.currency.upper() for s in priced}
-        if len(priced) >= 2 and volume is not None and len(currencies) == 1:
-            currency = next(iter(currencies))
-
-            def effective_unit_cost(s):
-                base = float(s.price_amount)
-                term = (s.incoterm or "").strip().upper()
-                if term in {"EXW", "FCA", "FAS", "FOB"}:
-                    freight = s.freight_cost_or_estimate
-                    if freight is None:
-                        return None
-                    # Freight text was normalized at the evidence boundary;
-                    # accept only a numeric scalar that is already in the same
-                    # quote currency. Do not invent FX or benchmark freight.
-                    import re
-                    m = re.search(r"[-+]?\d+(?:[.,]\d+)?", str(freight).replace(",", ""))
-                    if not m:
-                        return None
-                    return base + float(m.group(0))
-                return base
-
-            effective = {s.supplier_name: effective_unit_cost(s) for s in priced}
-            if all(v is not None for v in effective.values()):
-                ordered = sorted(priced, key=lambda s: effective[s.supplier_name])
-                low, high = ordered[0], ordered[-1]
-                low_cost = effective[low.supplier_name]
-                high_cost = effective[high.supplier_name]
-                spread = round(float(high_cost) - float(low_cost), 2)
-                annual = round(float(volume) * spread, 2)
-                incumbent = next((s for s in priced if s.is_incumbent), None)
-                if incumbent and effective[incumbent.supplier_name] > low_cost:
-                    savings = round(float(volume) * (effective[incumbent.supplier_name] - low_cost), 2)
-                    return {
-                        "available": True,
-                        "type": "comparable_landed_quote_comparison",
-                        "headline": f"{savings:,.0f} {currency}/year comparable landed-price opportunity",
-                        "basis": f"{incumbent.supplier_name} vs {low.supplier_name}; quoted price plus explicitly stated buyer-borne freight where applicable × annual volume. No FX, duty or unprovided logistics cost assumed.",
-                        "from_supplier": incumbent.supplier_name,
-                        "to_supplier": low.supplier_name,
-                        "amount": savings,
-                        "currency": currency,
-                        "unit_gap": round(float(effective[incumbent.supplier_name]) - float(low_cost), 2),
-                        "comparison_basis": "comparable_landed_price",
-                    }
-                return {
-                    "available": True,
-                    "type": "comparable_landed_quote_comparison",
-                    "headline": f"{annual:,.0f} {currency}/year comparable landed-price spread",
-                    "basis": "Comparable supplier price basis after adding only explicitly stated buyer-borne freight. No FX, duty or unprovided logistics cost assumed.",
-                    "amount": annual,
-                    "currency": currency,
-                    "comparison_basis": "comparable_landed_price",
-                }
-
-            # Different Incoterms with an unquantified buyer cost are not a
-            # safe savings calculation. Surface the gap instead of hiding it.
-            incumbent = next((s for s in priced if s.is_incumbent), None)
-            lowest = min(priced, key=lambda s: float(s.price_amount))
-            raw_spread = round(float((incumbent.price_amount if incumbent else max(s.price_amount for s in priced))) - float(lowest.price_amount), 2)
-            return {
-                "available": False,
-                "type": "quote_comparison_open",
-                "headline": "Price gap visible; landed comparison incomplete",
-                "basis": "Supplier prices use different cost/risk terms and at least one buyer-borne logistics cost is not quantified. No savings figure is presented.",
-                "raw_unit_price_gap": raw_spread,
-                "currency": currency,
-            }
-
+        from app.pipeline.tco import build_quote_tco
+        return build_quote_tco(normalized)
     return {
         "available": False,
         "type": "not_quantified",

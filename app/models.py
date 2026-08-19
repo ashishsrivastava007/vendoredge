@@ -284,6 +284,10 @@ class CommercialPosition(BaseModel):
     decision_passport: Optional[dict[str, Any]] = None
     # Release 18: deterministic Commercial Decision Cockpit.
     decision_cockpit: Optional[dict[str, Any]] = None
+    # R26: deterministic decision-under-uncertainty view. It does not replace
+    # the recommendation; it tells the buyer whether to decide, protect, or
+    # answer one decision-critical question before committing.
+    decision_under_uncertainty: Optional[dict[str, Any]] = None
     # Release 19: deterministic Trust Certification. This certifies the
     # integrity of the decision process; it never certifies the commercial
     # outcome itself and cannot alter the recommendation.

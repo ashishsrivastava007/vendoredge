@@ -41,7 +41,8 @@ def test_incomplete_quote_does_not_call_raw_price_gap_savings():
     n = quote("FCA", "DDP")
     out = build_quote_tco(n)
     assert out["available"] is False
-    assert "not confirmed savings" in out["headline"]
+    assert "incomplete" in out["headline"].lower()
+    assert "not confirmed savings" not in out["headline"].lower()
     assert "buyer-borne freight" in " ".join(out["limitations"])
 
 

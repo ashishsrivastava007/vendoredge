@@ -5,10 +5,18 @@ HTML = (ROOT / 'app' / 'static' / 'index.html').read_text()
 ROUTES = (ROOT / 'app' / 'routes' / 'decisions.py').read_text()
 
 
-def test_commercial_intelligence_journey_is_present():
-    assert 'intelligence-journey' in HTML
-    for label in ('Evidence', 'Truth', 'Economics', 'Flip', 'War Room', 'Memory', 'DNA'):
-        assert f'<b>{label}</b>' in HTML
+def test_supporting_intelligence_is_collapsible_and_internal_release_labels_are_not_exposed():
+    assert 've-supporting-intelligence' in HTML
+    for title in ('Numbers & commercial evidence', 'Negotiation strategy', 'Risks & decision safeguards', 'Execution', 'History & learning', 'Evidence trail & trust checks'):
+        assert title in HTML
+    # Internal R19-R25 architecture names belong in engineering artifacts, not the buyer decision flow.
+    assert '>R19<' not in HTML
+    assert '>R20<' not in HTML
+    assert '>R21<' not in HTML
+    assert '>R22<' not in HTML
+    assert '>R23<' not in HTML
+    assert '>R24<' not in HTML
+    assert '>R25<' not in HTML
 
 
 def test_premium_hero_is_decision_first_not_generic_chat():

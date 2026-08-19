@@ -1,0 +1,9 @@
+{
+  "release": "R27",
+  "name": "90-Second Buyer Experience",
+  "mission": "Compress existing procurement intelligence into a decision-first, progressive-disclosure buyer experience.",
+  "default_flow": ["Decision", "Why", "Money", "Negotiation", "Next move"],
+  "truth_source": "Existing deterministic VendorEdge pipeline; UI performs no commercial calculations.",
+  "focused_tests": {"passed": 18, "failed": 0},
+  "full_suite_status": "Not executable in the isolated build environment without production database/LLM dependencies."
+}

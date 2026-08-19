@@ -1,0 +1,42 @@
+{
+  "release": "R26.1",
+  "title": "Commercial Truth Foundation",
+  "base": "R25.2.5",
+  "status": "candidate — full external dependency suite not runnable in build environment",
+  "capabilities": [
+    "partial landed-cost comparison using known components",
+    "canonical deterministic quote economics",
+    "decision-boundary calculation for material unknown cost components",
+    "truth-preserving incomplete economics states",
+    "consolidated buyer UX regression contract"
+  ],
+  "validation": {
+    "dependency_free_tests_passed": 264,
+    "dependency_free_tests_failed": 0,
+    "dependency_free_tests_skipped": 1,
+    "targeted_r26_partial_landed_cost_tests": 3,
+    "targeted_release17_tests": 7,
+    "javascript_syntax": "passed by static inspection",
+    "python_compile": "passed",
+    "full_suite": "not runnable in build environment because psycopg2-binary and anthropic dependencies are unavailable"
+  },
+  "commercial_regression": {
+    "incumbent": "EUR 52/unit DDP",
+    "alternative": "EUR 45.50/unit FCA",
+    "known_freight": "EUR 2.20/unit",
+    "annual_volume": 8000,
+    "known_landed_difference": "EUR 34,400/year",
+    "unit_difference": "EUR 4.30/unit",
+    "missing_component": "buyer-borne import duty/tax",
+    "raw_gap_annualized": "never surfaced as savings"
+  },
+  "integrity_rules": [
+    "no unsupported savings",
+    "no invented FX",
+    "no invented duty",
+    "no invented freight",
+    "known buyer-borne components are not discarded because another component is unknown",
+    "raw FCA/DDP price gaps are never promoted to landed savings",
+    "decision boundaries are deterministic and evidence-derived"
+  ]
+}

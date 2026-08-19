@@ -1,0 +1,17 @@
+{
+  "release": "R26.1.1",
+  "title": "Canonical Economics Everywhere",
+  "status": "candidate",
+  "scope": [
+    "canonical TCO consumption in Decision Flip Map",
+    "partial landed-cost boundary integrity",
+    "regression coverage"
+  ],
+  "tests": {
+    "focused": {
+      "passed": 16,
+      "failed": 0
+    }
+  },
+  "release_gate": "Full suite must be green before production final sign-off."
+}

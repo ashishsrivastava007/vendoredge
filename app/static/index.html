@@ -37,6 +37,53 @@
   #case-summary-text { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12.5px; background: white; border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px; max-height: 340px; overflow-y: auto; }
   .copy-confirm { font-size: 12px; color: #216b3e; margin-left: 8px; }
 
+  /* R27 Buyer Experience: the engine stays deep; the default UI stays shallow. */
+  #pos-trust-certification, #pos-commercial-truth-model, #pos-decision-flip-map,
+  #pos-commercial-war-room, #pos-procurement-memory, #pos-outcome-intelligence,
+  #pos-commercial-dna, #pos-case-count, #pos-why-wins, #pos-commercial-insights,
+  #pos-hypothesis, #pos-methodology, #pos-cost-drivers, #pos-financial-scenarios,
+  #pos-key-figures, #pos-supplier-comparison, #pos-financial-impact, #pos-badge,
+  #pos-factors, #pos-derivation, #pos-assumption-wrap, #pos-walkaway,
+  #pos-negotiation-dimensions, #pos-talk-track, #pos-decision-audit, #pos-sensitivity,
+  #pos-stress-test, #pos-alternatives, #pos-control-tower, #pos-decision-pack,
+  #pos-disconfirm-wrap { display:none !important; }
+  .buyer-hero { border:1px solid #dfe2e7; border-radius:18px; background:#fff; box-shadow:0 10px 32px rgba(17,19,24,.08); overflow:hidden; }
+  .buyer-hero-top { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; padding:20px 22px 12px; }
+  .buyer-eyebrow { font-size:9px; font-weight:850; letter-spacing:.16em; color:#858a94; }
+  .buyer-hero h2 { margin:5px 0 0; font-size:24px; line-height:1.15; letter-spacing:-.025em; }
+  .buyer-status { font-size:10px; font-weight:900; letter-spacing:.05em; background:#f7f7f9; border-radius:999px; padding:7px 10px; white-space:nowrap; }
+  .buyer-mode-note { margin:0; padding:0 22px 14px; color:#6e737d; font-size:12px; line-height:1.5; }
+  .buyer-summary-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1px; background:#e8e9ed; border-top:1px solid #e8e9ed; border-bottom:1px solid #e8e9ed; }
+  .buyer-summary-grid > div { background:#fafbfc; padding:12px 14px; min-height:72px; }
+  .buyer-summary-grid label, .buyer-grid2 label, .buyer-talk label { display:block; font-size:8.5px; font-weight:850; letter-spacing:.1em; color:#8a8f98; margin-bottom:5px; }
+  .buyer-summary-grid strong { font-size:12px; line-height:1.35; }
+  .buyer-primary-action { margin:14px 18px 18px; padding:13px 15px; border-radius:12px; background:#f3f1ff; border:1px solid #ded9ff; }
+  .buyer-primary-action span, .buyer-callout span { display:block; font-size:8.5px; font-weight:900; letter-spacing:.1em; color:#6257bf; margin-bottom:4px; }
+  .buyer-primary-action b { font-size:13px; line-height:1.4; }
+  .buyer-question { margin:0 18px 18px; padding:12px 14px; background:#fff7ed; border:1px solid #f4d9b6; border-radius:12px; }
+  .buyer-label { font-size:8.5px; font-weight:900; letter-spacing:.1em; color:#9a5b00; }
+  .buyer-question-text { font-size:13px; font-weight:800; margin:5px 0; }
+  .buyer-detail { margin:10px 0; border:1px solid #e1e3e8; border-radius:13px; background:#fff; overflow:hidden; }
+  .buyer-detail summary { cursor:pointer; list-style:none; padding:13px 15px; }
+  .buyer-detail summary::-webkit-details-marker { display:none; }
+  .buyer-detail summary:after { content:'+'; float:right; color:#8a8f98; font-size:17px; line-height:12px; }
+  .buyer-detail[open] summary:after { content:'−'; }
+  .buyer-detail summary b { font-size:12.5px; }
+  .buyer-detail summary small { display:block; margin-top:3px; color:#858a94; font-size:10.5px; line-height:1.4; }
+  .buyer-detail-body { padding:0 15px 14px; font-size:12px; line-height:1.5; }
+  .buyer-list { margin:5px 0 0 18px; padding:0; }
+  .buyer-list li { margin:5px 0; }
+  .buyer-muted { color:#7b8089; font-size:10.5px; }
+  .buyer-money { font-size:18px; font-weight:900; margin:3px 0 5px; }
+  .buyer-subhead { margin-top:11px; font-size:9px; font-weight:900; letter-spacing:.08em; color:#777c86; text-transform:uppercase; }
+  .buyer-callout { padding:10px 11px; margin:7px 0; border-radius:9px; background:#f7f7f9; border-left:3px solid #5b4bd8; }
+  .buyer-callout b { font-size:12px; }
+  .buyer-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:9px 0; }
+  .buyer-grid2 > div { padding:9px; border:1px solid #e7e8ec; border-radius:9px; background:#fafbfc; }
+  .buyer-grid2 strong { font-size:12px; }
+  .buyer-talk blockquote { margin:7px 0; padding:9px 11px; background:#fafbfc; border-left:3px solid #c9c4f5; color:#363b44; }
+  @media (max-width:760px) { .buyer-hero-top{flex-direction:column}.buyer-summary-grid{grid-template-columns:1fr}.buyer-grid2{grid-template-columns:1fr} }
+
   /* R25.2 UX — Commercial Intelligence Canvas. Intentionally restrained: premium,
      information-dense, and decision-first rather than decorative. */
   :root {
@@ -160,7 +207,7 @@
 </div>
 
 <div id="position-screen" class="hidden">
-  <div class="decision-flow-note">Position → Why → Risk → Action</div>
+  <div class="decision-flow-note">Decision → Why → Money → Negotiation → Next move</div>
   <div class="card">
     <p style="color:#777; font-size:11px; font-weight:800; letter-spacing:.12em; margin:0 0 8px; text-transform:uppercase">Your decision</p>
     <div id="pos-thread-indicator"></div>
@@ -1146,53 +1193,74 @@ function renderCommercialDNA(pos) {
 
 function renderDecisionCockpit(pos) {
   const el = document.getElementById("pos-decision-cockpit");
-  const c = pos.decision_cockpit;
-  if (!c) { el.innerHTML = ""; return; }
-  const readiness = c.readiness || "CONDITIONAL";
-  const readinessMap = {READY:["READY TO ACT","#1f7a4d"],CONDITIONAL:["PROTECT / REVIEW","#9a5b00"],HOLD:["HOLD","#a23b3b"]};
-  const rs = readinessMap[readiness] || [readiness,"#666"];
-  const evidenceMap = {GROUNDED:["GROUNDED","#1f7a4d"],GAPS:["GAPS","#9a5b00"],CONFLICT:["CONFLICT","#a23b3b"],LIMITED:["LIMITED","#666"]};
-  const es = evidenceMap[c.evidence_signal] || [c.evidence_signal || "LIMITED","#666"];
-  const econ = c.economics || {};
+  const c = pos.decision_cockpit || {};
   const u = c.decision_under_uncertainty || pos.decision_under_uncertainty || {};
-  const why = (c.why || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
-  const blockers = (c.blockers || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
-  const changers = (c.decision_changers || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
-  const unknowns = (c.unknowns || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
-  const known = (u.known || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
-  const uUnknowns = (u.unknowns || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
-  const modeMap = {ASK:["ONE ANSWER CAN CHANGE THIS","#9a5b00"],PROTECT:["SAFE DECISION NOW","#9a5b00"],DECIDE:["DECISION READY","#1f7a4d"]};
-  const um = modeMap[u.mode] || [u.label || "DECISION STATUS","#666"];
-  const question = u.question ? `<div style="margin-top:9px;padding:10px;background:#fff7ed;border-left:3px solid #d97706;border-radius:8px"><div style="font-size:10px;font-weight:900;color:#9a5b00">I NEED ONE ANSWER</div><div style="font-size:13px;font-weight:850;margin-top:4px">${escapeHtml(u.question)}</div><div style="font-size:10.5px;color:#666;margin-top:4px">${escapeHtml(u.question_why || "")}</div></div>` : "";
-  const safeguard = u.reversibility ? `<div style="font-size:11px;color:#555;margin-top:7px"><b>Protect the decision:</b> ${escapeHtml(u.reversibility)}</div>` : "";
+  const econ = c.economics || {};
+  const playbook = pos.negotiation_playbook || {};
+  const flip = pos.decision_flip_map || {};
+  const audit = pos.decision_audit || {};
+  const tower = pos.control_tower || {};
+
+  const modeMap = {
+    ASK: ["ASK — ONE ANSWER MATTERS", "#9a5b00", "Get the one missing answer before making an irreversible commitment."],
+    PROTECT: ["PROTECT — ACT WITH A GUARDRAIL", "#9a5b00", "You can act now, but keep the commitment small or reversible."],
+    DECIDE: ["DECIDE — READY TO ACT", "#1f7a4d", "The available evidence supports action within the stated conditions."]
+  };
+  const mode = modeMap[u.mode] || ["REVIEW — EVIDENCE LIMITED", "#666", "Review the evidence before committing."];
+  const confidence = String(c.confidence || pos.confidence?.level || "medium").toUpperCase();
+  const why = (c.why || pos.commercial_insights || []).filter(Boolean).slice(0, 4);
+  const unknowns = (u.unknowns || c.unknowns || []).filter(Boolean).slice(0, 3);
+  const changers = (c.decision_changers || []).filter(Boolean).slice(0, 3);
+  const risks = (audit.reversal_conditions || []).filter(Boolean).slice(0, 3);
+  const blockers = (c.blockers || tower.critical_before_action || []).filter(Boolean).slice(0, 3);
+  const nextMove = c.next_move || playbook.opening_position || pos.opening_position || "Review the recommendation and act within the stated conditions.";
+  const opening = playbook.opening_position || c.negotiation?.opening || pos.opening_position;
+  const target = playbook.target || c.negotiation?.target;
+  const walkAway = playbook.walk_away || c.negotiation?.walk_away || pos.walk_away_threshold;
+  const talkTrack = (playbook.talk_track || []).filter(x => x && x.say).slice(0, 2);
+  const evidence = (audit.material_evidence || []).filter(Boolean).slice(0, 4);
+
+  const li = (items) => items.length ? `<ul class="buyer-list">${items.map(x => `<li>${escapeHtml(String(x))}</li>`).join("")}</ul>` : `<div class="buyer-muted">Nothing material to add.</div>`;
+  const detail = (title, subtitle, body) => `<details class="buyer-detail"><summary><span><b>${escapeHtml(title)}</b><small>${escapeHtml(subtitle)}</small></span></summary><div class="buyer-detail-body">${body}</div></details>`;
+
+  const question = u.question ? `<div class="buyer-question"><div class="buyer-label">ONE ANSWER I NEED</div><div class="buyer-question-text">${escapeHtml(u.question)}</div><div class="buyer-muted">${escapeHtml(u.question_why || "This is the missing fact most likely to change the decision.")}</div></div>` : "";
+  const economics = econ.available ? escapeHtml(econ.headline || "Commercial economics available") : "Not safely quantified from the supplied evidence";
+  const moneyBasis = econ.basis || econ.comparison_basis || "Only deterministic, evidence-supported economics are shown.";
+  const boundary = flip.flips?.find(x => x && x.threshold_value != null)?.trigger || (pos.disconfirming_condition || "No numeric decision boundary is safely available.");
+  const negotiationBody = `
+    ${opening ? `<div class="buyer-callout"><span>OPEN WITH</span><b>${escapeHtml(opening)}</b></div>` : ""}
+    <div class="buyer-grid2">
+      ${target ? `<div><label>TARGET</label><strong>${escapeHtml(target)}</strong></div>` : ""}
+      ${walkAway ? `<div><label>PROTECT / WALK AWAY</label><strong>${escapeHtml(walkAway)}</strong></div>` : ""}
+    </div>
+    ${talkTrack.length ? `<div class="buyer-talk"><label>WORDS TO USE</label>${talkTrack.map(x => `<blockquote>${escapeHtml(x.say)}</blockquote>`).join("")}</div>` : ""}
+    ${playbook.red_lines?.length ? `<div class="buyer-muted"><b>Do not give away:</b> ${escapeHtml(playbook.red_lines.slice(0,2).join("; "))}</div>` : ""}`;
+
   el.innerHTML = `
-    <section style="border:1px solid #111827;border-radius:16px;margin:0 0 14px;overflow:hidden;background:#fff;box-shadow:0 5px 18px rgba(17,24,39,.08)">
-      <div style="padding:15px 16px;background:linear-gradient(135deg,#111827,#25324a);color:#fff;display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
-        <div><div style="font-size:10px;letter-spacing:.16em;font-weight:800;opacity:.68">VENDOREDGE</div><div style="font-size:19px;font-weight:900;margin-top:3px">Your commercial position</div><div style="font-size:11px;opacity:.72;margin-top:4px">The shortest defensible path from evidence to action.</div></div>
-        <div style="text-align:right"><div style="font-size:9px;letter-spacing:.08em;opacity:.68">STATUS</div><div style="font-size:12px;font-weight:900;color:${rs[1]};background:#fff;padding:5px 8px;border-radius:999px;margin-top:4px">${escapeHtml(rs[0])}</div></div>
+    <section class="buyer-hero">
+      <div class="buyer-hero-top">
+        <div>
+          <div class="buyer-eyebrow">YOUR COMMERCIAL POSITION</div>
+          <h2>${escapeHtml(c.verdict || pos.recommendation || "Review the evidence")}</h2>
+        </div>
+        <div class="buyer-status" style="color:${mode[1]}">${escapeHtml(mode[0])}</div>
       </div>
-      <div style="padding:14px 16px">
-        <div style="font-size:18px;font-weight:900;line-height:1.25;margin-bottom:13px">${escapeHtml(c.verdict || pos.recommendation || "Review the evidence")}</div>
-        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
-          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">CONFIDENCE</div><div style="font-size:14px;font-weight:900;margin-top:3px">${escapeHtml(String(c.confidence || "medium").toUpperCase())}</div></div>
-          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">COMMERCIAL MONEY</div><div style="font-size:12px;font-weight:800;margin-top:3px">${escapeHtml(econ.headline || "Not safely quantified")}</div></div>
-          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">EVIDENCE</div><div style="font-size:12px;font-weight:900;color:${es[1]};margin-top:3px">${escapeHtml(es[0])}</div></div>
-        </div>
-        <div style="display:grid;grid-template-columns:1.2fr .8fr;gap:12px;margin-top:13px">
-          <div style="border:1px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">WHY</div><ul style="margin:6px 0 0 18px;font-size:12px;line-height:1.5">${why || "<li>No concise rationale resolved.</li>"}</ul></div>
-          <div style="border:1px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">DO THIS NEXT</div><div style="font-size:13px;font-weight:800;margin-top:6px">${escapeHtml(c.next_move || "Review the evidence before acting.")}</div>${safeguard}</div>
-        </div>
-        ${blockers ? `<div style="margin-top:10px;padding:10px;background:#fff7ed;border-left:3px solid #d97706;border-radius:8px"><div style="font-size:10px;font-weight:900;color:#9a5b00">BEFORE MONEY MOVES</div><ul style="margin:5px 0 0 18px;font-size:12px">${blockers}</ul></div>` : ""}
-        <div style="margin-top:10px;border:1px solid #e5e7eb;border-radius:10px;padding:10px;background:#fafafa">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">DECISION UNDER UNCERTAINTY</div><span style="font-size:9px;font-weight:900;color:${um[1]};background:#fff;padding:4px 7px;border-radius:999px;border:1px solid #eee">${escapeHtml(um[0])}</span></div>
-          ${known ? `<div style="font-size:10px;font-weight:900;color:#777;margin-top:8px">KNOWN</div><ul style="margin:4px 0 0 18px;font-size:11.5px;line-height:1.45">${known}</ul>` : ""}
-          ${uUnknowns ? `<details style="margin-top:6px"><summary style="cursor:pointer;font-size:11px;font-weight:800">What is still unknown</summary><ul style="margin:5px 0 0 18px;font-size:11.5px;line-height:1.45">${uUnknowns}</ul></details>` : ""}
-          ${question}
-          ${u.review_trigger ? `<div style="font-size:10.5px;color:#666;margin-top:8px"><b>Review trigger:</b> ${escapeHtml(u.review_trigger)}</div>` : ""}
-        </div>
-        ${changers ? `<details style="margin-top:9px"><summary style="cursor:pointer;font-size:11px;font-weight:900">What would change the recommendation?</summary><ul style="margin:6px 0 0 18px;font-size:12px;line-height:1.45">${changers}</ul></details>` : ""}
+      <p class="buyer-mode-note">${escapeHtml(mode[2])}</p>
+      <div class="buyer-summary-grid">
+        <div><label>CONFIDENCE</label><strong>${escapeHtml(confidence)}</strong></div>
+        <div><label>COMMERCIAL POSITION</label><strong>${economics}</strong></div>
+        <div><label>NEXT MOVE</label><strong>${escapeHtml(nextMove)}</strong></div>
       </div>
-    </section>`;
+      ${question}
+      <div class="buyer-primary-action"><span>DO THIS NEXT</span><b>${escapeHtml(nextMove)}</b></div>
+    </section>
+
+    ${detail("Why", "The few reasons that actually drive the recommendation.", li(why))}
+    ${detail("Money", "One commercial truth — with unknowns kept visible.", `<div class="buyer-money">${economics}</div><div class="buyer-muted">${escapeHtml(moneyBasis)}</div>${unknowns.length ? `<div class="buyer-subhead">Still unknown</div>${li(unknowns)}` : ""}`)}
+    ${detail("Negotiation", "Your position, target and the words to use.", negotiationBody || `<div class="buyer-muted">No negotiation playbook was generated for this case.</div>`)}
+    ${detail("Risk & decision changers", "What can hurt this decision or make it change.", `${blockers.length ? `<div class="buyer-subhead">Before acting</div>${li(blockers)}` : ""}${risks.length ? `<div class="buyer-subhead">Material reversal risks</div>${li(risks)}` : ""}<div class="buyer-subhead">What could change the decision</div><div class="buyer-callout"><b>${escapeHtml(boundary)}</b></div>${changers.length ? li(changers) : ""}`)}
+    ${detail("Show me the evidence", "Open only if you want to challenge the recommendation.", `${evidence.length ? li(evidence) : `<div class="buyer-muted">No additional material evidence is available in the current decision record.</div>`}<div class="buyer-muted" style="margin-top:8px">VendorEdge does not treat supplier statements as facts unless the evidence supports them.</div>`)}
+  `;
 }
 
 function renderDecisionPassport(pos) {

@@ -83,13 +83,13 @@ def test_final_confidence_respects_pre_reasoning_stakeholder_cap():
     assert "stakeholder" in result.confidence.derivation_note.lower()
 
 
-def test_decision_passport_is_answer_first_and_has_direct_quote_economics():
+def test_decision_passport_requires_comparable_terms_before_direct_quote_economics():
     n = _normalized()
     p = _position("medium")
     passport = build_decision_passport(n, p)
     assert passport["title"] == "VendorEdge Decision Passport"
-    assert passport["economics"]["available"] is True
-    assert "72,000 EUR/year" in passport["economics"]["headline"]
+    assert passport["economics"]["available"] is False
+    assert "incomplete" in passport["economics"]["headline"].lower()
     assert passport["decision"] == p.recommendation
 
 

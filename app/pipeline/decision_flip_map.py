@@ -15,6 +15,7 @@ from typing import Any
 
 from app.models import CommercialPosition
 from app.pipeline.normalized_evidence import NormalizedEvidence
+from app.pipeline.tco import build_quote_tco
 
 
 def _money(v: float, currency: str) -> str:
@@ -30,79 +31,101 @@ def _supplier_from_recommendation(recommendation: str, suppliers: list[str]) -> 
 
 
 def _quote_flip_map(normalized: NormalizedEvidence, position: CommercialPosition) -> dict[str, Any]:
-    volume = normalized.common.annual_volume_units
-    priced = [s for s in normalized.suppliers if s.price_amount is not None]
-    if volume is None or len(priced) < 2:
-        return {"available": False, "mode": "quote_comparison", "reason": "At least two explicit supplier prices and annual volume are required.", "flips": [], "warnings": []}
+    """Build Flip Map from the canonical TCO result.
 
-    currencies = {(s.currency or "").upper() for s in priced}
-    if len(currencies) != 1 or not next(iter(currencies)):
-        return {"available": False, "mode": "quote_comparison", "reason": "Supplier prices are not safely comparable because currencies are missing or mixed; no FX assumption is permitted.", "flips": [], "warnings": ["No FX conversion is performed."]}
+    R26.1.1: this module is a consumer of commercial economics, never a
+    second calculator. Any money/threshold shown here must originate in
+    ``build_quote_tco``. Qualitative reversal conditions remain independent
+    because they are not monetary calculations.
+    """
+    tco = build_quote_tco(normalized)
+    suppliers = [s for s in normalized.suppliers if s.price_amount is not None]
+    if not tco.get("available") and not tco.get("quote_price_boundary"):
+        return {
+            "available": False,
+            "mode": "quote_comparison",
+            "reason": tco.get("basis") or tco.get("headline") or "Canonical commercial comparison is not available.",
+            "flips": [],
+            "warnings": list(tco.get("limitations", []))[:6],
+            "commercial_source": "canonical_tco",
+        }
 
-    currency = next(iter(currencies))
-    ordered = sorted(priced, key=lambda s: float(s.price_amount))
-    low, high = ordered[0], ordered[1]
-    recommendation_supplier = _supplier_from_recommendation(position.recommendation, [s.supplier_name for s in priced])
-
+    recommendation_supplier = _supplier_from_recommendation(position.recommendation, [s.supplier_name for s in suppliers])
     flips: list[dict[str, Any]] = []
     warnings: list[str] = []
+    boundary = tco.get("decision_boundary") or {}
+    canonical_boundary = boundary.get("canonical_quote_boundary") if isinstance(boundary, dict) else None
+    quote_boundary = tco.get("quote_price_boundary")
 
-    # The cleanest deterministic boundary: if the recommended supplier is one
-    # of the two explicitly priced suppliers, show the exact price level at
-    # which the named alternative becomes cheaper, holding everything else
-    # constant. This is an economic boundary, not a complete award decision.
-    if recommendation_supplier:
-        rec = next((s for s in priced if s.supplier_name == recommendation_supplier), None)
-        alternatives = [s for s in priced if s.supplier_name != recommendation_supplier]
-        if rec and alternatives:
-            alt = min(alternatives, key=lambda s: float(s.price_amount))
-            rec_price = float(rec.price_amount)
-            alt_price = float(alt.price_amount)
-            if rec_price <= alt_price:
-                delta = alt_price - rec_price
-                flips.append({
-                    "type": "price_threshold",
-                    "driver": f"{rec.supplier_name} unit price",
-                    "trigger": f"{rec.supplier_name} price reaches {_money(alt_price, currency)} or higher",
-                    "effect": f"{alt.supplier_name} becomes no more expensive on stated unit price, before non-price factors.",
-                    "threshold_value": alt_price,
-                    "currency": currency,
-                    "annual_impact_at_threshold": round(float(volume) * delta, 2),
-                    "basis": "Deterministic same-currency unit-price comparison × stated annual volume; no FX, freight, duty, quality or capacity assumptions.",
-                    "strength": "DETERMINISTIC",
-                })
-            else:
-                flips.append({
-                    "type": "price_threshold",
-                    "driver": f"{alt.supplier_name} unit price",
-                    "trigger": f"{alt.supplier_name} price reaches {_money(rec_price, currency)} or higher",
-                    "effect": f"{rec.supplier_name} becomes cheaper on stated unit price, before non-price factors.",
-                    "threshold_value": rec_price,
-                    "currency": currency,
-                    "annual_impact_at_threshold": round(float(volume) * (rec_price - alt_price), 2),
-                    "basis": "Deterministic same-currency unit-price comparison × stated annual volume; no FX, freight, duty, quality or capacity assumptions.",
-                    "strength": "DETERMINISTIC",
-                })
+    # Prefer the canonical landed/commercial boundary whenever available.
+    # A raw quoted-price boundary is only exposed when landed economics are
+    # unavailable; it is never mixed into a partial landed-cost result.
+    economic_unit_threshold = boundary.get("unit_threshold") if isinstance(boundary, dict) else None
+    economic_currency = tco.get("currency")
+    economic_annual = boundary.get("annual_impact_at_threshold") if isinstance(boundary, dict) else None
+    missing_components = boundary.get("missing_components") if isinstance(boundary, dict) else None
+
+    if recommendation_supplier and economic_unit_threshold is not None:
+        flips.append({
+            "type": "economic_threshold",
+            "driver": "canonical commercial cost advantage",
+            "trigger": (
+                f"Missing buyer-borne costs reach {_money(float(economic_unit_threshold), str(economic_currency))} per unit"
+                if missing_components else
+                f"The known commercial cost advantage reaches {_money(float(economic_unit_threshold), str(economic_currency))} per unit"
+            ),
+            "effect": "The current known commercial advantage is eliminated or the economic ordering changes; non-price factors remain separate.",
+            "threshold_value": float(economic_unit_threshold),
+            "currency": str(economic_currency),
+            "annual_impact_at_threshold": economic_annual,
+            "basis": "Consumed from build_quote_tco decision_boundary; no independent price × volume calculation.",
+            "strength": "DETERMINISTIC",
+            "source": "canonical_tco",
+        })
+    elif recommendation_supplier and isinstance(quote_boundary, dict):
+        # Only when landed economics are unavailable do we expose a quoted-price
+        # boundary. It is explicitly a quote-basis threshold, not savings.
+        threshold = quote_boundary.get("threshold_value")
+        currency = quote_boundary.get("currency") or tco.get("currency")
+        annual_impact = quote_boundary.get("annual_impact_at_threshold")
+        alt_name = quote_boundary.get("alternative_supplier")
+        driver = quote_boundary.get("driver_supplier") or recommendation_supplier
+        if threshold is not None and alt_name:
+            flips.append({
+                "type": "price_threshold",
+                "driver": f"{driver} unit price",
+                "trigger": f"{driver} price reaches {_money(float(threshold), str(currency))} or higher",
+                "effect": f"{alt_name} reaches the same stated quoted-unit-price basis before non-price factors.",
+                "threshold_value": float(threshold),
+                "currency": str(currency),
+                "annual_impact_at_threshold": annual_impact,
+                "basis": quote_boundary.get("basis", "Canonical quoted-price boundary from build_quote_tco; not landed savings."),
+                "strength": "DETERMINISTIC",
+                "source": "canonical_tco",
+            })
+    elif recommendation_supplier:
+        warnings.append("The canonical commercial engine did not produce a supplier-specific numeric boundary; no independent price calculation is performed here.")
     else:
-        warnings.append("The recommendation does not uniquely name one of the priced suppliers; no supplier-specific award flip is inferred.")
+        warnings.append("The recommendation does not uniquely name one priced supplier; no supplier-specific award flip is inferred.")
 
-    # Always expose the current economic ordering as a separate signal. This
-    # prevents the UI from implying that lowest price equals final recommendation.
+    # Never create a second economic number here. The canonical TCO headline
+    # and result are the sole commercial baseline for customer-facing money.
     flips.append({
         "type": "economic_baseline",
-        "driver": "stated unit price",
-        "trigger": f"{low.supplier_name} remains below {high.supplier_name} at the stated prices",
-        "effect": f"{low.supplier_name} has the lower direct unit-price basis; this alone does not establish the overall award decision.",
-        "threshold_value": float(high.price_amount),
-        "currency": currency,
-        "basis": "Observed same-currency supplier prices; non-price factors are not collapsed into price.",
+        "driver": "canonical commercial comparison",
+        "trigger": tco.get("headline", "Canonical commercial comparison is available"),
+        "effect": "The canonical TCO result is the commercial baseline; non-price factors remain separate decision considerations.",
+        "threshold_value": economic_unit_threshold if economic_unit_threshold is not None else (quote_boundary.get("threshold_value") if isinstance(quote_boundary, dict) else None),
+        "currency": tco.get("currency"),
+        "annual_impact_at_threshold": economic_annual if economic_unit_threshold is not None else (quote_boundary.get("annual_impact_at_threshold") if isinstance(quote_boundary, dict) else None),
+        "basis": "Consumed directly from build_quote_tco; no independent price × volume calculation is performed.",
         "strength": "DETERMINISTIC",
+        "source": "canonical_tco",
     })
 
     qualitative = list(position.disconfirming_condition and [position.disconfirming_condition] or [])
     audit = position.decision_audit
     qualitative.extend((audit.reversal_conditions if audit else [])[:5])
-    # Deduplicate while preserving order; these are not converted into numeric thresholds.
     seen = set()
     evidence_required = []
     for condition in qualitative:
@@ -119,15 +142,16 @@ def _quote_flip_map(normalized: NormalizedEvidence, position: CommercialPosition
     return {
         "available": True,
         "mode": "quote_comparison",
-        "version": "R21.1",
-        "decision_scope": "Deterministic economic flip boundaries plus explicitly stated evidence-required reversal conditions.",
+        "version": "R26.1.1",
+        "decision_scope": "Canonical commercial boundaries plus explicitly stated evidence-required reversal conditions.",
         "current_recommendation": position.recommendation,
         "current_recommendation_supplier": recommendation_supplier,
         "flips": flips,
         "evidence_required": evidence_required[:6],
         "warnings": warnings[:6],
         "fragility": _fragility(len([f for f in flips if f.get("strength") == "DETERMINISTIC"]), len(evidence_required), recommendation_supplier is not None),
-        "method": "No LLM call. No new facts. Thresholds are calculated only from explicit same-currency supplier prices and stated annual volume.",
+        "commercial_source": "canonical_tco",
+        "method": "No LLM call. No independent commercial calculation. Monetary boundaries are consumed from build_quote_tco; qualitative reversal conditions remain evidence-required.",
     }
 
 

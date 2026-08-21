@@ -61,6 +61,7 @@ from app.pipeline.commercial_dna import build_commercial_dna
 from app.pipeline.negotiation_playbook import build_negotiation_playbook
 from app.pipeline.decision_formats import render_decision
 from app.pipeline.customer_actions import build_action_plan
+from app.pipeline.commercial_triage import build_generic_commercial_position
 from app.pipeline.customer_exports import render_custom, export_csv
 from app.pipeline.webhook import dispatch_event
 from app.pipeline.pilot_metrics import build_pilot_metrics
@@ -623,33 +624,34 @@ def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTas
 
     content_type = classification.get("content_type")
     if content_type == "unsupported":
-        _update_status(x_org_id, decision_id, "provider_unavailable")
-        # Real demand evidence, not a guess: log which category this fell
-        # into, purely for later aggregate counting -- never used to answer
-        # the question itself, and failing silently if logging has any issue
-        # so it can never block the (already honest) rejection response.
+        # A real procurement question should never hit a dead-end merely because
+        # a specialist module does not exist yet. We keep the specialist
+        # classifier honest (it still refuses to force-fit the case), but hand
+        # the case to the general commercial triage engine. This engine is
+        # explicitly capped at medium confidence and cannot claim specialist
+        # TCO/market/legal analysis.
         category = classification.get("unsupported_category", "other")
         try:
             _log_unsupported_category(category, x_org_id)
         except Exception:
             pass
-        category_label = category.replace("_", " ").title()
-        # Deliberately does NOT list what a future module "will evaluate" --
-        # nothing about that has actually been designed yet, and stating
-        # specific future capabilities with confidence would be the same
-        # category of problem as fabricating a live answer, just about the
-        # future instead of the present. Name what was detected and confirm
-        # it's logged; don't promise a spec that doesn't exist.
-        raise HTTPException(
-            status_code=422,
-            detail=f"Commercial decision identified: {category_label}. This looks like "
-                   f"a real {category_label.lower()} question, but it's outside what "
-                   f"this version of VendorEdge currently supports -- right now it "
-                   f"handles supplier price increases and supplier quote comparisons. "
-                   f"Your question has been anonymously recorded to help prioritize "
-                   f"future modules. Try rephrasing around one of the two supported "
-                   f"types for now.",
+
+        # Store routing metadata privately; it is useful for demand telemetry
+        # and never becomes user-facing evidence.
+        with get_org_scoped_connection(x_org_id) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE commercial_decisions SET user_supplied_inputs = %s, numeric_facts = %s WHERE id = %s",
+                    (json.dumps({"__decision_category__": category}), json.dumps({"__decision_category__": category}), str(decision_id)),
+                )
+
+        attempt_id = attempt_fencing.start_new_attempt(x_org_id, decision_id, from_status="classifying")
+        if attempt_id is None:
+            return _fetch_decision(x_org_id, decision_id)
+        background_tasks.add_task(
+            _run_generic_reasoning_safe, x_org_id, decision_id, attempt_id, body.raw_question, category
         )
+        return _fetch_decision(x_org_id, decision_id)
 
     decision_type = classification.get("decision_type")
     constraint_signal = classification.get("constraint_satisfaction_signal")
@@ -765,6 +767,30 @@ def _restart_reasoning_from_stored_evidence(org_id: str, decision_id, attempt_id
         _log_fallback_fired(field, row["classified_content_type"], is_conflict=True, organisation_id=org_id)
     background_tasks.add_task(_run_reasoning_safe, org_id, decision_id, attempt_id, normalized, row["raw_question"])
     return _fetch_decision(org_id, decision_id)
+
+
+def _run_generic_reasoning_safe(org_id, decision_id, attempt_id: str, raw_question: str, category: str):
+    """Run the general commercial triage path safely in the background.
+
+    This is deliberately separate from the specialist pipeline: it has no
+    normalized specialist evidence contract and no specialist deterministic
+    economics. Its only job is to give the buyer a useful, evidence-disciplined
+    next action instead of an unsupported-case dead end.
+    """
+    try:
+        with attempt_fencing.HeartbeatTicker(org_id, decision_id, attempt_id, "general_commercial_triage"):
+            position = build_generic_commercial_position(raw_question, category)
+        write_succeeded = attempt_fencing.write_final_result(
+            org_id, decision_id, attempt_id, position.model_dump_json(), "{}"
+        )
+        if not write_succeeded:
+            print(f"Generic triage attempt {attempt_id} was superseded; result discarded safely.")
+    except Exception as e:
+        try:
+            _log_full_error("General commercial triage failed", e)
+            attempt_fencing.write_provider_unavailable(org_id, decision_id, attempt_id)
+        except Exception:
+            pass
 
 
 def _run_reasoning_safe(org_id, decision_id, attempt_id: str, normalized, raw_question, constraint_signal=None, continuation_context=None):

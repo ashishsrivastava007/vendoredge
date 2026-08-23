@@ -16,6 +16,9 @@ from app.model_config import REASONING_MODEL
 from app.models import CommercialPosition, ConfidenceFactor
 from app.pipeline.evidence_firewall import EVIDENCE_FIREWALL_SYSTEM_RULES
 from app.pipeline.classifier import _extract_text, _extract_json_object, _looks_like_json
+from app.pipeline.generic_integrity import apply_generic_integrity_contract
+
+PROVIDER_OPERATION_TIMEOUT_SECONDS = 20 * 60
 
 _client: Anthropic | None = None
 
@@ -26,7 +29,7 @@ def _get_client() -> Anthropic:
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             raise RuntimeError("ANTHROPIC_API_KEY not set.")
-        _client = Anthropic(api_key=api_key)
+        _client = Anthropic(api_key=api_key, timeout=PROVIDER_OPERATION_TIMEOUT_SECONDS)
     return _client
 
 
@@ -150,7 +153,7 @@ this category.
         system=TRIAGE_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": prompt}],
     )
-    text = _extract_text(response.content)
+    text = _extract_text(response)
     raw = _extract_json_object(text) if _looks_like_json(text) else None
     if raw is None:
         raise ValueError("Generic commercial triage returned no valid JSON object.")
@@ -179,33 +182,11 @@ this category.
     position.decision_audit = None
     position.informed_by_case_count = 0
 
-    # Never let a model claim high confidence on the generic path.
-    if position.confidence.level == "high":
-        position.confidence.level = "medium"
-        position.confidence.derivation_note += " Generic triage is capped at medium confidence because specialist decision coverage and deterministic commercial calculations were not run."
-        position.confidence.factors.append(ConfidenceFactor(
-            factor="Specialist engine coverage was not available for this case.",
-            value="general triage only",
-            weight="decreases confidence",
-        ))
+    position = apply_generic_integrity_contract(position, raw_question)
 
     # The generic path must visibly disclose what it is and what it did not do.
     position.methodology_applied = (
         "General commercial decision triage. No specialist TCO, market-verification, "
         "legal, or contract analysis is claimed for this case."
     )
-    if position.decision_under_uncertainty is None:
-        position.decision_under_uncertainty = {
-            "mode": "PROTECT",
-            "label": "PROTECT — ACT WITH A GUARDRAIL",
-            "recommendation": position.recommendation,
-            "confidence": position.confidence.level,
-            "known": [],
-            "unknowns": ["Specialist analysis is not available for this decision type yet."],
-            "question": None,
-            "question_why": None,
-            "safe_now": True,
-            "reversibility": "Prefer the smallest reversible commitment that protects the immediate business need.",
-            "review_trigger": position.disconfirming_condition,
-        }
     return position

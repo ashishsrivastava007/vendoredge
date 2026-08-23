@@ -25,6 +25,11 @@ CREATE TABLE IF NOT EXISTS organisations (
     -- system exists -- deliberately not building payment infrastructure
     -- speculatively before a single paying customer exists.
     monthly_decision_limit INTEGER NOT NULL DEFAULT 3,
+    -- Usage is reserved atomically before any paid provider call. Counting
+    -- decisions afterwards is race-prone and lets concurrent requests exceed
+    -- the commercial limit.
+    monthly_usage_period DATE NOT NULL DEFAULT date_trunc('month', now())::date,
+    monthly_decisions_used INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -102,6 +107,30 @@ CREATE TABLE IF NOT EXISTS commercial_decisions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     completed_at TIMESTAMPTZ
 );
+
+-- Durable, database-backed work records. A web request may enqueue work, but
+-- the record (not an in-memory BackgroundTask) is the source of truth and is
+-- recoverable after a process restart.
+CREATE TABLE IF NOT EXISTS reasoning_jobs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    commercial_decision_id UUID NOT NULL UNIQUE REFERENCES commercial_decisions(id) ON DELETE CASCADE,
+    organisation_id UUID NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+    job_kind VARCHAR(32) NOT NULL CHECK (job_kind IN ('specialist', 'generic_triage')),
+    status VARCHAR(24) NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'running', 'retry_scheduled', 'completed', 'failed', 'cancelled', 'timed_out')),
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3,
+    available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at TIMESTAMPTZ,
+    timeout_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    cancel_requested_at TIMESTAMPTZ,
+    last_error_code VARCHAR(80),
+    last_error_detail TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_reasoning_jobs_claim ON reasoning_jobs(status, available_at);
 ALTER TABLE commercial_decisions ADD COLUMN IF NOT EXISTS parent_decision_id UUID REFERENCES commercial_decisions(id);
 ALTER TABLE commercial_decisions ADD COLUMN IF NOT EXISTS evidence_provenance JSONB;
 ALTER TABLE commercial_decisions ADD COLUMN IF NOT EXISTS reasoning_started_at TIMESTAMPTZ;
@@ -227,6 +256,8 @@ CREATE TABLE IF NOT EXISTS general_feedback (
 );
 
 ALTER TABLE organisations ADD COLUMN IF NOT EXISTS monthly_decision_limit INTEGER NOT NULL DEFAULT 3;
+ALTER TABLE organisations ADD COLUMN IF NOT EXISTS monthly_usage_period DATE NOT NULL DEFAULT date_trunc('month', now())::date;
+ALTER TABLE organisations ADD COLUMN IF NOT EXISTS monthly_decisions_used INTEGER NOT NULL DEFAULT 0;
 -- The line above only takes effect for a genuinely NEW column -- since this
 -- column already exists on any already-deployed database, this explicit
 -- ALTER is what actually changes the default going forward, matching the
@@ -257,6 +288,12 @@ ALTER TABLE commercial_decisions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE commercial_decisions FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS org_isolation_cd ON commercial_decisions;
 CREATE POLICY org_isolation_cd ON commercial_decisions
+    USING (organisation_id = current_setting('app.current_org_id')::UUID);
+
+ALTER TABLE reasoning_jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reasoning_jobs FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_isolation_reasoning_jobs ON reasoning_jobs;
+CREATE POLICY org_isolation_reasoning_jobs ON reasoning_jobs
     USING (organisation_id = current_setting('app.current_org_id')::UUID);
 
 -- CRITICAL: the application must NEVER connect as a PostgreSQL SUPERUSER.

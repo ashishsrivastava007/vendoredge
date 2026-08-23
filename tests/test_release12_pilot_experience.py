@@ -50,7 +50,7 @@ def test_pilot_feedback_is_not_part_of_reasoning_or_decision_mutation():
 
 
 def test_frontend_collects_value_signals_without_claiming_they_change_decision():
-    html = (ROOT / "app" / "static" / "index.html").read_text()
+    html = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
     assert "pilot-experience-card" in html
     assert "would_use_again" in html
     assert "time_saved" in html

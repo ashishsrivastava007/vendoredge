@@ -23,6 +23,8 @@ import re
 from anthropic import Anthropic
 from app.model_config import MARKET_MODEL
 
+PROVIDER_OPERATION_TIMEOUT_SECONDS = 20 * 60
+
 _client: Anthropic | None = None
 
 
@@ -32,7 +34,7 @@ def _get_client() -> Anthropic:
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             raise RuntimeError("ANTHROPIC_API_KEY not set.")
-        _client = Anthropic(api_key=api_key)
+        _client = Anthropic(api_key=api_key, timeout=PROVIDER_OPERATION_TIMEOUT_SECONDS)
     return _client
 
 

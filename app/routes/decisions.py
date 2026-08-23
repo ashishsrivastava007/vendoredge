@@ -33,6 +33,7 @@ from app.pipeline.financial import compute_financial_impact
 from app.pipeline.market_verification import verify_market_claim
 from app.pipeline.normalize import normalize_evidence
 from app.pipeline import attempt_fencing
+from app.pipeline import job_queue
 from app.pipeline.normalized_evidence import NormalizedEvidence, HistoryContext
 from app.pipeline.methodology_consistency import (
     claims_tco_methodology, determine_relevant_tco_dimensions, check_tco_coverage,
@@ -168,6 +169,12 @@ async def extract_file(request: Request, file: UploadFile = File(...)):
         extracted_text = extractors[matched_ext](file_bytes)
     except FileExtractionError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    if "[... content truncated" in extracted_text or "[... additional rows truncated ...]" in extracted_text:
+        raise HTTPException(
+            status_code=422,
+            detail="This evidence is larger than VendorEdge can safely analyze as one submission. "
+                   "Upload a focused extract or paste the relevant commercial pages/rows; no incomplete document is used for a decision.",
+        )
     return {"extracted_text": extracted_text}
 
 
@@ -227,36 +234,28 @@ def log_interest_signal(request: Request, feature: str):
     return {"logged": True}
 
 
-def _enforce_monthly_usage_limit(org_id: str):
-    """Enforce the real monthly decision limit before any paid model call.
-
-    There is deliberately no production bypass. Internal validation runs use
-    a dedicated workspace whose database limit is explicitly provisioned for
-    that run.
-    """
-    with get_org_scoped_connection(org_id) as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT monthly_decision_limit FROM organisations WHERE id = %s",
-                (org_id,),
-            )
-            row = cur.fetchone()
-            limit = row["monthly_decision_limit"] if row else 15
-
-            cur.execute(
-                """SELECT count(*) AS n FROM commercial_decisions
-                   WHERE organisation_id = %s
-                   AND created_at >= date_trunc('month', now())""",
-                (org_id,),
-            )
-            used = cur.fetchone()["n"]
-
-    if used >= limit:
+def _reserve_monthly_llm_usage(org_id: str, cur) -> None:
+    """Reserve one paid provider use atomically in the caller's transaction."""
+    cur.execute(
+        """UPDATE organisations
+           SET monthly_decisions_used = CASE
+                   WHEN monthly_usage_period < date_trunc('month', now())::date THEN 1
+                   ELSE monthly_decisions_used + 1 END,
+               monthly_usage_period = date_trunc('month', now())::date
+           WHERE id = %s
+             AND (monthly_usage_period < date_trunc('month', now())::date
+                  OR monthly_decisions_used < monthly_decision_limit)
+           RETURNING monthly_decision_limit, monthly_decisions_used""",
+        (org_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        cur.execute("SELECT monthly_decision_limit FROM organisations WHERE id = %s", (org_id,))
+        limit_row = cur.fetchone()
+        limit = limit_row["monthly_decision_limit"] if limit_row else 0
         raise HTTPException(
             status_code=429,
-            detail=f"This workspace has reached its {limit} decisions this month on the "
-                   f"free plan. It resets at the start of next month, or upgrade to "
-                   f"the Team plan for unlimited decisions.",
+            detail=f"This workspace has reached its {limit} decisions this month. It resets at the start of next month.",
         )
 
 
@@ -595,24 +594,29 @@ def _log_fallback_fired(fallback_name: str, content_type: str | None = None, is_
 def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTasks, request: Request,
                      x_org_id: str = Header(...), x_user_id: str = Header(...)):
     x_org_id, x_user_id = _require_identity(request)
-    # Real, enforced usage cap -- checked BEFORE the database write and
-    # BEFORE the costly Anthropic API call, since the whole point is to
-    # never spend real money on a request that shouldn't be allowed. This
-    # replaces what was previously just text on the pricing page with zero
-    # actual enforcement anywhere.
-    _enforce_monthly_usage_limit(x_org_id)
-
+    decision_id = body.client_decision_id or uuid4()
+    existing = False
     with get_org_scoped_connection(x_org_id) as conn:
         with conn.cursor() as cur:
-            decision_id = body.client_decision_id or uuid4()
             cur.execute(
                 """INSERT INTO commercial_decisions
                    (id, organisation_id, created_by_user_id, raw_question, status)
                    VALUES (%s, %s, %s, %s, 'classifying')
-                   RETURNING id, status, raw_question, created_at""",
+                   ON CONFLICT (id) DO NOTHING
+                   RETURNING id""",
                 (str(decision_id), x_org_id, x_user_id, body.raw_question),
             )
-            cur.fetchone()
+            inserted = cur.fetchone()
+            if not inserted:
+                # A replay must never call the provider or reserve another
+                # quota unit. RLS means a UUID owned by another tenant cannot
+                # be observed or returned.
+                existing = True
+            else:
+                _reserve_monthly_llm_usage(x_org_id, cur)
+
+    if existing:
+        return _fetch_decision(x_org_id, decision_id)
 
     # Step A — classify
     try:
@@ -648,9 +652,8 @@ def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTas
         attempt_id = attempt_fencing.start_new_attempt(x_org_id, decision_id, from_status="classifying")
         if attempt_id is None:
             return _fetch_decision(x_org_id, decision_id)
-        background_tasks.add_task(
-            _run_generic_reasoning_safe, x_org_id, decision_id, attempt_id, body.raw_question, category
-        )
+        job_queue.enqueue(x_org_id, decision_id, "generic_triage")
+        background_tasks.add_task(_run_queued_job, x_org_id, decision_id)
         return _fetch_decision(x_org_id, decision_id)
 
     decision_type = classification.get("decision_type")
@@ -715,9 +718,8 @@ def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTas
         # state, fail safe rather than silently proceed without an
         # attempt identity.
         return _fetch_decision(x_org_id, decision_id)
-    background_tasks.add_task(
-        _run_reasoning_safe, x_org_id, decision_id, attempt_id, normalized, body.raw_question, constraint_signal,
-    )
+    job_queue.enqueue(x_org_id, decision_id, "specialist")
+    background_tasks.add_task(_run_queued_job, x_org_id, decision_id)
     return _fetch_decision(x_org_id, decision_id)
 
 
@@ -765,7 +767,8 @@ def _restart_reasoning_from_stored_evidence(org_id: str, decision_id, attempt_id
     )
     for field in conflicts:
         _log_fallback_fired(field, row["classified_content_type"], is_conflict=True, organisation_id=org_id)
-    background_tasks.add_task(_run_reasoning_safe, org_id, decision_id, attempt_id, normalized, row["raw_question"])
+    job_queue.requeue(org_id, decision_id)
+    background_tasks.add_task(_run_queued_job, org_id, decision_id)
     return _fetch_decision(org_id, decision_id)
 
 
@@ -781,7 +784,8 @@ def _run_generic_reasoning_safe(org_id, decision_id, attempt_id: str, raw_questi
         with attempt_fencing.HeartbeatTicker(org_id, decision_id, attempt_id, "general_commercial_triage"):
             position = build_generic_commercial_position(raw_question, category)
         write_succeeded = attempt_fencing.write_final_result(
-            org_id, decision_id, attempt_id, position.model_dump_json(), "{}"
+            org_id, decision_id, attempt_id, position.model_dump_json(),
+            json.dumps({"generic_triage": {"source": "user_supplied", "stage_captured": "generic_integrity_contract"}})
         )
         if not write_succeeded:
             print(f"Generic triage attempt {attempt_id} was superseded; result discarded safely.")
@@ -791,6 +795,37 @@ def _run_generic_reasoning_safe(org_id, decision_id, attempt_id: str, raw_questi
             attempt_fencing.write_provider_unavailable(org_id, decision_id, attempt_id)
         except Exception:
             pass
+
+
+def _run_queued_job(org_id: str, decision_id) -> None:
+    """Execute a database-leased job; a later process can safely retry it."""
+    job = job_queue.claim(org_id, decision_id)
+    if not job:
+        return
+    try:
+        with get_org_scoped_connection(org_id) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT raw_question, classified_content_type, user_supplied_inputs, current_attempt_id FROM commercial_decisions WHERE id = %s", (str(decision_id),))
+                row = cur.fetchone()
+        if not row or job_queue.is_cancelled(org_id, decision_id):
+            return
+        attempt_id = row["current_attempt_id"]
+        if job["job_kind"] == "generic_triage":
+            category = (row["user_supplied_inputs"] or {}).get("__decision_category__", "other")
+            _run_generic_reasoning_safe(org_id, decision_id, attempt_id, row["raw_question"], category)
+        else:
+            stored = row["user_supplied_inputs"] or {}
+            suppliers = stored.get("__supplier_specific_evidence__")
+            stakeholders = stored.get("__stakeholder_views__")
+            evidence = {k: v for k, v in stored.items() if not (k.startswith("__") and k.endswith("__"))}
+            normalized, _ = normalize_evidence(row["raw_question"], row["classified_content_type"], evidence, evidence,
+                                               supplier_specific_evidence=suppliers, stakeholder_views=stakeholders)
+            _run_reasoning(org_id, decision_id, attempt_id, normalized, row["raw_question"],
+                           continuation_context=stored.get("__continuation_context__"))
+        job_queue.complete(org_id, decision_id)
+    except Exception as exc:
+        if job_queue.fail_or_retry(org_id, decision_id, type(exc).__name__, str(exc)) == "failed":
+            attempt_fencing.write_provider_unavailable(org_id, decision_id, row["current_attempt_id"] if row else "")
 
 
 def _run_reasoning_safe(org_id, decision_id, attempt_id: str, normalized, raw_question, constraint_signal=None, continuation_context=None):
@@ -873,7 +908,14 @@ def respond(decision_id: UUID, body: RespondRequest, background_tasks: Backgroun
         return _restart_reasoning_from_stored_evidence(x_org_id, decision_id, attempt_id, row, background_tasks)
 
     # current_status == "awaiting_user_input" -- the normal path.
+    pending_conflicts = (row["user_supplied_inputs"] or {}).get("__continuation_conflicts__")
+    if pending_conflicts:
+        confirmation = str(body.user_supplied_inputs.get("continuation_evidence_confirmation", "")).strip().lower()
+        if confirmation not in {"confirm", "confirmed", "yes"}:
+            raise HTTPException(422, detail="Confirm the changed continuation evidence before recalculation.")
     merged_evidence = {**(row["user_supplied_inputs"] or {}), **body.user_supplied_inputs}
+    merged_evidence.pop("__continuation_conflicts__", None)
+    merged_evidence.pop("continuation_evidence_confirmation", None)
     with get_org_scoped_connection(x_org_id) as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -908,13 +950,24 @@ def respond(decision_id: UUID, body: RespondRequest, background_tasks: Backgroun
         _set_awaiting_input(x_org_id, decision_id, missing)
         return _fetch_decision(x_org_id, decision_id)
 
-    background_tasks.add_task(_run_reasoning_safe, x_org_id, decision_id, attempt_id, normalized, row["raw_question"])
+    job_queue.requeue(x_org_id, decision_id)
+    background_tasks.add_task(_run_queued_job, x_org_id, decision_id)
     return _fetch_decision(x_org_id, decision_id)
 
 
 @router.get("/commercial-decisions/{decision_id}", response_model=CommercialDecisionResponse)
 def get_decision(decision_id: UUID, request: Request, x_org_id: str = Header(...), x_user_id: str = Header(...)):
     x_org_id, x_user_id = _require_identity(request)
+    return _fetch_decision(x_org_id, decision_id)
+
+
+@router.post("/commercial-decisions/{decision_id}/cancel", response_model=CommercialDecisionResponse)
+def cancel_decision(decision_id: UUID, request: Request):
+    """Cancel queued/running provider work without deleting the case evidence."""
+    x_org_id, _ = _require_identity(request)
+    if not job_queue.cancel(x_org_id, decision_id):
+        raise HTTPException(409, detail="This analysis can no longer be cancelled.")
+    _update_status(x_org_id, decision_id, "provider_unavailable")
     return _fetch_decision(x_org_id, decision_id)
 
 
@@ -959,6 +1012,7 @@ def continue_case(decision_id: UUID, body: ContinueCaseRequest, background_tasks
 
     new_decision_id = body.client_decision_id or uuid4()
     new_attempt_id = attempt_fencing.new_attempt_id()
+    existing_continuation = False
     parent_flat_evidence = parent["user_supplied_inputs"] or {}
     # Non-mutating read -- the INSERT below must still store the full
     # data (including this key) so a FURTHER continuation of this new
@@ -976,33 +1030,80 @@ def continue_case(decision_id: UUID, body: ContinueCaseRequest, background_tasks
                    (id, organisation_id, created_by_user_id, raw_question,
                     classified_content_type, parent_decision_id, status,
                     user_supplied_inputs, numeric_facts, reasoning_started_at,
-                    current_attempt_id, last_heartbeat_at, current_stage)
-                   VALUES (%s, %s, %s, %s, %s, %s, 'reasoning', %s, %s, now(), %s, now(), 'starting')""",
+                   current_attempt_id, last_heartbeat_at, current_stage)
+                   VALUES (%s, %s, %s, %s, %s, %s, 'reasoning', %s, %s, now(), %s, now(), 'starting')
+                   ON CONFLICT (id) DO NOTHING
+                   RETURNING id""",
                 (str(new_decision_id), x_org_id, x_user_id, body.what_happened,
                  parent["classified_content_type"], str(decision_id),
-                 json.dumps(parent_flat_evidence),
+                 json.dumps({**parent_flat_evidence, "__continuation_context__": continuation_context}),
                  json.dumps(parent_flat_evidence), new_attempt_id),
             )
+            if cur.fetchone():
+                _reserve_monthly_llm_usage(x_org_id, cur)
+            else:
+                existing_continuation = True
 
-    # Re-normalize through the same single boundary, reusing the parent's
-    # already-normalized evidence -- since the parent case already
-    # completed, every required field is already present, so the
-    # deterministic fallbacks (run here against body.what_happened, the
-    # continuation text) have nothing meaningful left to catch; this call
-    # exists for consistency, not because new extraction is expected.
+    if existing_continuation:
+        return _fetch_decision(x_org_id, new_decision_id)
+
+    # A continuation is new evidence, not merely prose appended to an old
+    # answer. Extract it through the live classifier contract, then reconcile
+    # it with the immutable parent evidence before any deterministic math.
+    try:
+        update_classification = classify(body.what_happened)
+    except Exception as exc:
+        _update_status(x_org_id, new_decision_id, "provider_unavailable")
+        raise HTTPException(503, detail=_log_full_error("Continuation extraction failed", exc))
+    if update_classification.get("content_type") not in (parent["classified_content_type"], "unsupported"):
+        _set_awaiting_input(x_org_id, new_decision_id, [{
+            "field": "continuation_scope_confirmation",
+            "prompt": "This update appears to describe a different decision type. Confirm the original case type is still correct before continuing.",
+            "why": "A new decision type must not reuse the previous case's economics or recommendation."
+        }])
+        return _fetch_decision(x_org_id, new_decision_id)
+
+    update_normalized, update_conflicts = normalize_evidence(
+        body.what_happened, parent["classified_content_type"],
+        update_classification.get("extracted_evidence") or {}, update_classification.get("numeric_facts") or {},
+        supplier_specific_evidence=update_classification.get("supplier_specific_evidence"),
+        stakeholder_views=update_classification.get("stakeholder_views"),
+    )
+    update_flat = update_normalized.as_flat_evidence_dict()
+    parent_visible = {k: v for k, v in parent_flat_evidence.items() if not (k.startswith("__") and k.endswith("__"))}
+    changed = [k for k, value in update_flat.items() if value is not None and parent_visible.get(k) not in (None, value)]
+    merged_evidence = {**parent_flat_evidence, **{k: v for k, v in update_flat.items() if v is not None}}
+    if update_normalized.suppliers:
+        merged_evidence["__supplier_specific_evidence__"] = [s.model_dump() for s in update_normalized.suppliers]
+    if update_normalized.stakeholder_views:
+        merged_evidence["__stakeholder_views__"] = [v.model_dump() for v in update_normalized.stakeholder_views]
+    if changed or update_conflicts:
+        with get_org_scoped_connection(x_org_id) as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE commercial_decisions SET status = 'awaiting_user_input', user_supplied_inputs = %s, missing_inputs_requested = %s WHERE id = %s",
+                            (json.dumps({**merged_evidence, "__continuation_conflicts__": changed}),
+                             json.dumps([{"field": "continuation_evidence_confirmation", "prompt": "New evidence changes: " + ", ".join(changed or update_conflicts) + ". Confirm these updated values before VendorEdge recalculates the case.", "why": "Conflicting commercial inputs cannot be silently replaced."}]),
+                             str(new_decision_id)))
+        return _fetch_decision(x_org_id, new_decision_id)
+
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE commercial_decisions SET user_supplied_inputs = %s, numeric_facts = %s WHERE id = %s", (json.dumps(merged_evidence), json.dumps(merged_evidence), str(new_decision_id)))
+
+    # Re-normalize the reconciled evidence to ensure financial calculations
+    # use the update, rather than the parent snapshot.
     normalized, conflicts = normalize_evidence(
         body.what_happened, parent["classified_content_type"],
-        normalize_input_evidence, normalize_input_evidence,
-        supplier_specific_evidence=restored_suppliers,
-        stakeholder_views=restored_stakeholders,
+        {k: v for k, v in merged_evidence.items() if not (k.startswith("__") and k.endswith("__"))},
+        {k: v for k, v in merged_evidence.items() if not (k.startswith("__") and k.endswith("__"))},
+        supplier_specific_evidence=merged_evidence.get("__supplier_specific_evidence__"),
+        stakeholder_views=merged_evidence.get("__stakeholder_views__"),
     )
     for field in conflicts:
         _log_fallback_fired(field, parent["classified_content_type"], is_conflict=True, organisation_id=x_org_id)
 
-    background_tasks.add_task(
-        _run_reasoning_safe, x_org_id, new_decision_id, new_attempt_id, normalized, body.what_happened,
-        continuation_context=continuation_context,
-    )
+    job_queue.enqueue(x_org_id, new_decision_id, "specialist")
+    background_tasks.add_task(_run_queued_job, x_org_id, new_decision_id)
     return _fetch_decision(x_org_id, new_decision_id)
 
 

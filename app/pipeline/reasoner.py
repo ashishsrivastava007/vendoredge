@@ -15,6 +15,8 @@ from pydantic import ValidationError
 
 from app import caps
 from app.model_config import REASONING_MODEL
+
+PROVIDER_OPERATION_TIMEOUT_SECONDS = 20 * 60
 from app.models import CommercialPosition
 from app.pipeline.normalized_evidence import NormalizedEvidence
 from app.pipeline.evidence_firewall import EVIDENCE_FIREWALL_SYSTEM_RULES, wrap_untrusted_evidence
@@ -32,7 +34,7 @@ def _get_client() -> Anthropic:
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             raise RuntimeError("ANTHROPIC_API_KEY not set.")
-        _client = Anthropic(api_key=api_key)
+        _client = Anthropic(api_key=api_key, timeout=PROVIDER_OPERATION_TIMEOUT_SECONDS)
     return _client
 
 

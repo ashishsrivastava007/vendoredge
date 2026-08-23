@@ -14,6 +14,8 @@ from anthropic import Anthropic
 from app.pipeline.evidence import EVIDENCE_REQUIREMENTS, FIELD_PROMPTS
 from app.pipeline.evidence_firewall import EVIDENCE_FIREWALL_SYSTEM_RULES, wrap_untrusted_evidence
 from app.model_config import CLASSIFIER_MODEL
+
+PROVIDER_OPERATION_TIMEOUT_SECONDS = 20 * 60
 from app import caps
 
 _client: Anthropic | None = None
@@ -28,7 +30,7 @@ def _get_client() -> Anthropic:
                 "ANTHROPIC_API_KEY not set. Add it to your .env file before running "
                 "anything that calls the reasoning pipeline."
             )
-        _client = Anthropic(api_key=api_key)
+        _client = Anthropic(api_key=api_key, timeout=PROVIDER_OPERATION_TIMEOUT_SECONDS)
     return _client
 
 

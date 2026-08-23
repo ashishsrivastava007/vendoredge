@@ -2018,9 +2018,22 @@ function downloadDecisionPack() {
   URL.revokeObjectURL(url);
 }
 
-function downloadDecisionCSV() {
+async function downloadDecisionCSV() {
   if (!currentDecisionId) return;
-  window.open(`${API}/commercial-decisions/${currentDecisionId}/export.csv`, "_blank");
+  try {
+    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/export.csv`, { headers: HEADERS });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || "Could not export this case.");
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `vendoredge-${currentDecisionId}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  } catch (err) {
+    showError(err.message || "Could not export this case.");
+  }
 }
 
 async function renderNativeFormat() {

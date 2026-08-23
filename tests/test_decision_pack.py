@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 HTML = Path(__file__).parents[1] / "app" / "static" / "index.html"
-TEXT = HTML.read_text()
+TEXT = HTML.read_text(encoding="utf-8")
 
 
 def test_decision_pack_ui_exists_and_is_actionable():

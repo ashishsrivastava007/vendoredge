@@ -1,5 +1,6 @@
 import time
 import traceback
+import threading
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -13,6 +14,7 @@ from app.routes.decisions import router as decisions_router
 from app.seed import ensure_demo_org_exists, run_migrations
 from app.auth import require_session, verify_membership, _secret
 from app.database import close_pool
+from app.pipeline.job_queue import recoverable_jobs
 
 
 @asynccontextmanager
@@ -55,6 +57,15 @@ async def lifespan(app: FastAPI):
             "The app will start, but every request will fail until this is resolved -- "
             "check that the database is reachable at the configured DATABASE_URL."
         )
+    # A worker restart must not strand queued or leased work. Jobs are
+    # persisted first; this dispatch only wakes the durable queue again.
+    try:
+        from app.routes.decisions import _run_queued_job
+        for org_id, decision_id in recoverable_jobs():
+            threading.Thread(target=_run_queued_job, args=(org_id, decision_id), daemon=True).start()
+    except Exception as e:
+        print(f"FATAL: durable job recovery dispatch failed ({e})")
+        raise
     try:
         yield
     finally:

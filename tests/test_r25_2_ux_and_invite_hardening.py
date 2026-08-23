@@ -1,8 +1,8 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-HTML = (ROOT / 'app' / 'static' / 'index.html').read_text()
-ROUTES = (ROOT / 'app' / 'routes' / 'decisions.py').read_text()
+HTML = (ROOT / 'app' / 'static' / 'index.html').read_text(encoding='utf-8')
+ROUTES = (ROOT / 'app' / 'routes' / 'decisions.py').read_text(encoding='utf-8')
 
 
 def test_supporting_intelligence_is_collapsible_and_internal_release_labels_are_not_exposed():

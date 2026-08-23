@@ -35,7 +35,7 @@ def test_final_package_contains_r20_structural_layer():
 
 
 def test_frontend_escapes_model_controlled_fields():
-    html = (ROOT / "app/static/index.html").read_text()
+    html = (ROOT / "app/static/index.html").read_text(encoding="utf-8")
     for token in ["d.dimension", "d.opening_ask", "d.target_outcome", "d.walk_away", "m.trigger", "m.line"]:
         assert f"escapeHtml(String({token}" in html
     assert "<p class=\"q\">${escapeHtml(c.raw_question)}</p>" in html

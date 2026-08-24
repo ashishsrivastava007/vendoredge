@@ -12,6 +12,7 @@ import os
 import psycopg2
 
 from app.database import get_org_scoped_connection
+from app.pipeline.attempt_fencing import RECOVERY_GRACE_PERIOD_SECONDS
 
 MAX_ATTEMPTS = 3
 LEASE_SECONDS = 20 * 60
@@ -63,25 +64,142 @@ def requeue(org_id: str, decision_id, job_kind: str = "specialist") -> None:
 
 
 def claim(org_id: str, decision_id) -> dict | None:
-    """Atomically lease one due job; expired running leases become retryable."""
+    """Atomically lease one due job AND, when recovery is what's actually
+    happening, establish the new attempt_id as part of the SAME atomic
+    operation -- not as a later, separate try_reclaim() call a second
+    worker can interleave with.
+
+    Design, and why it looks like this:
+
+    A job's *queue* lease (timeout_at, LEASE_SECONDS -- the absolute
+    ceiling a single attempt is ever allowed to run) and the *worker's*
+    liveness (commercial_decisions.last_heartbeat_at, ticked every
+    HEARTBEAT_TICK_INTERVAL_SECONDS by a thread genuinely independent of
+    the blocking LLM call) are two different signals. Gating solely on
+    timeout_at means a worker that died seconds into a 20-minute lease is
+    invisible to recovery for up to 20 minutes, even though its heartbeat
+    stopped almost immediately.
+
+    Two earlier versions of this fix were each proven wrong by adversarial
+    testing, not by inspection, and both failures are worth keeping on
+    record here:
+
+    1. A version that added only the heartbeat-staleness condition to
+       claim()'s WHERE clause, leaving attempt_id resolution to a SEPARATE,
+       later attempt_fencing.try_reclaim() call in _run_queued_job. Two
+       concurrent claim() calls could both match the same heartbeat-stale
+       job before either had changed anything claim() itself touches,
+       both incrementing attempt_count -- and even after that was
+       tolerated as a minor, bounded cost, a second, subtler gap remained:
+       one worker's row-read could occur AFTER a first worker's separate
+       try_reclaim() had already committed, so the second worker
+       legitimately read the SAME, already-current, valid attempt_id --
+       there was no staleness left to detect, so it proceeded straight
+       into the real reasoning call too. Attempt fencing correctly
+       rejects a STALE attempt_id; it was never designed to stop two
+       workers who both, correctly, hold the SAME valid one. Proven with
+       an instrumented, traced two-thread run before this version was
+       written -- see test_C in test_heartbeat_aware_recovery.py.
+    2. A version that had claim() refresh commercial_decisions.last_
+       heartbeat_at unconditionally on every successful claim, to close
+       gap 1 above -- this broke recovery entirely instead: it made the
+       row look fresh to _run_queued_job's own subsequent is_stale()
+       check, which is what decided whether a fresh attempt_id was ever
+       generated at all, silently defeating recovery for the exact case
+       this whole fix exists for.
+
+    The actual fix: eligibility, generating a new attempt_id when (and
+    only when) recovery is what's happening, and both underlying table
+    updates all happen inside ONE transaction, while holding a row lock
+    (SELECT ... FOR UPDATE) on the specific reasoning_jobs row for the
+    entire decision. A second, concurrent caller's own SELECT ... FOR
+    UPDATE against the SAME row blocks until this transaction commits or
+    rolls back -- there is no window between "decide" and "write" for a
+    second caller to observe, because nothing is written or released
+    until the whole decision is already final. This is the ownership
+    authority the whole system relies on now; find_next_due_job() and
+    recoverable_jobs() remain cheap, loose, non-authoritative discovery
+    only -- a job either of them surfaces is not "claimed" until it wins
+    here.
+
+    LEASE_SECONDS, PROVIDER_OPERATION_TIMEOUT_SECONDS,
+    HEARTBEAT_TICK_INTERVAL_SECONDS, and RECOVERY_GRACE_PERIOD_SECONDS are
+    all unchanged and untouched by this function; attempt_fencing.py's
+    try_reclaim()/is_stale() are also unchanged -- they remain exactly as
+    they are for the independent, single-request /respond manual-recovery
+    path (decisions.py's own direct use of them there is untouched and
+    unaffected by anything here).
+    """
     with get_org_scoped_connection(org_id) as conn:
         with conn.cursor() as cur:
+            cur.execute(
+                """SELECT rj.id, rj.status, rj.attempt_count, rj.max_attempts,
+                          rj.cancel_requested_at, rj.available_at, rj.timeout_at, rj.job_kind,
+                          cd.status AS decision_status, cd.last_heartbeat_at, cd.current_attempt_id,
+                          now() AS db_now
+                   FROM reasoning_jobs rj
+                   JOIN commercial_decisions cd ON cd.id = rj.commercial_decision_id
+                   WHERE rj.commercial_decision_id = %s
+                   FOR UPDATE OF rj""",
+                (str(decision_id),),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+
+            # now() is transaction-scoped in Postgres (frozen at transaction
+            # start, same value for every call within it) -- read once here,
+            # in the same query as everything else being judged against it,
+            # and reused below rather than called again.
+            now = row["db_now"]
+
+            heartbeat_stale = (
+                row["last_heartbeat_at"] is None
+                or row["last_heartbeat_at"] < now - timedelta(seconds=RECOVERY_GRACE_PERIOD_SECONDS)
+            )
+            eligible = (
+                row["cancel_requested_at"] is None
+                and row["attempt_count"] < row["max_attempts"]
+                and (
+                    (row["status"] in ("queued", "retry_scheduled") and row["available_at"] <= now)
+                    or (row["status"] == "running" and (row["timeout_at"] < now or heartbeat_stale))
+                )
+            )
+            if not eligible:
+                return None
+
+            # Recovery is happening -- as opposed to a normal first claim
+            # or a normal scheduled retry -- exactly when the heartbeat is
+            # stale or missing at this exact, now-locked moment. This is
+            # the same distinguishing condition the previous, separate
+            # is_stale() check used, evaluated once, atomically, here,
+            # instead of via a second statement a racing caller could slip
+            # between.
+            if heartbeat_stale:
+                attempt_id = str(uuid4())
+                cur.execute(
+                    """UPDATE commercial_decisions
+                       SET current_attempt_id = %s, last_heartbeat_at = now(),
+                           status = 'reasoning', reasoning_started_at = now(),
+                           current_stage = 'starting'
+                       WHERE id = %s""",
+                    (attempt_id, str(decision_id)),
+                )
+            else:
+                attempt_id = row["current_attempt_id"]
+
             cur.execute(
                 """UPDATE reasoning_jobs
                    SET status = 'running', attempt_count = attempt_count + 1,
                        started_at = now(), timeout_at = now() + make_interval(secs => %s),
                        updated_at = now()
-                   WHERE commercial_decision_id = %s
-                     AND cancel_requested_at IS NULL
-                     AND attempt_count < max_attempts
-                     AND (
-                         (status IN ('queued', 'retry_scheduled') AND available_at <= now())
-                         OR (status = 'running' AND timeout_at < now())
-                     )
+                   WHERE id = %s
                    RETURNING *""",
-                (LEASE_SECONDS, str(decision_id)),
+                (LEASE_SECONDS, row["id"]),
             )
-            return cur.fetchone()
+            job = cur.fetchone()
+            job["attempt_id"] = attempt_id
+            return job
 
 
 def complete(org_id: str, decision_id) -> None:
@@ -157,6 +275,16 @@ def find_next_due_job() -> tuple[str, str] | None:
     read, exactly like recoverable_jobs() already does -- execution
     returns to tenant-scoped access the moment the specific org/decision
     is known, in _run_queued_job's own get_org_scoped_connection call.
+
+    The running-lease branch also treats a job as due once its owning
+    decision's heartbeat has gone stale (RECOVERY_GRACE_PERIOD_SECONDS,
+    the same constant and threshold attempt_fencing.try_reclaim() already
+    uses), not only once the full LEASE_SECONDS ceiling has passed. A
+    dead worker's heartbeat thread dies with it and goes stale within
+    that window; a genuinely alive worker keeps ticking regardless of how
+    long its LLM call takes, so this never surfaces a healthy job early.
+    claim() carries the identical condition -- discovering a job here
+    that claim() would still reject would make this whole change inert.
     """
     dsn = os.environ.get("MIGRATION_DATABASE_URL")
     if not dsn:
@@ -169,16 +297,31 @@ def find_next_due_job() -> tuple[str, str] | None:
                    WHERE cancel_requested_at IS NULL
                      AND attempt_count < max_attempts
                      AND ((status IN ('queued', 'retry_scheduled') AND available_at <= now())
-                          OR (status = 'running' AND timeout_at < now()))
+                          OR (status = 'running' AND (
+                              timeout_at < now()
+                              OR EXISTS (
+                                  SELECT 1 FROM commercial_decisions cd
+                                  WHERE cd.id = reasoning_jobs.commercial_decision_id
+                                    AND cd.status = 'reasoning'
+                                    AND (cd.last_heartbeat_at IS NULL
+                                         OR cd.last_heartbeat_at < now() - make_interval(secs => %s))
+                              )
+                          )))
                    ORDER BY available_at ASC
-                   LIMIT 1"""
+                   LIMIT 1""",
+                (RECOVERY_GRACE_PERIOD_SECONDS,),
             )
             row = cur.fetchone()
             return (str(row[0]), str(row[1])) if row else None
 
 
 def recoverable_jobs() -> list[tuple[str, str]]:
-    """List queued, retriable, and expired leases at process startup.
+    """List queued, retriable, and expired/heartbeat-stale leases at
+    process startup. See find_next_due_job() for why the running-lease
+    branch also checks heartbeat staleness, not only timeout_at -- the
+    two functions deliberately use identical eligibility so a job
+    orphaned by a crashed process is recovered the same way regardless
+    of which recovery path notices it first.
 
     This uses the deployment migration connection solely to discover tenant
     IDs; execution immediately returns to tenant-scoped application access.
@@ -195,6 +338,16 @@ def recoverable_jobs() -> list[tuple[str, str]]:
                    WHERE cancel_requested_at IS NULL
                      AND attempt_count < max_attempts
                      AND ((status IN ('queued', 'retry_scheduled') AND available_at <= now())
-                          OR (status = 'running' AND timeout_at < now()))"""
+                          OR (status = 'running' AND (
+                              timeout_at < now()
+                              OR EXISTS (
+                                  SELECT 1 FROM commercial_decisions cd
+                                  WHERE cd.id = reasoning_jobs.commercial_decision_id
+                                    AND cd.status = 'reasoning'
+                                    AND (cd.last_heartbeat_at IS NULL
+                                         OR cd.last_heartbeat_at < now() - make_interval(secs => %s))
+                              )
+                          )))""",
+                (RECOVERY_GRACE_PERIOD_SECONDS,),
             )
             return [(str(org_id), str(decision_id)) for org_id, decision_id in cur.fetchall()]

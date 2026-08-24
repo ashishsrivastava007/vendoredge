@@ -800,42 +800,31 @@ def _run_generic_reasoning_safe(org_id, decision_id, attempt_id: str, raw_questi
 
 
 def _run_queued_job(org_id: str, decision_id) -> None:
-    """Execute a database-leased job; a later process can safely retry it."""
+    """Execute a database-leased job; a later process can safely retry it.
+
+    attempt_id comes directly from job_queue.claim() -- claim() is now the
+    single, atomic authority for both "do I own this job" and "what
+    attempt_id do I own it under" (see its own docstring for the full
+    design and the two adversarially-disproven earlier attempts that
+    preceded it). There is deliberately no separate is_stale()/
+    try_reclaim() call here anymore: that second, later step was exactly
+    the gap a concurrent second worker could interleave with, proven by
+    an instrumented two-thread trace, not by inspection. Whatever
+    attempt_id claim() returns is already the correct, exclusively-owned
+    one, decided atomically, under a real row lock, before this function
+    ever sees it.
+    """
     job = job_queue.claim(org_id, decision_id)
     if not job:
         return
+    attempt_id = job["attempt_id"]
     try:
         with get_org_scoped_connection(org_id) as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT raw_question, classified_content_type, user_supplied_inputs, current_attempt_id, status FROM commercial_decisions WHERE id = %s", (str(decision_id),))
+                cur.execute("SELECT raw_question, classified_content_type, user_supplied_inputs FROM commercial_decisions WHERE id = %s", (str(decision_id),))
                 row = cur.fetchone()
         if not row or job_queue.is_cancelled(org_id, decision_id):
             return
-        attempt_id = row["current_attempt_id"]
-        # job_queue's lease (claim() above) and attempt_fencing's
-        # current_attempt_id are two separate mechanisms. Every existing
-        # *request-triggered* call site (create_decision, /respond's
-        # recovery branches, continue_case) already establishes a fresh
-        # attempt_id immediately before dispatch, via start_new_attempt or
-        # try_reclaim -- so reusing the row's stored attempt_id is correct
-        # there. But this function is also reached by the background
-        # dispatcher's own crash/restart discovery (job_queue.find_next_due_job),
-        # where no HTTP request -- and therefore no prior reclaim call --
-        # was ever involved. Without this check, a truly abandoned worker
-        # that eventually, belatedly writes would share the SAME
-        # attempt_id as this recovery run and could still overwrite it --
-        # exactly the corruption attempt fencing exists to prevent.
-        # Reclaim here whenever the row is still genuinely stale; this is
-        # a no-op read-plus-possible-reclaim for the normal, non-recovery
-        # dispatch path, since a row claimed moments ago by its own fresh
-        # start_new_attempt is never stale.
-        if row["status"] == "reasoning":
-            stale, _ = attempt_fencing.is_stale(org_id, decision_id)
-            if stale:
-                reclaimed = attempt_fencing.try_reclaim(org_id, decision_id)
-                if reclaimed is None:
-                    return  # someone else already reclaimed it first
-                attempt_id = reclaimed
         if job["job_kind"] == "generic_triage":
             category = (row["user_supplied_inputs"] or {}).get("__decision_category__", "other")
             _run_generic_reasoning_safe(org_id, decision_id, attempt_id, row["raw_question"], category)
@@ -851,7 +840,7 @@ def _run_queued_job(org_id: str, decision_id) -> None:
         job_queue.complete(org_id, decision_id)
     except Exception as exc:
         if job_queue.fail_or_retry(org_id, decision_id, type(exc).__name__, str(exc)) == "failed":
-            attempt_fencing.write_provider_unavailable(org_id, decision_id, row["current_attempt_id"] if row else "")
+            attempt_fencing.write_provider_unavailable(org_id, decision_id, attempt_id)
 
 
 def _run_reasoning_safe(org_id, decision_id, attempt_id: str, normalized, raw_question, constraint_signal=None, continuation_context=None):

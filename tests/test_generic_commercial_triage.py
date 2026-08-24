@@ -62,7 +62,7 @@ def test_generic_triage_accepts_real_out_of_scope_case(monkeypatch):
     assert pos.recommendation.startswith("Protect continuity")
     assert pos.financial_impact is None
     assert pos.decision_under_uncertainty["mode"] == "PROTECT"
-    assert pos.confidence.level == "medium"
+    assert pos.confidence.level == "low"
 
 
 def test_generic_triage_never_allows_high_confidence(monkeypatch):
@@ -75,5 +75,12 @@ def test_generic_triage_never_allows_high_confidence(monkeypatch):
 
     monkeypatch.setattr(commercial_triage, "_client", FakeClient())
     pos = commercial_triage.build_generic_commercial_position("Supplier is threatening to stop supply.", "supplier_exit")
-    assert pos.confidence.level == "medium"
-    assert "capped at medium confidence" in pos.confidence.derivation_note
+    # generic_integrity.py's apply_generic_integrity_contract deterministically
+    # overwrites confidence to a fixed, conservative "low" for every generic
+    # triage case, regardless of what level the model itself claimed -- "no
+    # model-owned confidence... is allowed in this route" (see its own
+    # comment). This test's real purpose -- prove a model-claimed "high"
+    # confidence can never survive this route -- holds; "low" is the actual,
+    # deliberately stricter enforced value, not "medium".
+    assert pos.confidence.level == "low"
+    assert "System-set low confidence" in pos.confidence.derivation_note

@@ -40,14 +40,17 @@ def test_all_tenant_tables_are_rls_enabled_and_forced():
 def test_tenant_context_does_not_leak_between_pooled_connections():
     from app.database import get_org_scoped_connection
     org_a, org_b = str(uuid.uuid4()), str(uuid.uuid4())
+    # app.database's pool uses RealDictCursor (see get_org_scoped_connection),
+    # so rows come back keyed by column/alias name, not by tuple position --
+    # an unaliased current_setting(...) call is keyed 'current_setting'.
     with get_org_scoped_connection(org_a) as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT current_setting('app.current_org_id')")
-            assert cur.fetchone()[0] == org_a
+            cur.execute("SELECT current_setting('app.current_org_id') AS org_id")
+            assert cur.fetchone()["org_id"] == org_a
     with get_org_scoped_connection(org_b) as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT current_setting('app.current_org_id')")
-            assert cur.fetchone()[0] == org_b
+            cur.execute("SELECT current_setting('app.current_org_id') AS org_id")
+            assert cur.fetchone()["org_id"] == org_b
 
 
 def test_production_code_contains_no_stress_test_quota_bypass():

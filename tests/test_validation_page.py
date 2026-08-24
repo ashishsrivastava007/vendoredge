@@ -48,7 +48,14 @@ def _auth_headers():
     }
 
 
-def test_validation_endpoint_runs_both_cases_through_the_real_pipeline():
+def test_validation_endpoint_runs_both_cases_through_the_real_pipeline(monkeypatch):
+    # This endpoint is deliberately cost-gated off by default (see
+    # os.environ.get("VALIDATION_ENABLED", "false") in the route itself) --
+    # CI's own real global default is "false", same as production, so this
+    # test must establish its own precondition rather than depend on a
+    # global env var it doesn't control; that's also the more correct test
+    # design for an explicitly env-gated feature.
+    monkeypatch.setenv("VALIDATION_ENABLED", "true")
     with patch("app.routes.decisions.classify", return_value=_MOCK_CLASSIFY), \
          patch("app.routes.decisions.generate_commercial_position", return_value=_MOCK_POSITION):
         r = client.post("/api/v1/validation/run", headers=_auth_headers())
@@ -60,9 +67,10 @@ def test_validation_endpoint_runs_both_cases_through_the_real_pipeline():
         assert case["heartbeat_stayed_healthy"] is True
 
 
-def test_validation_workspace_is_genuinely_isolated_from_real_pilot_quota():
+def test_validation_workspace_is_genuinely_isolated_from_real_pilot_quota(monkeypatch):
     """Confirms each run creates its own fresh org, never reusing or
     consuming a real pilot workspace's monthly case limit."""
+    monkeypatch.setenv("VALIDATION_ENABLED", "true")
     from app.database import get_org_scoped_connection
     with patch("app.routes.decisions.classify", return_value=_MOCK_CLASSIFY), \
          patch("app.routes.decisions.generate_commercial_position", return_value=_MOCK_POSITION):

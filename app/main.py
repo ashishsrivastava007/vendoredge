@@ -15,6 +15,7 @@ from app.seed import ensure_demo_org_exists, run_migrations
 from app.auth import require_session, verify_membership, _secret
 from app.database import close_pool
 from app.pipeline.job_queue import recoverable_jobs
+from app.pipeline.dispatcher import start_dispatcher
 
 
 @asynccontextmanager
@@ -66,9 +67,22 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"FATAL: durable job recovery dispatch failed ({e})")
         raise
+
+    # The one-time sweep above only catches work abandoned by a *previous*
+    # process, discovered once, at this process's own startup. It does not
+    # notice a job that becomes stuck *while this process is already
+    # running* (e.g. a worker thread dying outside _run_reasoning_safe's
+    # own broad guard) unless a user happens to poll or respond against
+    # that exact decision. This starts the dedicated, continuously-running
+    # worker that closes that gap for the remaining lifetime of the
+    # process -- see app.pipeline.dispatcher for the full reasoning.
+    dispatcher_stop_event = threading.Event()
+    dispatcher_thread = start_dispatcher(dispatcher_stop_event)
     try:
         yield
     finally:
+        dispatcher_stop_event.set()
+        dispatcher_thread.join(timeout=10)
         close_pool()
 
 

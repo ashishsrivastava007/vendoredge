@@ -270,31 +270,31 @@ ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS org_isolation_users ON users;
 CREATE POLICY org_isolation_users ON users
-    USING (organisation_id = current_setting('app.current_org_id')::UUID);
+    USING (organisation_id = current_setting('app.current_org_id', true)::UUID);
 
 ALTER TABLE organisations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE organisations FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS org_isolation_organisations ON organisations;
 CREATE POLICY org_isolation_organisations ON organisations
-    USING (id = current_setting('app.current_org_id')::UUID);
+    USING (id = current_setting('app.current_org_id', true)::UUID);
 
 ALTER TABLE workspace_invites ENABLE ROW LEVEL SECURITY;
 ALTER TABLE workspace_invites FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS org_isolation_workspace_invites ON workspace_invites;
 CREATE POLICY org_isolation_workspace_invites ON workspace_invites
-    USING (organisation_id = current_setting('app.current_org_id')::UUID);
+    USING (organisation_id = current_setting('app.current_org_id', true)::UUID);
 
 ALTER TABLE commercial_decisions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE commercial_decisions FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS org_isolation_cd ON commercial_decisions;
 CREATE POLICY org_isolation_cd ON commercial_decisions
-    USING (organisation_id = current_setting('app.current_org_id')::UUID);
+    USING (organisation_id = current_setting('app.current_org_id', true)::UUID);
 
 ALTER TABLE reasoning_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reasoning_jobs FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS org_isolation_reasoning_jobs ON reasoning_jobs;
 CREATE POLICY org_isolation_reasoning_jobs ON reasoning_jobs
-    USING (organisation_id = current_setting('app.current_org_id')::UUID);
+    USING (organisation_id = current_setting('app.current_org_id', true)::UUID);
 
 -- CRITICAL: the application must NEVER connect as a PostgreSQL SUPERUSER.
 -- FORCE ROW LEVEL SECURITY is applied below so even a table owner is still
@@ -316,25 +316,25 @@ ALTER TABLE interest_signals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE interest_signals FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS org_isolation_interest_signals ON interest_signals;
 CREATE POLICY org_isolation_interest_signals ON interest_signals
-    USING (organisation_id = current_setting('app.current_org_id')::UUID);
+    USING (organisation_id = current_setting('app.current_org_id', true)::UUID);
 
 ALTER TABLE fallback_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fallback_events FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS org_isolation_fallback_events ON fallback_events;
 CREATE POLICY org_isolation_fallback_events ON fallback_events
-    USING (organisation_id = current_setting('app.current_org_id')::UUID);
+    USING (organisation_id = current_setting('app.current_org_id', true)::UUID);
 
 ALTER TABLE pilot_leads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pilot_leads FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS org_isolation_pilot_leads ON pilot_leads;
 CREATE POLICY org_isolation_pilot_leads ON pilot_leads
-    USING (organisation_id = current_setting('app.current_org_id')::UUID);
+    USING (organisation_id = current_setting('app.current_org_id', true)::UUID);
 
 ALTER TABLE general_feedback ENABLE ROW LEVEL SECURITY;
 ALTER TABLE general_feedback FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS org_isolation_general_feedback ON general_feedback;
 CREATE POLICY org_isolation_general_feedback ON general_feedback
-    USING (organisation_id = current_setting('app.current_org_id')::UUID);
+    USING (organisation_id = current_setting('app.current_org_id', true)::UUID);
 
 CREATE INDEX IF NOT EXISTS idx_cd_organisation_id ON commercial_decisions(organisation_id);
 CREATE INDEX IF NOT EXISTS idx_cd_status ON commercial_decisions(status);
@@ -350,7 +350,7 @@ CREATE POLICY org_isolation_pef ON pilot_experience_feedback
     USING (EXISTS (
         SELECT 1 FROM commercial_decisions cd
         WHERE cd.id = pilot_experience_feedback.commercial_decision_id
-        AND cd.organisation_id = current_setting('app.current_org_id')::UUID
+        AND cd.organisation_id = current_setting('app.current_org_id', true)::UUID
     ));
 
 ALTER TABLE decision_feedback ENABLE ROW LEVEL SECURITY;
@@ -360,5 +360,5 @@ CREATE POLICY org_isolation_df ON decision_feedback
     USING (EXISTS (
         SELECT 1 FROM commercial_decisions cd
         WHERE cd.id = decision_feedback.commercial_decision_id
-        AND cd.organisation_id = current_setting('app.current_org_id')::UUID
+        AND cd.organisation_id = current_setting('app.current_org_id', true)::UUID
     ));

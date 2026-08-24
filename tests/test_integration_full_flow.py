@@ -28,8 +28,13 @@ def setup_module(module):
     import psycopg2
     conn = psycopg2.connect(os.environ["DATABASE_URL"])
     with conn.cursor() as cur:
-        cur.execute("INSERT INTO organisations (id, name) VALUES (%s, 'Test Org')", (ORG_ID,))
+        # organisations' RLS policy defaults its WITH CHECK to the same
+        # expression as USING (id = current_setting('app.current_org_id')),
+        # so the tenant context must already equal this org's own
+        # pre-generated id before the row is inserted -- same pattern as
+        # the real workspace-creation route in app/routes/decisions.py.
         cur.execute("SET app.current_org_id = %s", (ORG_ID,))
+        cur.execute("INSERT INTO organisations (id, name) VALUES (%s, 'Test Org')", (ORG_ID,))
         cur.execute(
             "INSERT INTO users (id, organisation_id, email, password_hash) VALUES (%s, %s, %s, 'x')",
             (USER_ID, ORG_ID, "test@vendoredge.dev"),

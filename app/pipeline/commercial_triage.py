@@ -154,9 +154,20 @@ this category.
         messages=[{"role": "user", "content": prompt}],
     )
     text = _extract_text(response)
-    raw = _extract_json_object(text) if _looks_like_json(text) else None
-    if raw is None:
+    raw_json_text = _extract_json_object(text) if _looks_like_json(text) else None
+    if raw_json_text is None:
         raise ValueError("Generic commercial triage returned no valid JSON object.")
+    # Genuine bug, found by a real end-to-end test failure: _extract_json_object
+    # returns the extracted JSON *text* (str), not a parsed object -- the
+    # sibling reasoner.py correctly parses it with json.loads() before
+    # validation (see generate_commercial_position); this path was calling
+    # model_validate() directly on the raw string, which pydantic correctly
+    # rejects with "Input should be a valid dictionary", failing every real
+    # generic/out-of-scope triage case, not a mock-specific issue.
+    try:
+        raw = json.loads(raw_json_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Generic commercial triage returned non-JSON output: {raw_json_text!r}") from exc
     try:
         position = CommercialPosition.model_validate(raw)
     except ValidationError as exc:

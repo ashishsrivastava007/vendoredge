@@ -697,10 +697,12 @@ def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTas
             cur.execute(
                 """UPDATE commercial_decisions
                    SET classified_content_type = %s, classified_decision_type = %s,
-                       user_supplied_inputs = %s, numeric_facts = %s
+                       user_supplied_inputs = %s, numeric_facts = %s, evidence_provenance = %s
                    WHERE id = %s""",
                 (content_type, decision_type, json.dumps(stored_evidence),
-                 json.dumps(stored_evidence), str(decision_id)),
+                 json.dumps(stored_evidence),
+                 json.dumps({k: v.model_dump() for k, v in normalized.provenance.items()}),
+                 str(decision_id)),
             )
 
     # Step B — evidence check, deterministic, no LLM call. Reads
@@ -785,7 +787,7 @@ def _run_generic_reasoning_safe(org_id, decision_id, attempt_id: str, raw_questi
             position = build_generic_commercial_position(raw_question, category)
         write_succeeded = attempt_fencing.write_final_result(
             org_id, decision_id, attempt_id, position.model_dump_json(),
-            json.dumps({"generic_triage": {"source": "user_supplied", "stage_captured": "generic_integrity_contract"}})
+            _merge_final_provenance(org_id, decision_id, {"generic_triage": {"source": "user_supplied", "stage_captured": "generic_integrity_contract"}})
         )
         if not write_succeeded:
             print(f"Generic triage attempt {attempt_id} was superseded; result discarded safely.")
@@ -805,11 +807,35 @@ def _run_queued_job(org_id: str, decision_id) -> None:
     try:
         with get_org_scoped_connection(org_id) as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT raw_question, classified_content_type, user_supplied_inputs, current_attempt_id FROM commercial_decisions WHERE id = %s", (str(decision_id),))
+                cur.execute("SELECT raw_question, classified_content_type, user_supplied_inputs, current_attempt_id, status FROM commercial_decisions WHERE id = %s", (str(decision_id),))
                 row = cur.fetchone()
         if not row or job_queue.is_cancelled(org_id, decision_id):
             return
         attempt_id = row["current_attempt_id"]
+        # job_queue's lease (claim() above) and attempt_fencing's
+        # current_attempt_id are two separate mechanisms. Every existing
+        # *request-triggered* call site (create_decision, /respond's
+        # recovery branches, continue_case) already establishes a fresh
+        # attempt_id immediately before dispatch, via start_new_attempt or
+        # try_reclaim -- so reusing the row's stored attempt_id is correct
+        # there. But this function is also reached by the background
+        # dispatcher's own crash/restart discovery (job_queue.find_next_due_job),
+        # where no HTTP request -- and therefore no prior reclaim call --
+        # was ever involved. Without this check, a truly abandoned worker
+        # that eventually, belatedly writes would share the SAME
+        # attempt_id as this recovery run and could still overwrite it --
+        # exactly the corruption attempt fencing exists to prevent.
+        # Reclaim here whenever the row is still genuinely stale; this is
+        # a no-op read-plus-possible-reclaim for the normal, non-recovery
+        # dispatch path, since a row claimed moments ago by its own fresh
+        # start_new_attempt is never stale.
+        if row["status"] == "reasoning":
+            stale, _ = attempt_fencing.is_stale(org_id, decision_id)
+            if stale:
+                reclaimed = attempt_fencing.try_reclaim(org_id, decision_id)
+                if reclaimed is None:
+                    return  # someone else already reclaimed it first
+                attempt_id = reclaimed
         if job["job_kind"] == "generic_triage":
             category = (row["user_supplied_inputs"] or {}).get("__decision_category__", "other")
             _run_generic_reasoning_safe(org_id, decision_id, attempt_id, row["raw_question"], category)
@@ -1634,7 +1660,7 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
     write_succeeded = attempt_fencing.write_final_result(
         org_id, decision_id, attempt_id,
         position.model_dump_json(),
-        json.dumps({k: v.model_dump() for k, v in normalized.provenance.items()}),
+        _merge_final_provenance(org_id, decision_id, {k: v.model_dump() for k, v in normalized.provenance.items()}),
     )
     if not write_succeeded:
         # This attempt has been superseded -- a newer attempt already
@@ -1662,6 +1688,49 @@ def _update_status(org_id, decision_id, status):
     with get_org_scoped_connection(org_id) as conn:
         with conn.cursor() as cur:
             cur.execute("UPDATE commercial_decisions SET status = %s WHERE id = %s", (status, str(decision_id)))
+
+
+def _merge_final_provenance(org_id: str, decision_id, fresh_provenance: dict) -> str:
+    """Builds the provenance JSON for the final completion write, merging
+    rather than overwriting -- an existing, already-correct provenance
+    entry is never replaced by a later re-derivation.
+
+    Genuine bug, found by a real end-to-end test, not a review: once a
+    field's value is resolved (e.g. via deterministic fallback because the
+    model didn't extract it), that resolved value gets persisted back into
+    the SAME flat evidence dict slot the model's own extraction would have
+    occupied (as it must, for /respond and dispatch to have a single
+    source of stored evidence to work from). Every later re-normalization
+    of that stored evidence -- at /respond, at continue_case, and finally
+    at actual reasoning dispatch time -- receives this already-resolved
+    value as its "llm" input, since there is no way, once flattened, to
+    tell "the model actually claimed this" apart from "this was already
+    resolved". If the recomputed fallback also matches (as it always will,
+    same source text, same regex), _resolve_field's own correct logic
+    concludes "both agree" -- but that agreement is illusory: only one
+    mechanism (the fallback) ever actually ran, just counted twice.
+
+    The fix is not to make normalize_evidence itself "smarter" about
+    detecting this -- once evidence is flattened into one dict, the
+    distinction is genuinely, structurally gone, and no downstream
+    heuristic can safely reconstruct it. The fix is to never let a later
+    pass's provenance overwrite an earlier pass's provenance for a field
+    it already correctly, originally classified. create_decision's first
+    normalize_evidence call -- the one genuine point where "llm_value" and
+    "fallback_value" are still truly independent -- persists its provenance
+    immediately (see create_decision). This function is called at every
+    later completion write and only adds provenance for fields that don't
+    already have an entry -- new fields genuinely first resolved at this
+    stage (e.g. derived TCO fields, a user's /respond answer, per-supplier
+    data only available once reasoning actually ran) -- while leaving every
+    already-correctly-classified field's original provenance untouched.
+    """
+    existing = get_evidence_provenance(org_id, decision_id) or {}
+    merged = dict(existing)
+    for field, prov in fresh_provenance.items():
+        if field not in merged:
+            merged[field] = prov
+    return json.dumps(merged)
 
 
 def get_evidence_provenance(org_id: str, decision_id, field_name: str | None = None) -> dict | None:

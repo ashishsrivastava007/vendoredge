@@ -32,12 +32,16 @@ def two_orgs_with_data():
 
     conn = _connect()
     with conn.cursor() as cur:
-        cur.execute("INSERT INTO organisations (id, name) VALUES (%s, 'Org A')", (org_a,))
-        cur.execute("INSERT INTO organisations (id, name) VALUES (%s, 'Org B')", (org_b,))
-        # Org context must be set BEFORE any insert into an RLS-protected table
-        # (users is RLS-protected too) -- this ordering bug was itself caught by
-        # actually running this test, not by reviewing it.
+        # organisations itself is RLS-protected (org_isolation_organisations),
+        # and its policy has no separate WITH CHECK, so Postgres defaults the
+        # WITH CHECK to the same USING expression: id = current_setting(...).
+        # A brand-new org can only ever satisfy that check if the session's
+        # tenant context is already set to that exact org's own (pre-generated)
+        # id before the row is inserted -- this is the same pattern the real
+        # app already uses correctly in app/routes/decisions.py's workspace
+        # creation route. Each org must be created under its own context.
         cur.execute("SET app.current_org_id = %s", (org_a,))
+        cur.execute("INSERT INTO organisations (id, name) VALUES (%s, 'Org A')", (org_a,))
         cur.execute(
             "INSERT INTO users (id, organisation_id, email, password_hash) VALUES (%s, %s, %s, 'x')",
             (user_a, org_a, "a@test.com"),
@@ -47,14 +51,20 @@ def two_orgs_with_data():
             "VALUES (%s, %s, %s)",
             (org_a, user_a, marker),
         )
+        cur.execute("SET app.current_org_id = %s", (org_b,))
+        cur.execute("INSERT INTO organisations (id, name) VALUES (%s, 'Org B')", (org_b,))
     conn.commit()
     yield {"org_a": org_a, "org_b": org_b, "marker": marker}
-    # Cleanup
+    # Cleanup -- each org's rows can only be deleted under that org's own
+    # context, since org_isolation_organisations restricts DELETE the same
+    # way it restricts INSERT and SELECT.
     with conn.cursor() as cur:
         cur.execute("SET app.current_org_id = %s", (org_a,))
         cur.execute("DELETE FROM commercial_decisions WHERE raw_question = %s", (marker,))
         cur.execute("DELETE FROM users WHERE id = %s", (user_a,))
-        cur.execute("DELETE FROM organisations WHERE id IN (%s, %s)", (org_a, org_b))
+        cur.execute("DELETE FROM organisations WHERE id = %s", (org_a,))
+        cur.execute("SET app.current_org_id = %s", (org_b,))
+        cur.execute("DELETE FROM organisations WHERE id = %s", (org_b,))
     conn.commit()
     conn.close()
 

@@ -476,7 +476,20 @@ def test_12_provider_timeout_end_to_end():
     assert final.json()["can_retry"] is True
 
 
-def test_13_market_search_timeout_end_to_end():
+def test_13_market_search_timeout_end_to_end(monkeypatch):
+    # This test's real purpose is proving a raised exception genuinely
+    # propagates to the outer safety net and reaches provider_unavailable
+    # -- not proving the retry/backoff timing itself (job_queue.py's
+    # bounded-retry policy is real, deliberate, and unmodified: a single
+    # failure correctly schedules a retry rather than failing terminally
+    # immediately, now that the background dispatcher actually makes that
+    # retry reachable). Forcing max_attempts to 1 here makes the first
+    # failure the terminal one, so this test proves what it says it proves
+    # without waiting through real retry backoff delays -- a timing
+    # accommodation for this specific assertion, not a weakening of the
+    # retry policy itself, which stays exactly as it is for every real case.
+    from app.pipeline import job_queue
+    monkeypatch.setattr(job_queue, "MAX_ATTEMPTS", 1)
     headers = _headers(102)
     with patch("app.routes.decisions.classify") as mock_classify, \
          patch("app.routes.decisions.verify_market_claim", side_effect=Exception("simulated search timeout")), \

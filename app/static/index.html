@@ -715,6 +715,7 @@ async function submitContinueCase() {
 
 function renderCostDriverComparison(pos) {
   const el = document.getElementById("pos-cost-drivers");
+  if (!el) return;
   if (!pos.cost_driver_comparison || pos.cost_driver_comparison.length === 0) {
     el.innerHTML = "";
     return;
@@ -759,6 +760,7 @@ function renderCostDriverComparison(pos) {
 
 function renderKeyFigures(pos) {
   const el = document.getElementById("pos-key-figures");
+  if (!el) return;
   if (!pos.key_figures || pos.key_figures.length === 0) {
     el.innerHTML = "";
     return;
@@ -779,6 +781,7 @@ function renderKeyFigures(pos) {
 
 function renderSupplierComparison(pos) {
   const el = document.getElementById("pos-supplier-comparison");
+  if (!el) return;
   if (!pos.supplier_comparison || pos.supplier_comparison.length === 0) {
     el.innerHTML = "";
     return;
@@ -841,6 +844,7 @@ async function submitQuickFeedbackReason() {
 
 function renderNegotiationDimensions(pos) {
   const el = document.getElementById("pos-negotiation-dimensions");
+  if (!el) return;
   if (!pos.negotiation_dimensions || pos.negotiation_dimensions.length === 0) {
     el.innerHTML = "";
     return;
@@ -871,6 +875,7 @@ function renderNegotiationDimensions(pos) {
 
 function renderTalkTrack(pos) {
   const el = document.getElementById("pos-talk-track");
+  if (!el) return;
   if (!pos.negotiation_talk_track || pos.negotiation_talk_track.length === 0) {
     el.innerHTML = "";
     return;
@@ -891,6 +896,7 @@ function renderTalkTrack(pos) {
 
 function renderFinancialScenarios(pos) {
   const el = document.getElementById("pos-financial-scenarios");
+  if (!el) return;
   if (!pos.financial_scenarios || pos.financial_scenarios.length === 0) {
     el.innerHTML = "";
     return;
@@ -919,6 +925,7 @@ function renderFinancialScenarios(pos) {
 
 function renderCommercialTruthModel(pos) {
   const el = document.getElementById("pos-commercial-truth-model");
+  if (!el) return;
   const m = pos.commercial_truth_model;
   if (!el || !m) { if (el) el.innerHTML = ""; return; }
   const parties = m.parties || {};
@@ -960,6 +967,7 @@ function renderCommercialTruthModel(pos) {
 
 function renderTrustCertification(pos) {
   const el = document.getElementById("pos-trust-certification");
+  if (!el) return;
   const t = pos.trust_certification;
   if (!el || !t) { if (el) el.innerHTML = ""; return; }
   const palette = {
@@ -991,6 +999,7 @@ function renderTrustCertification(pos) {
 
 function renderDecisionFlipMap(pos) {
   const el = document.getElementById("pos-decision-flip-map");
+  if (!el) return;
   const f = pos.decision_flip_map;
   if (!el || !f) { if (el) el.innerHTML = ""; return; }
   const available = f.available !== false;
@@ -1018,6 +1027,7 @@ function renderDecisionFlipMap(pos) {
 
 function renderCommercialWarRoom(pos) {
   const el = document.getElementById("pos-commercial-war-room");
+  if (!el) return;
   const w = pos.commercial_war_room;
   if (!el || !w) { if (el) el.innerHTML = ""; return; }
   const leverage = (w.buyer_position?.leverage || []).slice(0,5).map(x => `<div style="padding:8px 0;border-top:1px solid #eee"><b>${escapeHtml(x.lever)}</b><div style="font-size:10.5px;color:#666;margin-top:2px">${escapeHtml(x.basis)} · ${escapeHtml(x.strength)}</div></div>`).join("");
@@ -1051,6 +1061,7 @@ function renderCommercialWarRoom(pos) {
 
 function renderProcurementMemory(pos) {
   const el = document.getElementById("pos-procurement-memory");
+  if (!el) return;
   const m = pos.procurement_memory;
   if (!m) { el.innerHTML = ""; return; }
   const strength = m.memory_strength || "NONE";
@@ -1086,6 +1097,7 @@ function renderProcurementMemory(pos) {
 
 function renderOutcomeIntelligence(pos) {
   const el = document.getElementById("pos-outcome-intelligence");
+  if (!el) return;
   const o = pos.outcome_intelligence;
   if (!el || !o || !o.available) { if (el) el.innerHTML = ""; return; }
   const hasVariance = o.financial_variance_available;
@@ -1122,6 +1134,7 @@ function renderOutcomeIntelligence(pos) {
 
 function renderCommercialDNA(pos) {
   const el = document.getElementById("pos-commercial-dna");
+  if (!el) return;
   const d = pos.commercial_dna;
   if (!el || !d || !d.available) { if (el) el.innerHTML = ""; return; }
   const maturityMap = {
@@ -1192,6 +1205,7 @@ function renderCommercialDNA(pos) {
 
 function renderDecisionCockpit(pos) {
   const el = document.getElementById("pos-decision-cockpit");
+  if (!el) return;
   const c = pos.decision_cockpit || {};
   const u = c.decision_under_uncertainty || pos.decision_under_uncertainty || {};
   const econ = c.economics || {};
@@ -1264,6 +1278,7 @@ function renderDecisionCockpit(pos) {
 
 function renderDecisionPassport(pos) {
   const el = document.getElementById("pos-decision-passport");
+  if (!el) return;
   const p = pos.decision_passport;
   if (!p) { el.innerHTML = ""; return; }
   const readiness = p.readiness || "CONDITIONAL";
@@ -1304,6 +1319,7 @@ function renderDecisionPassport(pos) {
 
 function renderDecisionSnapshot(pos) {
   const el = document.getElementById("pos-snapshot");
+  if (!el) return;
   const fmt = (n) => "$" + Number(n).toLocaleString(undefined, {maximumFractionDigits: 0});
   const financialLine = pos.decision_passport?.economics?.available
     ? pos.decision_passport.economics.headline
@@ -1326,7 +1342,7 @@ function renderDecisionSnapshot(pos) {
         </tr>
         <tr style="border-top:1px solid #eee">
           <td style="padding:8px 12px; color:#888; vertical-align:top">Confidence</td>
-          <td style="padding:8px 12px">${pos.confidence.level.charAt(0).toUpperCase() + pos.confidence.level.slice(1)}</td>
+          <td style="padding:8px 12px">${confidence.level ? confidence.level.charAt(0).toUpperCase() + confidence.level.slice(1) : "Not available"}</td>
         </tr>
         <tr style="border-top:1px solid #eee">
           <td style="padding:8px 12px; color:#888; vertical-align:top">Top Risk</td>
@@ -1656,6 +1672,10 @@ function handleDecisionResponse(data) {
   } else if (data.status === "completed") {
     currentPositionObj = data.commercial_position;
     const threadEl = document.getElementById("pos-thread-indicator");
+    if (!threadEl) {
+      showError("Could not open this case because the decision page is missing a required display area. Please hard-refresh the page.");
+      return;
+    }
     threadEl.innerHTML = data.parent_decision_id
       ? `<p style="font-size:12px; color:#999; margin:0 0 8px">↳ This continues an earlier case</p>`
       : "";
@@ -1787,6 +1807,7 @@ async function submitEvidence() {
 
 function renderDecisionAudit(pos) {
   const el = document.getElementById("pos-decision-audit");
+  if (!el) return;
   const a = pos.decision_audit;
   if (!a) { el.innerHTML = ""; return; }
   const status = a.evidence_integrity_status || "UNKNOWN";
@@ -1813,6 +1834,7 @@ function renderDecisionAudit(pos) {
 
 function renderSensitivity(pos) {
   const el = document.getElementById("pos-sensitivity");
+  if (!el) return;
   const a = pos.sensitivity_analysis;
   if (!a || !a.available || !(a.scenarios || []).length) { el.innerHTML = ""; return; }
   const rows = a.scenarios.map(x => {
@@ -1828,6 +1850,7 @@ function renderSensitivity(pos) {
 
 function renderStressTest(pos) {
   const el = document.getElementById("pos-stress-test");
+  if (!el) return;
   const a = pos.stress_test;
   if (!a || !a.available) { el.innerHTML = ""; return; }
   const labels = {SURVIVES_AVAILABLE_TESTS:"Survives available tests", SENSITIVE:"Recommendation is sensitive", NOT_TESTABLE:"Not safely testable"};
@@ -1842,6 +1865,7 @@ function renderStressTest(pos) {
 
 function renderAlternatives(pos) {
   const el = document.getElementById("pos-alternatives");
+  if (!el) return;
   const a = pos.alternative_analysis;
   if (!a || !a.available || !(a.alternatives || []).length) { el.innerHTML = ""; return; }
   const statusLabel = {EVIDENCE_BACKED_PATHS:"Evidence-backed paths", EVIDENCE_BACKED_WITH_OPEN_ITEMS:"Evidence-backed paths — open items remain", NOT_TESTABLE:"Not safely testable"};
@@ -1861,6 +1885,7 @@ function renderAlternatives(pos) {
 
 function renderControlTower(pos) {
   const el = document.getElementById("pos-control-tower");
+  if (!el) return;
   const a = pos.control_tower;
   if (!a || !a.available) { el.innerHTML = ""; return; }
   const labels = {READY:"Ready to act", CONDITIONAL:"Conditional — resolve key items", HOLD:"Hold — resolve conflicting evidence"};
@@ -1947,6 +1972,7 @@ Requested change: ${f.requested_change_percent}%`);
 
 function renderDecisionPack(pos) {
   const el = document.getElementById("pos-decision-pack");
+  if (!el) return;
   if (!pos) { el.innerHTML = ""; return; }
   el.innerHTML = `
     <details style="margin:14px 0;border:1px solid #ddd;border-radius:9px;overflow:hidden">
@@ -2135,6 +2161,10 @@ function organizeDecisionPage() {
 }
 
 function renderPosition(pos) {
+  if (!pos || typeof pos !== "object") {
+    showError("Could not render this case because the saved commercial position is missing or invalid.");
+    return;
+  }
   renderTrustCertification(pos);
   renderCommercialTruthModel(pos);
   renderDecisionFlipMap(pos);
@@ -2149,10 +2179,10 @@ function renderPosition(pos) {
   // "informed by 0 cases" claim, the same empty-moat problem flagged
   // earlier tonight when discussing organizational memory honestly.
   const caseCountEl = document.getElementById("pos-case-count");
-  if (pos.informed_by_case_count > 0) {
+  if (caseCountEl && pos.informed_by_case_count > 0) {
     const n = pos.informed_by_case_count;
     caseCountEl.innerHTML = `<span style="display:inline-block; font-size:11px; color:#3a7ac9; background:#eaf3fb; border-radius:100px; padding:2px 10px; margin:4px 0">Informed by ${n} past ${n === 1 ? "case" : "cases"} from your organization</span>`;
-  } else {
+  } else if (caseCountEl) {
     caseCountEl.innerHTML = "";
   }
 
@@ -2161,14 +2191,19 @@ function renderPosition(pos) {
 
   // Reset the quick-feedback prompt for this new answer -- otherwise a
   // previous question's "thanks" state would incorrectly persist.
-  document.getElementById("quick-feedback-buttons").classList.remove("hidden");
-  document.getElementById("quick-feedback-followup").classList.add("hidden");
-  document.getElementById("quick-feedback-thanks").classList.add("hidden");
-  document.getElementById("quick-feedback-reason").value = "";
+  const feedbackButtons = document.getElementById("quick-feedback-buttons");
+  const feedbackFollowup = document.getElementById("quick-feedback-followup");
+  const feedbackThanks = document.getElementById("quick-feedback-thanks");
+  const feedbackReason = document.getElementById("quick-feedback-reason");
+  if (feedbackButtons) feedbackButtons.classList.remove("hidden");
+  if (feedbackFollowup) feedbackFollowup.classList.add("hidden");
+  if (feedbackThanks) feedbackThanks.classList.add("hidden");
+  if (feedbackReason) feedbackReason.value = "";
 
-  document.getElementById("pos-commercial-insights").innerHTML =
+  const insightsEl = document.getElementById("pos-commercial-insights");
+  if (insightsEl) insightsEl.innerHTML =
     `<p style="font-size:11px; font-weight:600; letter-spacing:0.03em; color:#6a5acd; text-transform:uppercase; margin:0 0 6px; font-style:normal">Why this commercial position wins</p>` +
-    pos.commercial_insights.map(i => `<p style="margin:4px 0">• ${escapeHtml(i)}</p>`).join("");
+    (pos.commercial_insights || []).map(i => `<p style="margin:4px 0">• ${escapeHtml(i)}</p>`).join("");
   const hypothesisEl = document.getElementById("pos-hypothesis");
   if (pos.commercial_hypothesis) {
     hypothesisEl.innerHTML = `<p style="font-size:13px; color:#7a5c00; background:#fff3d6; border-radius:6px; padding:8px 10px"><b>Hypothesis (unconfirmed):</b> ${escapeHtml(pos.commercial_hypothesis)}</p>`;
@@ -2196,7 +2231,7 @@ function renderPosition(pos) {
   organizeDecisionPage();
 
   const fiEl = document.getElementById("pos-financial-impact");
-  if (pos.financial_impact) {
+  if (pos.financial_impact && fiEl) {
     const fi = pos.financial_impact;
     const fmt = (n) => "$" + Number(n).toLocaleString(undefined, {maximumFractionDigits: 0});
     fiEl.innerHTML = `
@@ -2208,18 +2243,22 @@ function renderPosition(pos) {
         ${fi.switching_cost_usd != null ? `<div>Estimated switching cost: <b>${fmt(fi.switching_cost_usd)}</b></div>` : ""}
         ${fi.net_exposure_usd != null ? `<div>Net exposure: <b>${fmt(fi.net_exposure_usd)}</b></div>` : ""}
       </div>`;
-  } else {
+  } else if (fiEl) {
     fiEl.innerHTML = "";
   }
 
-  const supportingFactors = pos.confidence.factors.filter(f => f.weight === "increases confidence");
-  const limitingFactors = pos.confidence.factors.filter(f => f.weight === "decreases confidence");
+  const confidence = pos.confidence || {};
+  const confidenceFactors = Array.isArray(confidence.factors) ? confidence.factors : [];
+  const supportingFactors = confidenceFactors.filter(f => f.weight === "increases confidence");
+  const limitingFactors = confidenceFactors.filter(f => f.weight === "decreases confidence");
 
-  document.getElementById("pos-badge").innerHTML =
-    `<span class="badge">Recommendation Confidence: ${pos.confidence.level.charAt(0).toUpperCase() + pos.confidence.level.slice(1)}</span>` +
+  const badgeEl = document.getElementById("pos-badge");
+  if (badgeEl) badgeEl.innerHTML =
+    `<span class="badge">Recommendation Confidence: ${confidence.level ? confidence.level.charAt(0).toUpperCase() + confidence.level.slice(1) : "Not available"}</span>` +
     (pos.confidence_calibration_note ? `<p style="font-size:11.5px; color:#888; margin:6px 0 0; font-style:italic">${escapeHtml(pos.confidence_calibration_note)}</p>` : "");
 
-  document.getElementById("pos-factors").innerHTML = `
+  const factorsEl = document.getElementById("pos-factors");
+  if (factorsEl) factorsEl.innerHTML = `
     ${supportingFactors.length ? `
       <div style="margin-top:8px">
         <div style="font-size:12px; font-weight:600; color:#2f7d4f">Supported by</div>
@@ -2235,7 +2274,7 @@ function renderPosition(pos) {
   if (derivationEl) derivationEl.innerText = pos.confidence.derivation_note;
   document.getElementById("pos-assumption").innerHTML =
     "<ul style='margin:4px 0 0 18px;padding:0'>" +
-    pos.assumptions.map(a => `<li>${escapeHtml(a)}</li>`).join("") +
+    (pos.assumptions || []).map(a => `<li>${escapeHtml(a)}</li>`).join("") +
     "</ul>";
   // Note: opening_position is intentionally NOT rendered again here --
   // it's already surfaced as "Next Action" in the Decision Snapshot above.
@@ -2243,9 +2282,9 @@ function renderPosition(pos) {
   // literal duplicate text in the report (fixed alongside the recommendation
   // double-render).
   const walkawayEl = document.getElementById("pos-walkaway");
-  if (pos.walk_away_threshold) {
+  if (walkawayEl && pos.walk_away_threshold) {
     walkawayEl.innerHTML = `<p style="font-size:13px; background:#fdeaea; border-radius:6px; padding:8px 10px"><b>Walk-away threshold:</b> ${escapeHtml(pos.walk_away_threshold)}</p>`;
-  } else {
+  } else if (walkawayEl) {
     walkawayEl.innerHTML = "";
   }
   const disconfirmEl = document.getElementById("pos-disconfirm");

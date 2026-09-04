@@ -40,13 +40,12 @@
   /* R27 Buyer Experience: the engine stays deep; the default UI stays shallow. */
   #pos-trust-certification, #pos-commercial-truth-model, #pos-decision-flip-map,
   #pos-commercial-war-room, #pos-procurement-memory, #pos-outcome-intelligence,
-  #pos-commercial-dna, #pos-case-count, #pos-why-wins, #pos-commercial-insights,
+  #pos-commercial-dna, #pos-case-count, #pos-commercial-insights,
   #pos-hypothesis, #pos-methodology, #pos-cost-drivers, #pos-financial-scenarios,
   #pos-key-figures, #pos-supplier-comparison, #pos-financial-impact, #pos-badge,
   #pos-factors, #pos-derivation, #pos-assumption-wrap, #pos-walkaway,
   #pos-negotiation-dimensions, #pos-talk-track, #pos-decision-audit, #pos-sensitivity,
-  #pos-stress-test, #pos-alternatives, #pos-control-tower, #pos-decision-pack,
-  #pos-disconfirm-wrap { display:none !important; }
+  #pos-stress-test, #pos-alternatives, #pos-control-tower, #pos-decision-pack { display:none !important; }
   .buyer-hero { border:1px solid #dfe2e7; border-radius:18px; background:#fff; box-shadow:0 10px 32px rgba(17,19,24,.08); overflow:hidden; }
   .buyer-hero-top { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; padding:20px 22px 12px; }
   .buyer-eyebrow { font-size:9px; font-weight:850; letter-spacing:.16em; color:#858a94; }
@@ -2085,9 +2084,9 @@ function organizeDecisionPage() {
   // decision only. Everything else is supporting intelligence and stays closed
   // until the user asks for it. Internal intelligence layers are not part of the buyer UX.
   const hideIds = [
-    "pos-decision-passport", "pos-snapshot", "pos-why-wins",
+    "pos-decision-passport", "pos-snapshot",
     "pos-commercial-insights", "pos-reasoning", "pos-derivation",
-    "pos-disconfirm-wrap", "pos-case-count", "pos-badge", "pos-factors", "pos-assumption-wrap"
+    "pos-case-count", "pos-badge", "pos-factors", "pos-assumption-wrap"
   ];
   hideIds.forEach(id => {
     const el = document.getElementById(id);
@@ -2157,7 +2156,8 @@ function renderPosition(pos) {
     caseCountEl.innerHTML = "";
   }
 
-  document.getElementById("pos-why-wins").innerText = pos.why_this_wins || "";
+  const whyWinsEl = document.getElementById("pos-why-wins");
+  if (whyWinsEl) whyWinsEl.innerText = pos.why_this_wins || "";
 
   // Reset the quick-feedback prompt for this new answer -- otherwise a
   // previous question's "thanks" state would incorrectly persist.
@@ -2191,6 +2191,8 @@ function renderPosition(pos) {
   renderSensitivity(pos);
   renderStressTest(pos);
   renderAlternatives(pos);
+  const reasoningEl = document.getElementById("pos-reasoning");
+  if (reasoningEl) reasoningEl.innerText = pos.reasoning;
   organizeDecisionPage();
 
   const fiEl = document.getElementById("pos-financial-impact");
@@ -2229,7 +2231,8 @@ function renderPosition(pos) {
         ${limitingFactors.map(f => `<div class="factor" style="color:#a33">✗ ${escapeHtml(f.factor)}</div>`).join("")}
       </div>` : ""}
   `;
-  document.getElementById("pos-derivation").innerText = pos.confidence.derivation_note;
+  const derivationEl = document.getElementById("pos-derivation");
+  if (derivationEl) derivationEl.innerText = pos.confidence.derivation_note;
   document.getElementById("pos-assumption").innerHTML =
     "<ul style='margin:4px 0 0 18px;padding:0'>" +
     pos.assumptions.map(a => `<li>${escapeHtml(a)}</li>`).join("") +
@@ -2245,7 +2248,8 @@ function renderPosition(pos) {
   } else {
     walkawayEl.innerHTML = "";
   }
-  document.getElementById("pos-disconfirm").innerText = pos.disconfirming_condition;
+  const disconfirmEl = document.getElementById("pos-disconfirm");
+  if (disconfirmEl) disconfirmEl.innerText = pos.disconfirming_condition;
 }
 
 // --- Sprint 1: outcome capture as auto-generated case documentation ---

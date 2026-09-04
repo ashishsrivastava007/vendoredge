@@ -7,9 +7,9 @@ def pos():
         opening_position="No increase",
         walk_away_threshold="12% without evidence",
         disconfirming_condition="Audited evidence supports the increase",
-        negotiation_dimensions=[SimpleNamespace(dimension="Price", opening="0%", target="Flat", walk_away="12% without evidence")],
-        negotiation_talk_track=[SimpleNamespace(trigger="Supplier defends increase", say="Show the evidence", purpose="Verify claim")],
-        supplier_comparison=[SimpleNamespace(supplier="Atlas", price="€48", quality="99% OTIF", lead_time="6 weeks")],
+        negotiation_dimensions=[SimpleNamespace(dimension="Price", opening_ask="0%", target_outcome="Flat", walk_away="12% without evidence")],
+        negotiation_talk_track=[SimpleNamespace(trigger="Supplier defends increase", line="Show the evidence")],
+        supplier_comparison=[SimpleNamespace(name="Atlas", price="€48", otif="99% OTIF", lead_time="6 weeks")],
         decision_audit=SimpleNamespace(material_evidence=["Current price is €48"], uncertainties=["Freight is missing"]),
     )
 

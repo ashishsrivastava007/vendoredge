@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException, Header, Request, UploadFile, File,
 
 from app.models import (
     CreateDecisionRequest, RespondRequest, FeedbackRequest, ContinueCaseRequest,
-    CommercialDecisionResponse, WorkspaceResponse, WorkspaceInfoResponse, PilotLeadRequest, ControlTower,
+    CommercialDecisionResponse, WorkspaceResponse, WorkspaceInfoResponse, PilotLeadRequest, ControlTower, AlternativeAnalysis,
     GeneralFeedbackRequest, DecisionAudit, PilotExperienceRequest, DecisionFormatRequest, CustomFormatRequest,
     InviteResponse, AcceptInviteRequest,
 )
@@ -1557,7 +1557,7 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
     except Exception as e:
         print(f"Stress test skipped (non-blocking): {type(e).__name__}: {e}")
     try:
-        position.alternative_analysis = build_alternative_paths(normalized)
+        position.alternative_analysis = AlternativeAnalysis(**build_alternative_paths(normalized))
     except Exception as e:
         print(f"Alternative-path analysis skipped (non-blocking): {type(e).__name__}: {e}")
     # Release 9: deterministic executive control tower. Presentation/control

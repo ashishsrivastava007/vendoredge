@@ -11,17 +11,17 @@ from app.models import CommercialPosition
 def _moves(position: CommercialPosition) -> list[dict[str, str]]:
     moves: list[dict[str, str]] = []
     for m in (position.negotiation_talk_track or [])[:6]:
-        moves.append({"trigger": str(m.trigger), "say": str(m.say), "purpose": str(m.purpose)})
+        moves.append({"trigger": str(m.trigger), "line": str(m.line)})
     return moves
 
 
 def build_negotiation_playbook(position: CommercialPosition) -> dict[str, Any]:
     dims = []
     for d in (position.negotiation_dimensions or [])[:8]:
-        dims.append({"dimension": str(d.dimension), "opening": str(d.opening), "target": str(d.target), "walk_away": str(d.walk_away)})
+        dims.append({"dimension": str(d.dimension), "opening": str(d.opening_ask), "target": str(d.target_outcome), "walk_away": str(d.walk_away)})
     suppliers = []
     for s in (position.supplier_comparison or [])[:8]:
-        suppliers.append({"supplier": str(s.supplier), "price": str(s.price), "quality": str(s.quality), "lead_time": str(s.lead_time)})
+        suppliers.append({"supplier": str(s.name), "price": str(s.price), "quality": str(s.otif if s.otif is not None else s.defect_rate), "lead_time": str(s.lead_time)})
     evidence = []
     audit = position.decision_audit
     if audit:

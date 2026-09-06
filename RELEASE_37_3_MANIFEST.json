@@ -1,0 +1,21 @@
+{
+  "release": "R37.3",
+  "name": "Workspace Bootstrap Reliability",
+  "purpose": "Bound and make retry-safe the browser workspace/session bootstrap path.",
+  "changes": [
+    "Bootstrap network timeouts",
+    "Bounded retry",
+    "Retry-safe workspace creation using X-Workspace-Bootstrap-Key",
+    "Session validation before app unlock",
+    "Explicit bootstrap lifecycle states",
+    "Stale-run protection for cancelled retries",
+    "Correct fresh-workspace reset",
+    "Retain authenticated API boundary"
+  ],
+  "validation": {
+    "python_compile": "PASS",
+    "javascript_syntax": "PASS",
+    "release_tests": "122 passed"
+  },
+  "live_validation": false
+}

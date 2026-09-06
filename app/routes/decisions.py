@@ -19,7 +19,7 @@ from urllib.error import HTTPError, URLError
 from datetime import timedelta
 from collections import defaultdict
 from datetime import datetime, timezone
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
 from fastapi import APIRouter, HTTPException, Header, Request, UploadFile, File, BackgroundTasks, Response
 
 from app.models import (
@@ -478,35 +478,48 @@ def accept_invite(request: Request, body: AcceptInviteRequest):
 
 
 @router.post("/workspaces", response_model=WorkspaceResponse)
-def create_workspace(request: Request):
-    """
-    Creates a genuinely new, isolated organisation and user -- the fix for
-    the critical pre-pilot finding: every visitor previously shared one
-    hardcoded demo organisation, meaning real pilot testers would have seen
-    each other's data. Each new visitor now gets their own real organisation,
-    protected by the same Row-Level Security already verified in
-    test_tenant_isolation.py. This is a private-link model, not full
-    password-based login -- adequate for a controlled pilot with known,
-    invited testers, not yet for open public exposure to strangers.
-    """
-    # Real IP, accounting for Render's reverse proxy (X-Forwarded-For is set
-    # by the proxy; request.client.host would just be the proxy's own IP).
-    client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.client.host
-    _check_workspace_rate_limit(client_ip)
+def create_workspace(request: Request, idempotency_key: str | None = Header(default=None, alias="X-Workspace-Bootstrap-Key")):
+    """Create a private workspace, safely retryable during browser/bootstrap failures.
 
-    org_id = uuid4()
-    user_id = uuid4()
+    A client-generated bootstrap key is optional for backwards compatibility, but
+    the production frontend always sends one. The key deterministically maps to
+    the workspace/user UUIDs, so a timed-out POST that actually completed on the
+    server cannot create a second workspace when the browser retries. The key is
+    high-entropy, kept only in localStorage, and is never the authenticated session
+    credential itself.
+    """
+    client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.client.host
+
+    if idempotency_key:
+        idempotency_key = idempotency_key.strip()
+        if len(idempotency_key) < 32 or len(idempotency_key) > 200:
+            raise HTTPException(status_code=400, detail="Invalid workspace bootstrap key.")
+        org_id = uuid5(NAMESPACE_URL, f"vendoredge-workspace:{idempotency_key}")
+        user_id = uuid5(NAMESPACE_URL, f"vendoredge-user:{idempotency_key}")
+    else:
+        # Legacy/direct callers still receive a fresh workspace. The browser path
+        # above is the retry-safe path used in production.
+        org_id = uuid4()
+        user_id = uuid4()
+
     with get_org_scoped_connection(str(org_id)) as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO organisations (id, name) VALUES (%s, %s)",
-                (str(org_id), f"Workspace {str(org_id)[:8]}"),
-            )
-            cur.execute(
-                "INSERT INTO users (id, organisation_id, email, password_hash) "
-                "VALUES (%s, %s, %s, 'no-password-yet')",
-                (str(user_id), str(org_id), f"{user_id}@workspace.local"),
-            )
+            cur.execute("SELECT id FROM organisations WHERE id = %s", (str(org_id),))
+            existing_org = cur.fetchone()
+            if not existing_org:
+                _check_workspace_rate_limit(client_ip)
+                cur.execute(
+                    "INSERT INTO organisations (id, name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING",
+                    (str(org_id), f"Workspace {str(org_id)[:8]}"),
+                )
+            cur.execute("SELECT id FROM users WHERE id = %s AND organisation_id = %s", (str(user_id), str(org_id)))
+            if not cur.fetchone():
+                cur.execute(
+                    "INSERT INTO users (id, organisation_id, email, password_hash) "
+                    "VALUES (%s, %s, %s, 'no-password-yet') ON CONFLICT (id) DO NOTHING",
+                    (str(user_id), str(org_id), f"{user_id}@workspace.local"),
+                )
+
     return WorkspaceResponse(organisation_id=org_id, user_id=user_id, access_token=create_session_token(str(org_id), str(user_id)))
 
 

@@ -183,3 +183,6 @@ The system does not autonomously contact suppliers, make commitments, change con
 ## R37.2 — Authenticated API Boundary & Cold-Start Hardening
 
 R37.2 removes the class of browser startup races where normal authenticated API calls could be constructed before the workspace session existed. All application API calls now cross a single `authenticatedFetch()` boundary that waits for workspace readiness and safely merges headers. Workspace bootstrap endpoints remain raw by design. Individual user actions have a bounded readiness wait so a stalled bootstrap cannot leave a click hanging forever.
+
+## R37.3 — Workspace Bootstrap Reliability
+R37.3 hardens the private-workspace bootstrap lifecycle with request timeouts, bounded retry, retry-safe workspace creation, pre-unlock session validation, explicit UI states, stale-run protection, and a true fresh-workspace reset. Release tests: 122 passed.

@@ -21,4 +21,4 @@ def test_primary_actions_wait_for_workspace_before_authenticated_fetch():
 def test_workspace_failure_is_user_visible_not_requestinit_typeerror():
     assert "Could not start your private workspace." in HTML
     assert "workspaceInitError = e;" in HTML
-    assert "workspaceInitPromise = ensureWorkspace();" in HTML
+    assert "const ready = await ensureWorkspace(false);" in HTML

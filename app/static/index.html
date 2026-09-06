@@ -150,7 +150,10 @@
   /* Prevent authenticated actions from racing the workspace bootstrap. */
   body.workspace-initializing nav,
   body.workspace-initializing #ask-screen,
-  body.workspace-initializing footer {
+  body.workspace-initializing footer,
+  body.workspace-bootstrap-failed nav,
+  body.workspace-bootstrap-failed #ask-screen,
+  body.workspace-bootstrap-failed footer {
     pointer-events: none;
     opacity: .62;
   }
@@ -166,6 +169,7 @@
     text-align: center;
     font-weight: 600;
   }
+  #workspace-bootstrap .bootstrap-title { font-size:16px; color:#454952; }
   #workspace-bootstrap .bootstrap-detail {
     margin-top: 7px;
     color: #777;
@@ -458,7 +462,14 @@ const API = "/api/v1";
 let HEADERS = null;
 let workspaceInitPromise = null;
 let workspaceInitError = null;
+let workspaceBootstrapController = null;
+let workspaceBootstrapAttempt = 0;
+let workspaceBootstrapRunId = 0;
 const SESSION_STORAGE_KEY = "vendoredge_session";
+const WORKSPACE_BOOTSTRAP_KEY = "vendoredge_workspace_bootstrap_key";
+const BOOTSTRAP_REQUEST_TIMEOUT_MS = 15000;
+const BOOTSTRAP_MAX_ATTEMPTS = 2;
+const BOOTSTRAP_RETRY_DELAY_MS = 800;
 
 function sessionHeaders(token, org, user) {
   return {
@@ -471,78 +482,207 @@ function sessionHeaders(token, org, user) {
   };
 }
 
-async function ensureWorkspace() {
-  const stored = localStorage.getItem(SESSION_STORAGE_KEY);
+function getOrCreateWorkspaceBootstrapKey() {
+  let key = localStorage.getItem(WORKSPACE_BOOTSTRAP_KEY);
+  if (!key) {
+    key = crypto.randomUUID() + crypto.randomUUID();
+    localStorage.setItem(WORKSPACE_BOOTSTRAP_KEY, key);
+  }
+  return key;
+}
+
+async function fetchWithTimeout(input, init = {}, timeoutMs = BOOTSTRAP_REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const callerSignal = init.signal;
+  let callerAbortHandler = null;
+  if (callerSignal) {
+    if (callerSignal.aborted) controller.abort();
+    callerAbortHandler = () => controller.abort();
+    callerSignal.addEventListener("abort", callerAbortHandler, { once: true });
+  }
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (e) {
+    if (controller.signal.aborted) {
+      if (callerSignal?.aborted) throw new Error("Workspace bootstrap was cancelled.");
+      throw new Error(`Workspace bootstrap request timed out after ${Math.round(timeoutMs / 1000)} seconds.`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    if (callerSignal && callerAbortHandler) callerSignal.removeEventListener("abort", callerAbortHandler);
+  }
+}
+
+function setWorkspaceBootstrapStatus(title, detail, retryable = false) {
+  const el = document.getElementById("workspace-bootstrap");
+  if (!el) return;
+  el.innerHTML = `<div class="bootstrap-title">${escapeHtml(title)}</div>
+    <div class="bootstrap-detail">${escapeHtml(detail)}</div>
+    ${retryable ? '<div style="margin-top:15px"><button class="example-btn" onclick="retryWorkspaceBootstrap()">Try again</button></div>' : ''}`;
+}
+
+function setWorkspaceBootstrapMode(mode) {
+  document.body.classList.toggle("workspace-initializing", mode === "starting" || mode === "retrying");
+  document.body.classList.toggle("workspace-bootstrap-failed", mode === "failed");
+}
+
+async function bootstrapWorkspaceOnce(signal) {
+  let stored = localStorage.getItem(SESSION_STORAGE_KEY);
   let session = null;
   if (stored) {
     try { session = JSON.parse(stored); } catch (_) { localStorage.removeItem(SESSION_STORAGE_KEY); }
   }
 
   // Invite links carry a single-use invitation secret in the URL fragment.
-  // The fragment is never sent to the server as a request path/referrer. The
-  // secret is redeemed once into a brand-new session for the invited person.
   if (!session && window.location.hash.startsWith("#invite=")) {
     const inviteToken = decodeURIComponent(window.location.hash.slice("#invite=".length));
-    try {
-      const inviteRes = await fetch(`${API}/workspaces/accept-invite`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ invite_token: inviteToken }),
-      });
-      const data = await inviteRes.json().catch(() => ({}));
-      if (!inviteRes.ok) throw new Error(data.detail || "This invitation is no longer valid.");
-      session = { token: data.access_token, org: data.organisation_id, user: data.user_id };
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-      window.history.replaceState({}, "", window.location.pathname + window.location.search);
-      showWorkspaceBanner();
-    } catch (e) {
-      alert(e.message || "This invitation is no longer valid. Please ask the workspace owner for a new invite.");
-      window.history.replaceState({}, "", window.location.pathname + window.location.search);
-    }
+    setWorkspaceBootstrapStatus("Joining your private workspace…", "Redeeming your single-use invitation.");
+    const inviteRes = await fetchWithTimeout(`${API}/workspaces/accept-invite`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invite_token: inviteToken }),
+      signal,
+    });
+    const data = await inviteRes.json().catch(() => ({}));
+    if (!inviteRes.ok) throw new Error(data.detail || "This invitation is no longer valid.");
+    session = { token: data.access_token, org: data.organisation_id, user: data.user_id };
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+    window.history.replaceState({}, "", window.location.pathname + window.location.search);
+    showWorkspaceBanner();
   }
 
-  // Existing pilot links used ?org=&user=. If the temporary migration bridge
-  // is enabled server-side, exchange that old link once for a signed session.
+  // Existing pilot links use the temporary migration bridge only when explicitly enabled server-side.
   if (!session) {
     const params = new URLSearchParams(window.location.search);
     const org = params.get("org");
     const user = params.get("user");
     if (org && user) {
-      const legacy = await fetch(`${API}/workspaces/legacy-session`, {
+      setWorkspaceBootstrapStatus("Connecting your private workspace…", "Validating the existing private link.");
+      const legacy = await fetchWithTimeout(`${API}/workspaces/legacy-session`, {
         method: "POST",
         headers: { "x-org-id": org, "x-user-id": user },
+        signal,
       });
       if (!legacy.ok) {
         const data = await legacy.json().catch(() => ({}));
-        alert(data.detail || "This workspace link is no longer valid. Please start a new workspace.");
-        window.history.replaceState({}, "", window.location.pathname);
-      } else {
-        const data = await legacy.json();
-        session = { token: data.access_token, org: data.organisation_id, user: data.user_id };
-        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-        window.history.replaceState({}, "", window.location.pathname);
-        showWorkspaceBanner();
+        throw new Error(data.detail || "This workspace link is no longer valid.");
       }
+      const data = await legacy.json();
+      session = { token: data.access_token, org: data.organisation_id, user: data.user_id };
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+      window.history.replaceState({}, "", window.location.pathname);
+      showWorkspaceBanner();
     }
   }
 
   if (!session) {
-    const res = await fetch(`${API}/workspaces`, { method: "POST" });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      alert(data.detail || "Could not start your workspace right now. Please refresh and try again in a moment.");
-      throw new Error("Workspace creation failed: " + (data.detail || res.status));
-    }
-    const data = await res.json();
+    setWorkspaceBootstrapStatus("Preparing your private workspace…", "Creating your private workspace and secure session.");
+    const bootstrapKey = getOrCreateWorkspaceBootstrapKey();
+    const res = await fetchWithTimeout(`${API}/workspaces`, {
+      method: "POST",
+      headers: { "X-Workspace-Bootstrap-Key": bootstrapKey },
+      signal,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `Workspace creation failed (status ${res.status}).`);
     session = { token: data.access_token, org: data.organisation_id, user: data.user_id };
     localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
     window.history.replaceState({}, "", window.location.pathname);
     showWorkspaceBanner();
   }
 
-  HEADERS = sessionHeaders(session.token, session.org, session.user);
-  await checkWorkspaceAge(session.org);
+  const nextHeaders = sessionHeaders(session.token, session.org, session.user);
+  // Validate the persisted session before exposing the application. A stale or
+  // revoked session is discarded and recreated; transient server failures do not
+  // destroy a valid local session.
+  const ageRes = await fetchWithTimeout(`${API}/workspaces/me`, { headers: nextHeaders, signal });
+  if (ageRes.status === 401 || ageRes.status === 403 || ageRes.status === 404) {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    HEADERS = null;
+    if (session && !window.location.hash.startsWith("#invite=")) {
+      throw new Error("Your private workspace session is no longer valid. Please retry to start a fresh workspace.");
+    }
+  } else if (!ageRes.ok) {
+    throw new Error(`Workspace validation failed (status ${ageRes.status}).`);
+  }
+
+  HEADERS = nextHeaders;
   showStartFreshLink();
+  if (ageRes.ok) {
+    const info = await ageRes.json().catch(() => null);
+    if (info && info.days_active >= WORKSPACE_AGE_REPROMPT_DAYS) {
+      const banner = document.createElement("div");
+      banner.style.cssText = "background:#fff3d6; border:1px solid #f0d99a; border-radius:8px; padding:10px 14px; font-size:12.5px; color:#5c4a00; margin-bottom:16px";
+      banner.innerHTML = `This workspace has been active for ${info.days_active} days. Still working in the same business context as when you started? If you've changed roles or employers since then, please <a href="#" onclick="startFreshWorkspace(); return false;" style="color:#5c4a00; font-weight:600">start a fresh workspace</a> instead of continuing here, to keep that history properly separated. If you changed roles or employers, use a fresh workspace so your decision history stays with the correct business context.`;
+      document.body.insertBefore(banner, document.body.firstChild);
+    }
+  }
+}
+
+async function ensureWorkspace(forceRestart = false) {
+  if (!forceRestart && HEADERS) return true;
+  if (!forceRestart && workspaceInitPromise) {
+    try { await workspaceInitPromise; return !!HEADERS; } catch (_) { return false; }
+  }
+
+  if (workspaceBootstrapController) workspaceBootstrapController.abort();
+  const controller = new AbortController();
+  workspaceBootstrapController = controller;
+  const runId = ++workspaceBootstrapRunId;
+  workspaceInitError = null;
+  HEADERS = null;
+  workspaceBootstrapAttempt = 0;
+  setWorkspaceBootstrapMode("starting");
+
+  const initRun = (async () => {
+    let lastError = null;
+    for (let attempt = 1; attempt <= BOOTSTRAP_MAX_ATTEMPTS; attempt++) {
+      workspaceBootstrapAttempt = attempt;
+      if (attempt > 1) {
+        setWorkspaceBootstrapMode("retrying");
+        setWorkspaceBootstrapStatus("Reconnecting to your private workspace…", `Retrying secure workspace setup (attempt ${attempt} of ${BOOTSTRAP_MAX_ATTEMPTS}).`);
+        await new Promise(r => setTimeout(r, BOOTSTRAP_RETRY_DELAY_MS));
+      }
+      try {
+        await bootstrapWorkspaceOnce(controller.signal);
+        if (!HEADERS) throw new Error("Workspace setup completed without a secure session.");
+        return true;
+      } catch (e) {
+        if (controller.signal.aborted) {
+          lastError = new Error("Workspace bootstrap was cancelled.");
+          break;
+        }
+        lastError = e;
+        if (runId === workspaceBootstrapRunId) HEADERS = null;
+        if (attempt < BOOTSTRAP_MAX_ATTEMPTS) continue;
+      }
+    }
+    throw lastError || new Error("Workspace initialization failed.");
+  })();
+
+  workspaceInitPromise = initRun;
+  try {
+    return await initRun;
+  } catch (e) {
+    if (runId === workspaceBootstrapRunId) workspaceInitError = e;
+    return false;
+  }
+}
+
+async function retryWorkspaceBootstrap() {
+  await ensureWorkspace(true);
+  if (HEADERS) {
+    const bootstrap = document.getElementById("workspace-bootstrap");
+    if (bootstrap) bootstrap.remove();
+    setWorkspaceBootstrapMode("ready");
+    const resumed = await tryResumeLastCase();
+    if (!resumed) renderNudgeBanner();
+    return;
+  }
+  setWorkspaceBootstrapMode("failed");
+  setWorkspaceBootstrapStatus("Could not start your private workspace.", workspaceInitError?.message || "Please check your connection and try again.", true);
 }
 
 function showWorkspaceBanner() {
@@ -559,17 +699,18 @@ function showWorkspaceBanner() {
 const WORKSPACE_AGE_REPROMPT_DAYS = 60;
 
 async function checkWorkspaceAge(org) {
+  if (!HEADERS) return;
   try {
-    const res = await fetch(`${API}/workspaces/me`, { headers: HEADERS });
+    const res = await fetchWithTimeout(`${API}/workspaces/me`, { headers: HEADERS });
     if (!res.ok) return;
-    const info = await res.json();
-    if (info.days_active >= WORKSPACE_AGE_REPROMPT_DAYS) {
+    const info = await res.json().catch(() => null);
+    if (info && info.days_active >= WORKSPACE_AGE_REPROMPT_DAYS) {
       const banner = document.createElement("div");
       banner.style.cssText = "background:#fff3d6; border:1px solid #f0d99a; border-radius:8px; padding:10px 14px; font-size:12.5px; color:#5c4a00; margin-bottom:16px";
-      banner.innerHTML = `This workspace has been active for ${info.days_active} days. Still working in the same business context as when you started? If you've changed roles or employers since then, please <a href="#" onclick="startFreshWorkspace(); return false;" style="color:#5c4a00; font-weight:600">start a fresh workspace</a> instead of continuing here, to keep that history properly separated.`;
+      banner.innerHTML = `This workspace has been active for ${info.days_active} days. Still working in the same business context as when you started?`;
       document.body.insertBefore(banner, document.body.firstChild);
     }
-  } catch (e) { /* non-critical, don't block the app if this check fails */ }
+  } catch (_) {}
 }
 
 function showStartFreshLink() {
@@ -592,6 +733,11 @@ function showStartFreshLink() {
 
 function startFreshWorkspace() {
   if (!confirm("This will give you a brand-new, empty workspace, separate from this one. Your current workspace's history stays exactly where it is, tied to its own link. Continue?")) return;
+  localStorage.removeItem(SESSION_STORAGE_KEY);
+  localStorage.removeItem(WORKSPACE_BOOTSTRAP_KEY);
+  if (workspaceBootstrapController) workspaceBootstrapController.abort();
+  HEADERS = null;
+  workspaceInitPromise = null;
   window.location.href = window.location.pathname;
 }
 
@@ -2997,23 +3143,24 @@ async function tryResumeLastCase() {
 }
 
 (async function initializeApp() {
-  workspaceInitPromise = ensureWorkspace();
-  try {
-    await workspaceInitPromise;
+  const ready = await ensureWorkspace(false);
+  if (ready && HEADERS) {
     document.body.classList.remove("workspace-initializing");
     const bootstrap = document.getElementById("workspace-bootstrap");
     if (bootstrap) bootstrap.remove();
+    setWorkspaceBootstrapMode("ready");
     const resumed = await tryResumeLastCase();
-    if (!resumed) {
-      renderNudgeBanner();
-    }
-  } catch (e) {
-    workspaceInitError = e;
-    document.body.classList.remove("workspace-initializing");
-    const bootstrap = document.getElementById("workspace-bootstrap");
-    if (bootstrap) bootstrap.remove();
-    showError("Could not start your private workspace. Please refresh and try again. Details: " + (e.message || "workspace initialization failed"));
+    if (!resumed) renderNudgeBanner();
+    return;
   }
+
+  document.body.classList.remove("workspace-initializing");
+  setWorkspaceBootstrapMode("failed");
+  setWorkspaceBootstrapStatus(
+    "Could not start your private workspace.",
+    workspaceInitError?.message || "The secure workspace setup did not complete.",
+    true
+  );
 })();
 </script>
 </body>

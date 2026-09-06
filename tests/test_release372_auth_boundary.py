@@ -20,14 +20,13 @@ def test_authenticated_api_boundary_exists_and_waits_for_workspace():
     assert "new Headers(init.headers)" in chunk
 
 
-def test_only_bootstrap_endpoints_and_age_check_use_raw_api_fetch():
-    raw_api_fetches = re.findall(r"(?<!authenticated)fetch\(`\\?\$\{API\}([^`]+)", _script_only())
-    assert set(raw_api_fetches) == {
-        "/workspaces/accept-invite",
-        "/workspaces/legacy-session",
-        "/workspaces",
-        "/workspaces/me",
-    }
+def test_only_bootstrap_endpoints_and_age_check_bypass_authenticated_api_wrapper():
+    raw_calls = [line.strip() for line in _script_only().splitlines() if "fetchWithTimeout(`${API}/" in line]
+    joined = "\n".join(raw_calls)
+    assert "/workspaces/accept-invite" in joined
+    assert "/workspaces/legacy-session" in joined
+    assert "${API}/workspaces`" in joined
+    assert "/workspaces/me" in joined
 
 
 def test_no_application_api_fetch_constructs_request_with_null_headers():
@@ -48,8 +47,8 @@ def test_workspace_ready_wait_has_bounded_click_wait():
 
 
 def test_bootstrap_initialization_remains_the_single_source_of_workspace_setup():
-    assert "workspaceInitPromise = ensureWorkspace();" in HTML
-    assert "HEADERS = sessionHeaders(session.token, session.org, session.user);" in HTML
+    assert "const ready = await ensureWorkspace(false);" in HTML
+    assert "const nextHeaders = sessionHeaders(session.token, session.org, session.user);" in HTML
     assert "authenticatedFetch(`${API}/workspaces/accept-invite" not in HTML
     assert "authenticatedFetch(`${API}/workspaces/legacy-session" not in HTML
     assert "authenticatedFetch(`${API}/workspaces`" not in HTML

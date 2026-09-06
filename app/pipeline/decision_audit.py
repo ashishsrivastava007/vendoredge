@@ -82,18 +82,18 @@ def build_decision_audit(normalized: NormalizedEvidence, position: CommercialPos
     # qualification/certification/production-history gaps for every supplier
     # creates false urgency and noisy repetition. Only surface qualification
     # when the current decision actually relies on an alternative supplier.
-    alternative_reliance = any(
-        any(token in str(text).lower() for token in (
-            "alternative", "reallocate", "reallocation", "switch", "dual-source",
-            "rebid", "competitive sourcing", "competitive bid", "volume allocation"
-        ))
-        for text in (
-            position.recommendation, position.reasoning, position.opening_position,
-            position.walk_away_threshold, position.disconfirming_condition,
-        ) if text
-    )
+    # A genuinely material, evidence-grounded signal -- not a fragile scan of
+    # free text for specific phrasing. If the evidence itself compares more
+    # than one supplier, an unresolved qualification status on a non-incumbent
+    # is material regardless of how the recommendation happens to be worded;
+    # a true single-supplier case has nothing to compare against, so this
+    # naturally avoids the noise the original design comment (below) warned
+    # about, without depending on keyword matches that can silently miss
+    # real cases -- found by an adversarial test using valid phrasing
+    # ("negotiating lever") the original keyword list didn't cover.
+    alternative_reliance = len(normalized.suppliers) > 1
     for supplier in normalized.suppliers:
-        if alternative_reliance and not supplier.is_incumbent and supplier.capacity_percent is not None:
+        if alternative_reliance and not supplier.is_incumbent:
             if supplier.qualification_status in {"unknown", "not_started", "in_progress"}:
                 uncertainties.append(
                     f"{supplier.supplier_name}: qualification status was not provided"

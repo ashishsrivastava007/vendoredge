@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal, Optional
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from app import caps
 
 ContentType = Literal["price_increase", "quote_comparison"]
@@ -242,6 +242,12 @@ class NegotiationPlaybook(BaseModel):
 
 
 class CommercialPosition(BaseModel):
+    # model_orchestration below is a real, deliberately-named field (which
+    # model handled which stage of reasoning), not an accidental collision.
+    # This only silences Pydantic's protected-namespace warning for names
+    # starting with "model_" -- it changes no behavior and renames nothing.
+    model_config = ConfigDict(protected_namespaces=())
+
     recommendation: str
     commercial_insights: list[str] = Field(
         ..., min_length=caps.MIN_COMMERCIAL_INSIGHTS, max_length=caps.MAX_COMMERCIAL_INSIGHTS

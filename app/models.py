@@ -361,6 +361,20 @@ class CommercialPosition(BaseModel):
     decision_type: DecisionType
 
 
+class OrganisationFormatResponse(BaseModel):
+    id: UUID
+    name: str
+    format_type: str
+    source_filename: str
+    slide_count: int
+    status: Literal["ready"]
+    created_at: Optional[datetime] = None
+
+
+class OrganisationFormatRenderRequest(BaseModel):
+    format_id: UUID
+
+
 class DecisionFormatRequest(BaseModel):
     format_name: Literal["decision_cockpit", "cfo_brief", "category_review", "supplier_meeting", "one_page", "executive_60_second"]
 

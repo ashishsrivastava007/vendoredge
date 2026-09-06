@@ -25,3 +25,8 @@ The legacy compatibility path remains available for controlled test environments
 
 ## Product scope decision
 No Phase 10 capability is added in R36.1. The next step after deployment is workflow instrumentation and real-user validation, not additional intelligence modules.
+
+
+## Post-release startup hotfix
+
+Render startup exposed a pre-existing route/model contract defect: the organisation-format endpoints referenced `OrganisationFormatResponse` and `OrganisationFormatRenderRequest` without defining them in `app.models` or importing them into `app.routes.decisions`. The hardened package now defines both Pydantic contracts and imports them, and also imports `IngestionArtifactResponse`, which was the next missing response-model import on the same route module. A static regression test now verifies that every `response_model` used by this route module is both imported and defined.

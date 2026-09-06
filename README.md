@@ -1,13 +1,13 @@
 # VendorEdge — Commercial Decision Intelligence
 
-**Release: R25.2 — Commercial DNA + World-Class UX Hardening**
+**Release: R34 — Outcome Intelligence 2.0**
 
 VendorEdge is an evidence-first procurement decision system designed for messy,
 high-value commercial situations.
 
 Its product chain is:
 
-**Messy evidence → normalization → trust → commercial truth → economics → decision flips → war room → procurement memory → outcome intelligence → Commercial DNA → action**
+**Messy evidence → normalization → trust → commercial truth → economics → decision flips → war room → procurement memory → outcome intelligence → Commercial DNA → bounded execution → supplier response → learning**
 
 The governing product test is the **Holy Shit Test**:
 
@@ -23,6 +23,7 @@ The governing product test is the **Holy Shit Test**:
 - **R22 — Commercial War Room:** buyer, supplier, market and stakeholder positions without invented counterpart psychology.
 - **R23 — Procurement Memory:** supplier/category/decision history with sparse-history safeguards.
 - **R24 — Outcome Intelligence:** expected vs actual outcomes, attribution-aware misses and learning signals.
+- **R34 — Outcome Intelligence 2.0:** realization state, attribution level, next-time controls and historical calibration from measured outcomes.
 - **R25 — Commercial DNA:** conservative organization-level signals from recorded outcomes; no unsupported causality or forecasting.
 
 All R19–R25 intelligence layers are deterministic presentation/analysis layers over the validated commercial decision. They do not make an additional LLM call and do not mutate the original recommendation.
@@ -160,3 +161,13 @@ normalization boundary. R25.2.2 hardens that boundary so harmless scalar
 representation drift is accepted, malformed values degrade to explicit evidence
 gaps with auditable normalization warnings, and malformed extraction containers
 cannot become generic production 500 errors. See `R25_2_2_LLM_EXTRACTION_CONTRACT.md`.
+
+## Phase 8 — Bounded Agentic Workflow
+VendorEdge can now prepare an execution-ready work queue from a completed commercial decision, including negotiation packages and supplier-response drafts. The workflow is explicitly bounded: approvals are recorded as tenant-scoped audit events, but VendorEdge does not send supplier messages, alter contracts, create purchase orders, or commit spend. External integrations remain responsible for execution authorization.
+
+
+## R36.1 — Phase 9 supplier response execution
+
+Phase 9 adds a deliberately thin, user-testable execution loop: **Draft → Review → Approve → Execute → Confirm → Audit**. Buyers can edit the supplier response, explicitly approve it, send through a deployment-configured email webhook, or safely hand off to their own email client when no connector is configured. Supplier replies can be captured back against the case.
+
+The system does not autonomously contact suppliers, make commitments, change contracts/POs, or silently reinterpret replies. Draft edits revoke prior approval, outbound messages are idempotency-protected, and delivery/reply records are tenant-scoped and auditable.

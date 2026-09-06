@@ -55,6 +55,37 @@ CREATE TABLE IF NOT EXISTS workspace_invites (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS organisation_formats (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organisation_id UUID NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+    created_by_user_id UUID NOT NULL REFERENCES users(id),
+    name VARCHAR(255) NOT NULL,
+    format_type VARCHAR(30) NOT NULL DEFAULT 'other' CHECK (format_type IN ('negotiation','srm','rfq','management','other')),
+    source_filename TEXT NOT NULL,
+    profile JSONB NOT NULL DEFAULT '{}',
+    status VARCHAR(20) NOT NULL DEFAULT 'ready' CHECK (status = 'ready'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (organisation_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_org_formats_org_created ON organisation_formats(organisation_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ingestion_artifacts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organisation_id UUID NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+    created_by_user_id UUID NOT NULL REFERENCES users(id),
+    original_filename TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    byte_size INTEGER NOT NULL CHECK (byte_size >= 0 AND byte_size <= 5000000),
+    sha256 VARCHAR(64) NOT NULL,
+    extraction_method VARCHAR(40) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'ready' CHECK (status IN ('ready','failed')),
+    extracted_text TEXT,
+    warnings JSONB NOT NULL DEFAULT '[]',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_ingestion_artifacts_org_created ON ingestion_artifacts(organisation_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ingestion_artifacts_hash ON ingestion_artifacts(organisation_id, sha256);
+
 CREATE TABLE IF NOT EXISTS commercial_decisions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organisation_id UUID NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
@@ -132,6 +163,7 @@ CREATE TABLE IF NOT EXISTS reasoning_jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_reasoning_jobs_claim ON reasoning_jobs(status, available_at);
 ALTER TABLE commercial_decisions ADD COLUMN IF NOT EXISTS parent_decision_id UUID REFERENCES commercial_decisions(id);
+ALTER TABLE commercial_decisions ADD COLUMN IF NOT EXISTS ingestion_artifact_ids JSONB NOT NULL DEFAULT '[]';
 ALTER TABLE commercial_decisions ADD COLUMN IF NOT EXISTS evidence_provenance JSONB;
 ALTER TABLE commercial_decisions ADD COLUMN IF NOT EXISTS reasoning_started_at TIMESTAMPTZ;
 ALTER TABLE commercial_decisions ADD COLUMN IF NOT EXISTS current_attempt_id UUID;
@@ -284,6 +316,18 @@ DROP POLICY IF EXISTS org_isolation_workspace_invites ON workspace_invites;
 CREATE POLICY org_isolation_workspace_invites ON workspace_invites
     USING (organisation_id = current_setting('app.current_org_id', true)::UUID);
 
+ALTER TABLE organisation_formats ENABLE ROW LEVEL SECURITY;
+ALTER TABLE organisation_formats FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_isolation_organisation_formats ON organisation_formats;
+CREATE POLICY org_isolation_organisation_formats ON organisation_formats
+    USING (organisation_id = current_setting('app.current_org_id', true)::uuid)
+    WITH CHECK (organisation_id = current_setting('app.current_org_id', true)::uuid);
+
+ALTER TABLE ingestion_artifacts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ingestion_artifacts FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_isolation_ingestion_artifacts ON ingestion_artifacts;
+CREATE POLICY org_isolation_ingestion_artifacts ON ingestion_artifacts USING (organisation_id = current_setting('app.current_org_id', true)::uuid) WITH CHECK (organisation_id = current_setting('app.current_org_id', true)::uuid);
+
 ALTER TABLE commercial_decisions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE commercial_decisions FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS org_isolation_cd ON commercial_decisions;
@@ -362,3 +406,94 @@ CREATE POLICY org_isolation_df ON decision_feedback
         WHERE cd.id = decision_feedback.commercial_decision_id
         AND cd.organisation_id = current_setting('app.current_org_id', true)::UUID
     ));
+
+-- R35.1: bounded agentic workflow approvals. Approval is an audit record only;
+-- this table never performs or authorizes external side effects by itself.
+CREATE TABLE IF NOT EXISTS workflow_action_approvals (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    commercial_decision_id UUID NOT NULL REFERENCES commercial_decisions(id) ON DELETE CASCADE,
+    organisation_id UUID NOT NULL,
+    action_id TEXT NOT NULL,
+    approved_by_user_id UUID NOT NULL,
+    approved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (commercial_decision_id, action_id)
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_action_approvals_org ON workflow_action_approvals(organisation_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_action_approvals_decision ON workflow_action_approvals(commercial_decision_id);
+ALTER TABLE workflow_action_approvals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE workflow_action_approvals FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_isolation_workflow_action_approvals ON workflow_action_approvals;
+CREATE POLICY org_isolation_workflow_action_approvals ON workflow_action_approvals
+    USING (organisation_id = current_setting('app.current_org_id', true)::UUID)
+    WITH CHECK (organisation_id = current_setting('app.current_org_id', true)::UUID);
+
+
+-- R36: buyer-controlled supplier response execution. Drafts are versioned;
+-- deliveries are immutable/idempotent audit records.
+CREATE TABLE IF NOT EXISTS supplier_response_drafts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    commercial_decision_id UUID NOT NULL REFERENCES commercial_decisions(id) ON DELETE CASCADE,
+    organisation_id UUID NOT NULL,
+    created_by_user_id UUID NOT NULL,
+    recipient TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (commercial_decision_id)
+);
+CREATE INDEX IF NOT EXISTS idx_supplier_response_drafts_org ON supplier_response_drafts(organisation_id);
+ALTER TABLE supplier_response_drafts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE supplier_response_drafts FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_isolation_supplier_response_drafts ON supplier_response_drafts;
+CREATE POLICY org_isolation_supplier_response_drafts ON supplier_response_drafts
+    USING (organisation_id = current_setting('app.current_org_id', true)::UUID)
+    WITH CHECK (organisation_id = current_setting('app.current_org_id', true)::UUID);
+
+CREATE TABLE IF NOT EXISTS supplier_response_deliveries (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    commercial_decision_id UUID NOT NULL REFERENCES commercial_decisions(id) ON DELETE CASCADE,
+    organisation_id UUID NOT NULL,
+    draft_version INTEGER NOT NULL,
+    recipient TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    payload_sha256 TEXT NOT NULL,
+    status TEXT NOT NULL,
+    delivery_mode TEXT NOT NULL,
+    approved_by_user_id UUID NOT NULL,
+    approved_at TIMESTAMPTZ NOT NULL,
+    sent_at TIMESTAMPTZ,
+    provider_response TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (commercial_decision_id, payload_sha256)
+);
+CREATE INDEX IF NOT EXISTS idx_supplier_response_deliveries_org ON supplier_response_deliveries(organisation_id);
+CREATE INDEX IF NOT EXISTS idx_supplier_response_deliveries_decision ON supplier_response_deliveries(commercial_decision_id);
+ALTER TABLE supplier_response_deliveries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE supplier_response_deliveries FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_isolation_supplier_response_deliveries ON supplier_response_deliveries;
+CREATE POLICY org_isolation_supplier_response_deliveries ON supplier_response_deliveries
+    USING (organisation_id = current_setting('app.current_org_id', true)::UUID)
+    WITH CHECK (organisation_id = current_setting('app.current_org_id', true)::UUID);
+
+
+-- R36: lightweight supplier reply capture. This stores the buyer-provided
+-- reply verbatim; interpretation belongs to a later decision/evidence flow.
+CREATE TABLE IF NOT EXISTS supplier_response_replies (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    commercial_decision_id UUID NOT NULL REFERENCES commercial_decisions(id) ON DELETE CASCADE,
+    organisation_id UUID NOT NULL,
+    captured_by_user_id UUID NOT NULL,
+    body TEXT NOT NULL,
+    captured_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_supplier_response_replies_org ON supplier_response_replies(organisation_id);
+CREATE INDEX IF NOT EXISTS idx_supplier_response_replies_decision ON supplier_response_replies(commercial_decision_id);
+ALTER TABLE supplier_response_replies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE supplier_response_replies FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_isolation_supplier_response_replies ON supplier_response_replies;
+CREATE POLICY org_isolation_supplier_response_replies ON supplier_response_replies
+    USING (organisation_id = current_setting('app.current_org_id', true)::UUID)
+    WITH CHECK (organisation_id = current_setting('app.current_org_id', true)::UUID);

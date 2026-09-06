@@ -158,6 +158,34 @@ def extract_text_from_eml(file_bytes: bytes, max_chars: int = 8000) -> str:
     return _truncate(full_text, max_chars)
 
 
+
+def extract_text_from_pptx(file_bytes: bytes, max_chars: int = 12000) -> str:
+    """Extract visible PPTX slide text deterministically; never execute content."""
+    try:
+        from pptx import Presentation
+        import io
+        prs = Presentation(io.BytesIO(file_bytes))
+    except Exception as exc:
+        raise FileExtractionError("Could not read this PowerPoint file safely.") from exc
+    chunks, total = [], 0
+    for idx, slide in enumerate(prs.slides, start=1):
+        texts = []
+        for shape in slide.shapes:
+            if not getattr(shape, "has_text_frame", False):
+                continue
+            txt = "\n".join(p.text for p in shape.text_frame.paragraphs).strip()
+            if txt:
+                texts.append(txt)
+        if texts:
+            block = f"SLIDE {idx}\n" + "\n".join(texts)
+            total += len(block)
+            if total > max_chars:
+                raise FileExtractionError("This PowerPoint contains more readable content than VendorEdge can safely analyze as one submission.")
+            chunks.append(block)
+    if not chunks:
+        raise FileExtractionError("No readable slide content was found in this PowerPoint.")
+    return "\n\n".join(chunks)
+
 def extract_text_from_zip(file_bytes: bytes, max_chars: int = 8000) -> str:
     """Safely extract supported text from a ZIP bundle.
 

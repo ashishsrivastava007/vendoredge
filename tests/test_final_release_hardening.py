@@ -87,3 +87,18 @@ def test_xlsx_nested_zip_expansion_limit_is_enforced():
         z.writestr("xl/oversized.bin", b"x" * 10_000_001)
     with pytest.raises(FileExtractionError):
         _validate_zip_container(buf.getvalue())
+
+
+def test_production_rejects_legacy_workspace_auth_path():
+    source = (ROOT / "app/main.py").read_text()
+    assert "ENVIRONMENT" in source
+    assert "ALLOW_LEGACY_WORKSPACE_LINKS" in source
+    assert "must be disabled in production" in source
+
+
+def test_supplier_send_serializes_concurrent_requests():
+    source = (ROOT / "app/routes/decisions.py").read_text()
+    marker = "def send_supplier_response("
+    section = source[source.index(marker):]
+    assert "pg_advisory_xact_lock" in section
+    assert "vendoredge:supplier-response-send:" in section

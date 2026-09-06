@@ -18,6 +18,8 @@ services:
         value: vendoredge_app
       - key: VENDOREDGE_AUTH_SECRET
         generateValue: true
+      - key: ENVIRONMENT
+        value: production
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: ALLOW_LEGACY_WORKSPACE_LINKS

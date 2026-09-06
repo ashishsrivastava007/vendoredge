@@ -1,6 +1,7 @@
 import time
 import traceback
 import threading
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -20,6 +21,13 @@ from app.pipeline.dispatcher import start_dispatcher
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # The legacy header-only workspace path is a migration escape hatch, not a
+    # production authentication mechanism. Refuse to boot if it is ever
+    # accidentally enabled in a production deployment.
+    if (os.environ.get("ENVIRONMENT", "").lower() in {"production", "prod"} and
+            os.environ.get("ALLOW_LEGACY_WORKSPACE_LINKS", "false").lower() == "true"):
+        raise RuntimeError("ALLOW_LEGACY_WORKSPACE_LINKS must be disabled in production.")
+
     # Authentication is mandatory for protected API routes. Fail fast rather
     # than creating workspaces that cannot receive a signed session.
     _secret()

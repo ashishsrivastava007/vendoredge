@@ -68,10 +68,26 @@ class CreateDecisionRequest(BaseModel):
     # real progress in parallel with the main request, instead of only
     # finding out the ID once everything is already finished.
     client_decision_id: Optional[UUID] = None
+    ingestion_artifact_ids: list[UUID] = Field(default_factory=list, max_length=10)
 
 
 class RespondRequest(BaseModel):
     user_supplied_inputs: dict[str, Any]
+
+
+class SupplierResponseDraftRequest(BaseModel):
+    recipient: str = Field(..., min_length=3, max_length=320)
+    subject: str = Field(..., min_length=1, max_length=300)
+    body: str = Field(..., min_length=1, max_length=20000)
+    expected_version: Optional[int] = Field(default=None, ge=1)
+
+
+class SupplierResponseHandoffRequest(BaseModel):
+    expected_version: int = Field(..., ge=1)
+
+
+class SupplierReplyRequest(BaseModel):
+    body: str = Field(..., min_length=1, max_length=30000)
 
 
 class ConfidenceFactor(BaseModel):
@@ -292,6 +308,13 @@ class CommercialPosition(BaseModel):
     # integrity of the decision process; it never certifies the commercial
     # outcome itself and cannot alter the recommendation.
     trust_certification: Optional[dict[str, Any]] = None
+    # Release 29: buyer-readable deterministic trust ledger. It classifies
+    # evidence and decision outputs as VERIFIED/CALCULATED/ASSUMED/INFERRED/UNKNOWN.
+    trust_engine: Optional[dict[str, Any]] = None
+    # Release 31: deterministic Commercial Decision Engine. One operational
+    # decision spine for daily buyer use; it compresses validated layers and
+    # never creates new facts, thresholds or model inference.
+    commercial_decision_engine: Optional[dict[str, Any]] = None
     # Release 20: deterministic Commercial Truth Model. This is the structured
     # commercial situation consumed by later intelligence layers.
     commercial_truth_model: Optional[dict[str, Any]] = None
@@ -316,6 +339,14 @@ class CommercialPosition(BaseModel):
     commercial_dna: Optional[dict[str, Any]] = None
     # Release 13: deterministic negotiation meeting aid.
     negotiation_playbook: Optional[NegotiationPlaybook] = None
+    negotiation_intelligence: Optional[dict[str, Any]] = None
+    # Release 33: supplier-centric deterministic memory. Read-time context only;
+    # it never mutates the recommendation or turns sparse history into prediction.
+    supplier_memory: Optional[dict[str, Any]] = None
+    # Release 34.1: adaptive second-opinion model orchestration; advisory only.
+    model_orchestration: Optional[dict[str, Any]] = None
+    # Release 35.1: bounded agentic workflow; preparation/approval state only.
+    agentic_workflow: Optional[dict[str, Any]] = None
     # Release 7: deterministic challenge of the recommendation using only
     # stated evidence and explicitly labelled hypothetical shocks.
     stress_test: Optional[dict[str, Any]] = None
@@ -344,10 +375,23 @@ class MissingField(BaseModel):
     why: str
 
 
+class IngestionArtifactResponse(BaseModel):
+    id: UUID
+    filename: str
+    media_type: str
+    byte_size: int
+    extraction_method: str
+    status: Literal["ready", "failed"]
+    extracted_characters: int
+    content_preview: str
+    warnings: list[str] = Field(default_factory=list)
+
+
 class CommercialDecisionResponse(BaseModel):
     id: UUID
     status: Status
     raw_question: str
+    ingestion_artifacts: list[dict[str, Any]] = Field(default_factory=list)
     parent_decision_id: Optional[UUID] = None
     classified_content_type: Optional[ContentType] = None
     classified_decision_type: Optional[DecisionType] = None
@@ -387,6 +431,7 @@ class CommercialDecisionResponse(BaseModel):
 class ContinueCaseRequest(BaseModel):
     what_happened: str = Field(..., min_length=1)
     client_decision_id: Optional[UUID] = None
+    ingestion_artifact_ids: list[UUID] = Field(default_factory=list, max_length=10)
 
 
 class PilotExperienceRequest(BaseModel):

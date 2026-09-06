@@ -12,6 +12,10 @@ import traceback
 import time
 import hashlib
 import secrets
+import os
+import urllib.parse
+import urllib.request
+from urllib.error import HTTPError, URLError
 from datetime import timedelta
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -22,7 +26,7 @@ from app.models import (
     CreateDecisionRequest, RespondRequest, FeedbackRequest, ContinueCaseRequest,
     CommercialDecisionResponse, WorkspaceResponse, WorkspaceInfoResponse, PilotLeadRequest, ControlTower, AlternativeAnalysis,
     GeneralFeedbackRequest, DecisionAudit, PilotExperienceRequest, DecisionFormatRequest, CustomFormatRequest,
-    InviteResponse, AcceptInviteRequest,
+    InviteResponse, AcceptInviteRequest, SupplierResponseDraftRequest, SupplierResponseHandoffRequest, SupplierReplyRequest,
 )
 from app.database import get_org_scoped_connection
 from app.auth import create_session_token
@@ -53,17 +57,24 @@ from app.pipeline.control_tower import build_control_tower
 from app.pipeline.decision_passport import build_decision_passport
 from app.pipeline.decision_cockpit import build_decision_cockpit
 from app.pipeline.trust_certification import build_trust_certification
+from app.pipeline.trust_engine import build_trust_engine
 from app.pipeline.commercial_model import build_commercial_truth_model
+from app.pipeline.commercial_decision_engine import build_commercial_decision_engine
 from app.pipeline.decision_flip_map import build_decision_flip_map
 from app.pipeline.commercial_war_room import build_commercial_war_room
 from app.pipeline.procurement_memory import build_procurement_memory
 from app.pipeline.outcome_intelligence import build_outcome_intelligence
 from app.pipeline.commercial_dna import build_commercial_dna
 from app.pipeline.negotiation_playbook import build_negotiation_playbook
+from app.pipeline.negotiation_intelligence import build_negotiation_intelligence
+from app.pipeline.model_orchestration import build_model_orchestration, run_challenger, challenge_trigger
+from app.pipeline.agentic_workflow import build_agentic_workflow
+from app.pipeline.supplier_memory import build_supplier_memory
 from app.pipeline.decision_formats import render_decision
 from app.pipeline.customer_actions import build_action_plan
 from app.pipeline.commercial_triage import build_generic_commercial_position
 from app.pipeline.customer_exports import render_custom, export_csv
+from app.pipeline.organisation_formats import build_pptx_profile, render_organisation_format
 from app.pipeline.webhook import dispatch_event
 from app.pipeline.pilot_metrics import build_pilot_metrics
 from app.pipeline.file_extraction import (
@@ -139,6 +150,119 @@ def _check_invite_accept_rate_limit(client_ip: str):
     _invite_accept_log[client_ip] = recent
 
 
+
+@router.post("/organisation-formats/import", response_model=OrganisationFormatResponse)
+async def import_organisation_format(request: Request, file: UploadFile = File(...)):
+    """Learn an organization's existing PowerPoint deck structure.
+
+    The deck is a format reference, not commercial evidence.
+    """
+    org_id, user_id = _require_identity(request)
+    filename = (file.filename or "Organization format.pptx").strip()
+    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+    if ext != "pptx":
+        raise HTTPException(400, "Organization output formats currently require a PowerPoint (.pptx) deck.")
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "This format file is empty.")
+    if len(raw) > 5_000_000:
+        raise HTTPException(400, "This format file is too large (max 5MB).")
+    if not raw.startswith(b"PK"):
+        raise HTTPException(400, "The file is not a valid PowerPoint container.")
+    try:
+        profile = build_pptx_profile(raw, filename)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    name = filename.rsplit(".", 1)[0].strip() or "Organization format"
+    lower = (name + " " + " ".join(x.get("title", "") for x in profile["slides"])).lower()
+    format_type = "other"
+    for candidate, keywords in (("negotiation", ("negotiat", "supplier negotiation")), ("srm", ("srm", "supplier review", "supplier performance")), ("rfq", ("rfq", "request for quotation", "sourcing")), ("management", ("management", "executive", "steering", "approval"))):
+        if any(k in lower for k in keywords):
+            format_type = candidate
+            break
+    digest = hashlib.sha256(raw).hexdigest()
+    profile["sha256"] = digest
+    with get_org_scoped_connection(org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO organisation_formats
+                (organisation_id, created_by_user_id, name, format_type, source_filename, profile)
+                VALUES (%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (organisation_id, name) DO UPDATE SET
+                    created_by_user_id=EXCLUDED.created_by_user_id, format_type=EXCLUDED.format_type,
+                    source_filename=EXCLUDED.source_filename, profile=EXCLUDED.profile
+                RETURNING id, name, format_type, source_filename, profile, created_at""",
+                (org_id, user_id, name[:255], format_type, filename, json.dumps(profile)))
+            row = cur.fetchone()
+    return OrganisationFormatResponse(
+        id=row["id"], name=row["name"], format_type=row["format_type"],
+        source_filename=row["source_filename"], slide_count=int((row["profile"] or {}).get("slide_count", 0)),
+        status="ready", created_at=row["created_at"].isoformat() if row["created_at"] else None)
+
+
+@router.get("/organisation-formats", response_model=list[OrganisationFormatResponse])
+def list_organisation_formats(request: Request):
+    org_id, _ = _require_identity(request)
+    with get_org_scoped_connection(org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id,name,format_type,source_filename,profile,created_at FROM organisation_formats ORDER BY created_at DESC")
+            rows = cur.fetchall()
+    return [OrganisationFormatResponse(
+        id=r["id"], name=r["name"], format_type=r["format_type"], source_filename=r["source_filename"],
+        slide_count=int((r["profile"] or {}).get("slide_count", 0)), status="ready",
+        created_at=r["created_at"].isoformat() if r["created_at"] else None) for r in rows]
+
+
+@router.post("/commercial-decisions/{decision_id}/organisation-format")
+def render_saved_organisation_format(decision_id: UUID, body: OrganisationFormatRenderRequest, request: Request):
+    org_id, _ = _require_identity(request)
+    decision = _fetch_decision(org_id, decision_id)
+    if decision.status != "completed" or decision.commercial_position is None:
+        raise HTTPException(409, "A completed decision is required.")
+    with get_org_scoped_connection(org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name,profile FROM organisation_formats WHERE organisation_id=%s AND id=%s", (org_id, str(body.format_id)))
+            row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Organization format not found.")
+    out = render_organisation_format(decision.commercial_position, row["profile"] or {})
+    out["format_name"] = row["name"]
+    return out
+
+
+@router.post("/ingest-file", response_model=IngestionArtifactResponse)
+async def ingest_file(request: Request, file: UploadFile = File(...)):
+    """Durable deterministic ingestion boundary. No LLM call is made here."""
+    org_id, user_id = _require_identity(request)
+    filename=(file.filename or "upload").strip() or "upload"
+    ext=filename.lower().rsplit(".",1)[-1] if "." in filename else ""
+    extractors={
+      "txt":(extract_text_from_text,"deterministic_text"),"csv":(extract_text_from_text,"deterministic_csv"),
+      "xlsx":(extract_text_from_xlsx,"deterministic_xlsx"),"pdf":(extract_text_from_pdf,"deterministic_pdf"),
+      "docx":(extract_text_from_docx,"deterministic_docx"),"pptx":(extract_text_from_pptx,"deterministic_pptx"),
+      "eml":(extract_text_from_eml,"deterministic_eml"),"zip":(extract_text_from_zip,"deterministic_zip")
+    }
+    if ext not in extractors:
+        raise HTTPException(400,"Unsupported format. Bring Excel, PDF, Word, PowerPoint, email, CSV, TXT, or ZIP.")
+    raw=await file.read()
+    if not raw: raise HTTPException(400,"This file is empty.")
+    if len(raw)>5_000_000: raise HTTPException(400,"File is too large (max 5MB).")
+    if ext in {"pdf"} and not raw.startswith(b"%PDF"): raise HTTPException(400,"The file does not contain a valid PDF signature.")
+    if ext in {"xlsx","docx","pptx","zip"} and not raw.startswith(b"PK"): raise HTTPException(400,"The file is not a valid ZIP-based document container.")
+    extractor,method=extractors[ext]
+    try: text=extractor(raw,max_chars=12000)
+    except FileExtractionError as exc: raise HTTPException(422,str(exc))
+    except Exception as exc:
+        print(f"Ingestion extraction failed: {type(exc).__name__}: {exc}")
+        raise HTTPException(422,"VendorEdge could not safely read this file. Try a clean export or paste the relevant content.")
+    if not text.strip(): raise HTTPException(422,"No readable commercial content was found in this file.")
+    if "[... content truncated" in text or "[... additional rows truncated ...]" in text: raise HTTPException(422,"This document is larger than VendorEdge can safely analyze as one submission. Split it or upload a focused extract.")
+    digest=hashlib.sha256(raw).hexdigest()
+    with get_org_scoped_connection(org_id) as conn:
+      with conn.cursor() as cur:
+        cur.execute("""INSERT INTO ingestion_artifacts (organisation_id,created_by_user_id,original_filename,media_type,byte_size,sha256,extraction_method,status,extracted_text,warnings) VALUES (%s,%s,%s,%s,%s,%s,%s,'ready',%s,'[]') RETURNING id,created_at""",(org_id,user_id,filename,file.content_type or "application/octet-stream",len(raw),digest,method,text))
+        row=cur.fetchone()
+    return IngestionArtifactResponse(id=row["id"],filename=filename,media_type=file.content_type or "application/octet-stream",byte_size=len(raw),extraction_method=method,status="ready",extracted_characters=len(text),content_preview=text[:1800],warnings=[])
+
 @router.post("/extract-file")
 async def extract_file(request: Request, file: UploadFile = File(...)):
     _require_identity(request)
@@ -153,13 +277,15 @@ async def extract_file(request: Request, file: UploadFile = File(...)):
         ".xlsx": extract_text_from_xlsx,
         ".pdf": extract_text_from_pdf,
         ".eml": extract_text_from_eml,
+        ".docx": extract_text_from_docx,
+        ".pptx": extract_text_from_pptx,
         ".zip": extract_text_from_zip,
     }
     matched_ext = next((ext for ext in extractors if filename.endswith(ext)), None)
     if not matched_ext:
         raise HTTPException(
             status_code=400,
-            detail="Only .xlsx, .pdf, .eml, and .zip files are supported right now. For other "
+            detail="Only .xlsx, .pdf, .docx, .pptx, .eml, and .zip files are supported right now. For other "
                    "formats, please copy and paste the relevant details into the question box.",
         )
     file_bytes = await file.read()
@@ -600,11 +726,11 @@ def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTas
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO commercial_decisions
-                   (id, organisation_id, created_by_user_id, raw_question, status)
-                   VALUES (%s, %s, %s, %s, 'classifying')
+                   (id, organisation_id, created_by_user_id, raw_question, ingestion_artifact_ids, status)
+                   VALUES (%s, %s, %s, %s, %s, 'classifying')
                    ON CONFLICT (id) DO NOTHING
                    RETURNING id""",
-                (str(decision_id), x_org_id, x_user_id, body.raw_question),
+                (str(decision_id), x_org_id, x_user_id, body.raw_question, json.dumps([str(x) for x in body.ingestion_artifact_ids])),
             )
             inserted = cur.fetchone()
             if not inserted:
@@ -737,7 +863,7 @@ def list_decisions(request: Request, x_org_id: str = Header(...), x_user_id: str
     with get_org_scoped_connection(x_org_id) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT cd.id, cd.status, cd.raw_question, cd.classified_content_type,
+                """SELECT cd.id, cd.status, cd.raw_question, cd.ingestion_artifact_ids, cd.classified_content_type,
                           cd.classified_decision_type, cd.missing_inputs_requested,
                           cd.commercial_position, cd.created_at, cd.completed_at,
                           EXISTS(
@@ -1200,6 +1326,298 @@ def dispatch_decision_webhook(decision_id: UUID, request: Request):
     return dispatch_event(str(decision_id), decision.commercial_position)
 
 
+def _supplier_response_hash(recipient: str, subject: str, body: str) -> str:
+    canonical = "\n".join([recipient.strip(), subject.strip(), body.strip()])
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _load_supplier_response_draft(org_id: str, decision_id: UUID):
+    with get_org_scoped_connection(org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, recipient, subject, body, version, updated_at, created_by_user_id "
+                "FROM supplier_response_drafts WHERE commercial_decision_id = %s",
+                (str(decision_id),),
+            )
+            return cur.fetchone()
+
+
+@router.post("/commercial-decisions/{decision_id}/supplier-response/reply")
+def capture_supplier_reply(decision_id: UUID, body: SupplierReplyRequest, request: Request):
+    """Capture a supplier reply against this case without interpreting or inventing it."""
+    x_org_id, x_user_id = _require_identity(request)
+    decision = _fetch_decision(x_org_id, decision_id)
+    if decision.status != "completed" or decision.commercial_position is None:
+        raise HTTPException(status_code=409, detail="A completed decision is required.")
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO supplier_response_replies
+                   (commercial_decision_id, organisation_id, captured_by_user_id, body)
+                   VALUES (%s,%s,%s,%s) RETURNING id, captured_at""",
+                (str(decision_id), x_org_id, x_user_id, body.body),
+            )
+            row = cur.fetchone()
+    return {"captured": True, "reply_id": str(row["id"]), "captured_at": row["captured_at"].isoformat(), "next_step": "Use this captured reply as new evidence in a follow-up decision; VendorEdge does not silently reinterpret it into the current decision."}
+
+
+@router.get("/commercial-decisions/{decision_id}/supplier-response")
+def get_supplier_response(decision_id: UUID, request: Request):
+    """Return the editable supplier response draft plus delivery/audit state."""
+    x_org_id, _ = _require_identity(request)
+    decision = _fetch_decision(x_org_id, decision_id)
+    if decision.status != "completed" or decision.commercial_position is None:
+        raise HTTPException(status_code=409, detail="A completed decision is required.")
+    workflow = build_agentic_workflow(decision.commercial_position)
+    action = next((a for a in workflow["actions"] if a["id"] == "draft-supplier-message"), None)
+    if not action:
+        raise HTTPException(status_code=409, detail="No supplier response draft is available for this decision.")
+    draft = _load_supplier_response_draft(x_org_id, decision_id)
+    if draft:
+        result = dict(draft)
+        result["updated_at"] = result["updated_at"].isoformat() if hasattr(result["updated_at"], "isoformat") else str(result["updated_at"])
+        result["source"] = "saved_edit"
+    else:
+        result = {
+            "recipient": "",
+            "subject": action["prepared_output"].split("\n", 1)[0].replace("Subject: ", "", 1),
+            "body": action["prepared_output"],
+            "version": 1,
+            "source": "prepared_draft",
+        }
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT action_id, approved_by_user_id, approved_at FROM workflow_action_approvals "
+                "WHERE commercial_decision_id = %s AND action_id IN ('draft-supplier-message','prepare-supplier-negotiation')",
+                (str(decision_id),),
+            )
+            approvals = [dict(r) for r in cur.fetchall()]
+            cur.execute(
+                "SELECT status, delivery_mode, draft_version, sent_at, created_at FROM supplier_response_deliveries "
+                "WHERE commercial_decision_id = %s ORDER BY created_at DESC LIMIT 5",
+                (str(decision_id),),
+            )
+            deliveries = [dict(r) for r in cur.fetchall()]
+            cur.execute(
+                "SELECT id, body, captured_at, captured_by_user_id FROM supplier_response_replies "
+                "WHERE commercial_decision_id = %s ORDER BY captured_at DESC LIMIT 5",
+                (str(decision_id),),
+            )
+            replies = [dict(r) for r in cur.fetchall()]
+    for r in approvals:
+        if hasattr(r.get("approved_at"), "isoformat"):
+            r["approved_at"] = r["approved_at"].isoformat()
+    for r in deliveries:
+        for k in ("sent_at", "created_at"):
+            if hasattr(r.get(k), "isoformat"):
+                r[k] = r[k].isoformat()
+    return {
+        "available": True,
+        "draft": result,
+        "approvals": approvals,
+        "deliveries": deliveries,
+        "replies": replies,
+        "email_webhook_configured": bool(os.environ.get("VENDOREDGE_EMAIL_WEBHOOK_URL") and os.environ.get("VENDOREDGE_EMAIL_WEBHOOK_SECRET")),
+        "execution_rule": "Draft → Review → Approve → Execute → Confirm → Audit",
+    }
+
+
+@router.put("/commercial-decisions/{decision_id}/supplier-response")
+def save_supplier_response(decision_id: UUID, body: SupplierResponseDraftRequest, request: Request):
+    """Persist the buyer-edited supplier response as an auditable draft version."""
+    x_org_id, x_user_id = _require_identity(request)
+    decision = _fetch_decision(x_org_id, decision_id)
+    if decision.status != "completed" or decision.commercial_position is None:
+        raise HTTPException(status_code=409, detail="A completed decision is required.")
+    if "@" not in body.recipient or "\n" in body.recipient or "\r" in body.recipient:
+        raise HTTPException(status_code=400, detail="Enter a valid single email recipient.")
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT version FROM supplier_response_drafts WHERE commercial_decision_id = %s FOR UPDATE", (str(decision_id),))
+            existing = cur.fetchone()
+            if existing and body.expected_version is not None and int(existing["version"]) != body.expected_version:
+                raise HTTPException(status_code=409, detail="This draft changed elsewhere. Reload before saving.")
+            version = (int(existing["version"]) + 1) if existing else 1
+            cur.execute(
+                """INSERT INTO supplier_response_drafts
+                   (commercial_decision_id, organisation_id, created_by_user_id, recipient, subject, body, version)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (commercial_decision_id) DO UPDATE SET
+                     recipient=EXCLUDED.recipient, subject=EXCLUDED.subject, body=EXCLUDED.body,
+                     version=EXCLUDED.version, created_by_user_id=EXCLUDED.created_by_user_id, updated_at=now()
+                   RETURNING version, updated_at""",
+                (str(decision_id), x_org_id, x_user_id, body.recipient.strip(), body.subject.strip(), body.body, version),
+            )
+            row = cur.fetchone()
+            # Editing the message invalidates the prior approval. Approval is
+            # intentionally attached to the current draft state, not the case.
+            cur.execute(
+                "DELETE FROM workflow_action_approvals WHERE commercial_decision_id=%s AND action_id='draft-supplier-message'",
+                (str(decision_id),),
+            )
+    return {"saved": True, "version": row["version"], "updated_at": row["updated_at"].isoformat()}
+
+
+@router.post("/commercial-decisions/{decision_id}/supplier-response/handoff")
+def handoff_supplier_response(decision_id: UUID, body: SupplierResponseHandoffRequest, request: Request):
+    """Record a safe local-email handoff when no server email connector is configured."""
+    x_org_id, x_user_id = _require_identity(request)
+    decision = _fetch_decision(x_org_id, decision_id)
+    if decision.status != "completed" or decision.commercial_position is None:
+        raise HTTPException(status_code=409, detail="A completed decision is required.")
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT recipient, subject, body, version FROM supplier_response_drafts WHERE commercial_decision_id=%s",
+                (str(decision_id),),
+            )
+            draft = cur.fetchone()
+            cur.execute(
+                "SELECT 1 FROM workflow_action_approvals WHERE commercial_decision_id=%s AND action_id='draft-supplier-message'",
+                (str(decision_id),),
+            )
+            approved = cur.fetchone() is not None
+            if not draft:
+                raise HTTPException(status_code=409, detail="Save the reviewed draft before sending.")
+            if int(draft["version"]) != body.expected_version:
+                raise HTTPException(status_code=409, detail="Draft version changed. Reload before sending.")
+            if not approved:
+                raise HTTPException(status_code=409, detail="Explicit approval is required before sending.")
+            payload_hash = _supplier_response_hash(draft["recipient"], draft["subject"], draft["body"])
+            cur.execute(
+                """INSERT INTO supplier_response_deliveries
+                   (commercial_decision_id, organisation_id, draft_version, recipient, subject, body, payload_sha256, status, delivery_mode, approved_by_user_id, approved_at)
+                   SELECT %s,%s,%s,%s,%s,%s,%s,'HANDOFF_READY','email_client',approved_by_user_id,approved_at
+                   FROM workflow_action_approvals WHERE commercial_decision_id=%s AND action_id='draft-supplier-message'
+                   ON CONFLICT (commercial_decision_id, payload_sha256) DO NOTHING
+                   RETURNING id, created_at""",
+                (str(decision_id), x_org_id, draft["version"], draft["recipient"], draft["subject"], draft["body"], payload_hash, str(decision_id)),
+            )
+            row = cur.fetchone()
+    mailto = "mailto:" + urllib.parse.quote(draft["recipient"], safe="@._+-") + "?subject=" + urllib.parse.quote(draft["subject"]) + "&body=" + urllib.parse.quote(draft["body"])
+    return {"ready": True, "delivery_mode": "email_client", "mailto": mailto, "delivery_id": str(row["id"]) if row else None, "message": "Opening your email client is the final external step; VendorEdge records the approved handoff, not a claim that the email was sent."}
+
+
+@router.post("/commercial-decisions/{decision_id}/supplier-response/send")
+def send_supplier_response(decision_id: UUID, body: SupplierResponseHandoffRequest, request: Request):
+    """Execute an explicitly approved supplier email through the deployment-owned webhook."""
+    x_org_id, x_user_id = _require_identity(request)
+    decision = _fetch_decision(x_org_id, decision_id)
+    if decision.status != "completed" or decision.commercial_position is None:
+        raise HTTPException(status_code=409, detail="A completed decision is required.")
+    url = os.environ.get("VENDOREDGE_EMAIL_WEBHOOK_URL")
+    secret = os.environ.get("VENDOREDGE_EMAIL_WEBHOOK_SECRET")
+    if not url or not secret:
+        raise HTTPException(status_code=409, detail="Email execution is not configured. Use the email-client handoff or configure VENDOREDGE_EMAIL_WEBHOOK_URL and VENDOREDGE_EMAIL_WEBHOOK_SECRET.")
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            # Serialize sends for this decision while the external delivery is
+            # in flight. A plain read-then-write check is racy: two tabs can
+            # both observe "not sent" and both call the webhook. The
+            # transaction-scoped advisory lock is cheap, org-local, and avoids
+            # holding a heavyweight row lock while preserving the existing
+            # idempotent payload record.
+            cur.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (f"vendoredge:supplier-response-send:{decision_id}",),
+            )
+            cur.execute(
+                "SELECT recipient, subject, body, version FROM supplier_response_drafts WHERE commercial_decision_id=%s",
+                (str(decision_id),),
+            )
+            draft = cur.fetchone()
+            cur.execute(
+                "SELECT approved_by_user_id, approved_at FROM workflow_action_approvals WHERE commercial_decision_id=%s AND action_id='draft-supplier-message'",
+                (str(decision_id),),
+            )
+            approval = cur.fetchone()
+            if not draft:
+                raise HTTPException(status_code=409, detail="Save the reviewed draft before sending.")
+            if int(draft["version"]) != body.expected_version:
+                raise HTTPException(status_code=409, detail="Draft version changed. Reload before sending.")
+            if not approval:
+                raise HTTPException(status_code=409, detail="Explicit approval is required before sending.")
+            payload_hash = _supplier_response_hash(draft["recipient"], draft["subject"], draft["body"])
+            cur.execute("SELECT id, status, sent_at FROM supplier_response_deliveries WHERE commercial_decision_id=%s AND payload_sha256=%s", (str(decision_id), payload_hash))
+            prior = cur.fetchone()
+            if prior and prior["status"] == "SENT":
+                return {"sent": True, "duplicate_prevented": True, "delivery_id": str(prior["id"]), "sent_at": prior["sent_at"].isoformat() if prior["sent_at"] else None}
+            idempotency_key = f"{decision_id}:{draft['version']}:{payload_hash[:16]}"
+            payload = {"event":"supplier_response.send","version":"1","idempotency_key":idempotency_key,"decision_id":str(decision_id),"recipient":draft["recipient"],"subject":draft["subject"],"body":draft["body"],"approved_by_user_id":str(approval["approved_by_user_id"]),"approved_at":approval["approved_at"].isoformat()}
+            data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+            signature = hashlib.sha256((secret + data.decode("utf-8")).encode("utf-8")).hexdigest()
+            req = urllib.request.Request(url, data=data, method="POST", headers={"Content-Type":"application/json","X-VendorEdge-Signature":signature,"X-VendorEdge-Idempotency-Key":idempotency_key})
+            try:
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    status = int(resp.status)
+                    provider_body = resp.read(2000).decode("utf-8", errors="replace")
+            except (HTTPError, URLError, TimeoutError) as exc:
+                cur.execute(
+                    """INSERT INTO supplier_response_deliveries (commercial_decision_id,organisation_id,draft_version,recipient,subject,body,payload_sha256,status,delivery_mode,approved_by_user_id,approved_at,provider_response)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,'FAILED','email_webhook',%s,%s,%s)
+                       ON CONFLICT (commercial_decision_id,payload_sha256) DO UPDATE SET status='FAILED', provider_response=EXCLUDED.provider_response""",
+                    (str(decision_id),x_org_id,draft["version"],draft["recipient"],draft["subject"],draft["body"],payload_hash,approval["approved_by_user_id"],approval["approved_at"],type(exc).__name__),
+                )
+                raise HTTPException(status_code=502, detail="Email delivery failed; no success was recorded.")
+            if not 200 <= status < 300:
+                raise HTTPException(status_code=502, detail="Email connector rejected the message; no success was recorded.")
+            cur.execute(
+                """INSERT INTO supplier_response_deliveries (commercial_decision_id,organisation_id,draft_version,recipient,subject,body,payload_sha256,status,delivery_mode,approved_by_user_id,approved_at,sent_at,provider_response)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,'SENT','email_webhook',%s,%s,now(),%s)
+                   ON CONFLICT (commercial_decision_id,payload_sha256) DO UPDATE SET status='SENT',sent_at=now(),provider_response=EXCLUDED.provider_response
+                   RETURNING id,sent_at""",
+                (str(decision_id),x_org_id,draft["version"],draft["recipient"],draft["subject"],draft["body"],payload_hash,approval["approved_by_user_id"],approval["approved_at"],provider_body[:2000]),
+            )
+            row = cur.fetchone()
+    return {"sent": True, "delivery_mode": "email_webhook", "delivery_id": str(row["id"]), "sent_at": row["sent_at"].isoformat()}
+
+
+@router.get("/commercial-decisions/{decision_id}/agent-workflow")
+def get_agent_workflow(decision_id: UUID, request: Request):
+    """Return the bounded agentic work queue; never performs external actions."""
+    x_org_id, _ = _require_identity(request)
+    decision = _fetch_decision(x_org_id, decision_id)
+    if decision.status != "completed" or decision.commercial_position is None:
+        raise HTTPException(status_code=409, detail="A completed decision is required.")
+    return build_agentic_workflow(decision.commercial_position)
+
+
+@router.post("/commercial-decisions/{decision_id}/agent-workflow/{action_id}/approve")
+def approve_agent_workflow_action(decision_id: UUID, action_id: str, request: Request):
+    """Record explicit human approval for a prepared action; do not execute it."""
+    x_org_id, x_user_id = _require_identity(request)
+    decision = _fetch_decision(x_org_id, decision_id)
+    if decision.status != "completed" or decision.commercial_position is None:
+        raise HTTPException(status_code=409, detail="A completed decision is required.")
+    workflow = build_agentic_workflow(decision.commercial_position)
+    allowed = {a["id"]: a for a in workflow["actions"]}
+    action = allowed.get(action_id)
+    if not action:
+        raise HTTPException(status_code=404, detail="Unknown workflow action.")
+    if action.get("status") == "blocked_until_resolved" or action.get("status") == "blocked":
+        raise HTTPException(status_code=409, detail="This action is blocked and cannot be approved yet.")
+    with get_org_scoped_connection(x_org_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO workflow_action_approvals
+                   (commercial_decision_id, organisation_id, action_id, approved_by_user_id)
+                   VALUES (%s, %s, %s, %s)
+                   ON CONFLICT (commercial_decision_id, action_id)
+                   DO UPDATE SET approved_by_user_id = EXCLUDED.approved_by_user_id, approved_at = now()
+                   RETURNING id, approved_at""",
+                (str(decision_id), x_org_id, action_id, x_user_id),
+            )
+            row = cur.fetchone()
+    return {
+        "approved": True,
+        "action_id": action_id,
+        "approved_at": row["approved_at"].isoformat() if hasattr(row["approved_at"], "isoformat") else str(row["approved_at"]),
+        "external_execution": False,
+        "next_step": "An external integration may execute this approved action only after its own safety and authorization checks.",
+    }
+
+
 @router.get("/commercial-decisions/{decision_id}/action-plan")
 def get_action_plan(decision_id: UUID, request: Request):
     """Return an approval-gated execution plan without causing external side effects."""
@@ -1586,8 +2004,84 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
     # final validated decision state and can never be changed by rendering.
     try:
         position.trust_certification = build_trust_certification(normalized, position)
+        position.trust_engine = build_trust_engine(normalized, position)
     except Exception as e:
         print(f"Trust certification skipped (non-blocking): {type(e).__name__}: {e}")
+
+    # Release 34.1: adaptive model orchestration. A second model is invoked
+    # only when deterministic complexity signals justify the extra cost. The
+    # challenger cannot rewrite the primary recommendation; its job is to
+    # expose weaknesses and force human review when warranted.
+    try:
+        should_challenge, challenge_reasons = challenge_trigger(normalized, position)
+        if should_challenge:
+            try:
+                challenger_opinion = run_challenger(normalized, position)
+                position.model_orchestration = build_model_orchestration(
+                    normalized, position, opinion=challenger_opinion,
+                    trigger_reasons=challenge_reasons,
+                )
+            except Exception as e:
+                print(f"Challenger review unavailable (non-blocking but review-required): {type(e).__name__}: {e}")
+                position.model_orchestration = build_model_orchestration(
+                    normalized, position, trigger_reasons=challenge_reasons,
+                    provider_error=type(e).__name__,
+                )
+        else:
+            position.model_orchestration = build_model_orchestration(
+                normalized, position, trigger_reasons=[]
+            )
+    except Exception as e:
+        print(f"Model orchestration skipped (non-blocking): {type(e).__name__}: {e}")
+
+    # Release 33: supplier-centric deterministic memory. It is built from the
+    # same tenant-scoped completed history used for prior supplier memory, but
+    # now preserves a structured supplier baseline and deterministic term changes.
+    try:
+        supplier_memory_rows = []
+        supplier_name_for_memory = normalized.common.supplier_name or (normalized.suppliers[0].supplier_name if normalized.suppliers else None)
+        if supplier_name_for_memory:
+            with get_org_scoped_connection(org_id) as smconn:
+                with smconn.cursor() as smcur:
+                    smcur.execute(
+                        """SELECT cd.id, cd.created_at, cd.classified_content_type,
+                                  cd.user_supplied_inputs, cd.commercial_position,
+                                  df.outcome_description, df.validation_verdict, df.decision_alignment
+                           FROM commercial_decisions cd
+                           LEFT JOIN LATERAL (
+                               SELECT outcome_description, validation_verdict, decision_alignment
+                               FROM decision_feedback
+                               WHERE commercial_decision_id = cd.id
+                               ORDER BY outcome_recorded_at DESC
+                               LIMIT 1
+                           ) df ON true
+                           WHERE cd.status = 'completed' AND cd.id != %s
+                           ORDER BY cd.created_at DESC
+                           LIMIT 200""",
+                        (str(decision_id),),
+                    )
+                    for r in smcur.fetchall():
+                        supplier_memory_rows.append(dict(r))
+        position.supplier_memory = build_supplier_memory(normalized, position, supplier_memory_rows)
+    except Exception as e:
+        print(f"Supplier memory skipped (non-blocking): {type(e).__name__}: {e}")
+
+    # Release 31: deterministic Commercial Decision Engine. It is built after
+    # trust, economics, alternatives and uncertainty are final, so the daily
+    # action spine cannot outrank or mutate the validated decision.
+    # Release 32 / Phase 4: deterministic Negotiation Intelligence.
+    # It converts the validated negotiation position into a give/get matrix,
+    # response scenarios, escalation triggers and a meeting checklist.
+    try:
+        position.negotiation_intelligence = build_negotiation_intelligence(position)
+        position.agentic_workflow = build_agentic_workflow(position)
+    except Exception as e:
+        print(f"Negotiation intelligence skipped (non-blocking): {type(e).__name__}: {e}")
+
+    try:
+        position.commercial_decision_engine = build_commercial_decision_engine(normalized, position)
+    except Exception as e:
+        print(f"Commercial Decision Engine skipped (non-blocking): {type(e).__name__}: {e}")
 
     # Release 20: deterministic Commercial Truth Model. This is the single
     # structural commercial contract for downstream R21-R25 intelligence.
@@ -1810,6 +2304,12 @@ def _fetch_decision(org_id, decision_id) -> CommercialDecisionResponse:
                 raise HTTPException(status_code=404, detail="Decision not found")
 
             row_dict = dict(row)
+            artifact_ids = row_dict.pop("ingestion_artifact_ids", None) or []
+            if artifact_ids:
+                cur.execute("SELECT id, original_filename, extraction_method, byte_size, created_at FROM ingestion_artifacts WHERE organisation_id=%s AND id=ANY(%s::uuid[]) ORDER BY created_at", (org_id, [str(x) for x in artifact_ids]))
+                row_dict["ingestion_artifacts"]=[{"id":str(a["id"]),"filename":a["original_filename"],"extraction_method":a["extraction_method"],"byte_size":a["byte_size"],"created_at":a["created_at"].isoformat() if a["created_at"] else None} for a in cur.fetchall()]
+            else:
+                row_dict["ingestion_artifacts"]=[]
             # Fix for the confirmed master-case leak: internal bookkeeping
             # keys (reserved __name__ convention, e.g.
             # __supplier_specific_evidence__) are stored in
@@ -1863,6 +2363,43 @@ def _fetch_decision(org_id, decision_id) -> CommercialDecisionResponse:
                     "VendorEdge couldn't complete this analysis. You can safely try again -- "
                     "your answers are saved."
                 )
+
+            # R33: supplier memory is read-time context over tenant-scoped completed cases.
+            try:
+                position_obj = row_dict.get("commercial_position")
+                if position_obj:
+                    from app.models import CommercialPosition
+                    pos_model = position_obj if isinstance(position_obj, CommercialPosition) else CommercialPosition(**position_obj)
+                    from app.pipeline.normalized_evidence import NormalizedEvidence
+                    # The persisted normalized evidence is not a database column in the
+                    # current schema. Reconstruct only the supplier name from the stored
+                    # commercial truth model and use a minimal normalized shell when safe.
+                    truth = (position_obj.get("commercial_truth_model") or {}) if isinstance(position_obj, dict) else {}
+                    suppliers = ((truth.get("parties") or {}).get("suppliers") or [])
+                    supplier_name = suppliers[0].get("name") if suppliers and isinstance(suppliers[0], dict) else None
+                    if supplier_name:
+                        from app.pipeline.normalized_evidence import CommonEvidence, DerivedEvidence, PriceIncreaseEvidence
+                        n = NormalizedEvidence(
+                            content_type=row_dict.get("classified_content_type") or "price_increase",
+                            common=CommonEvidence(supplier_name=supplier_name),
+                            case=PriceIncreaseEvidence(),
+                            derived=DerivedEvidence(),
+                        )
+                        sm_rows=[]
+                        with get_org_scoped_connection(org_id) as smconn:
+                            with smconn.cursor() as smcur:
+                                smcur.execute(
+                                    """SELECT cd.id, cd.created_at, cd.classified_content_type, cd.user_supplied_inputs, cd.commercial_position,
+                                              df.outcome_description, df.validation_verdict, df.decision_alignment
+                                       FROM commercial_decisions cd
+                                       LEFT JOIN LATERAL (SELECT outcome_description, validation_verdict, decision_alignment FROM decision_feedback WHERE commercial_decision_id=cd.id ORDER BY outcome_recorded_at DESC LIMIT 1) df ON true
+                                       WHERE cd.status='completed' AND cd.id != %s ORDER BY cd.created_at DESC LIMIT 200""",
+                                    (str(decision_id),),
+                                )
+                                sm_rows=[dict(r) for r in smcur.fetchall()]
+                        row_dict["supplier_memory"] = build_supplier_memory(n, pos_model, sm_rows)
+            except Exception as e:
+                print(f"Supplier memory read-time build skipped (non-blocking): {type(e).__name__}: {e}")
 
             # R24: outcome intelligence is deliberately computed at read time
             # from immutable decision data + the latest recorded outcome. It

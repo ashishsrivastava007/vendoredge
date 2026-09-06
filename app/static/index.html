@@ -39,7 +39,7 @@
 
   /* R27 Buyer Experience: the engine stays deep; the default UI stays shallow. */
   #pos-trust-certification, #pos-commercial-truth-model, #pos-decision-flip-map,
-  #pos-commercial-war-room, #pos-procurement-memory, #pos-outcome-intelligence,
+  #pos-commercial-war-room, #pos-supplier-memory, #pos-procurement-memory, #pos-outcome-intelligence,
   #pos-commercial-dna, #pos-case-count, #pos-commercial-insights,
   #pos-hypothesis, #pos-methodology, #pos-cost-drivers, #pos-financial-scenarios,
   #pos-key-figures, #pos-supplier-comparison, #pos-financial-impact, #pos-badge,
@@ -121,7 +121,7 @@
   .journey-step b { font-size:10.5px; line-height:1.1; }
   .journey-step small { color:#9296a0; font-size:8.5px; margin-top:2px; }
   .journey-line { flex:1; height:1px; min-width:14px; background:#dedfe4; margin:0 8px; }
-  #pos-decision-cockpit, #pos-trust-certification, #pos-commercial-truth-model, #pos-decision-flip-map, #pos-commercial-war-room, #pos-procurement-memory, #pos-outcome-intelligence, #pos-commercial-dna { margin:14px 0; }
+  #pos-decision-cockpit, #pos-trust-certification, #pos-commercial-truth-model, #pos-decision-flip-map, #pos-commercial-war-room, #pos-supplier-memory, #pos-procurement-memory, #pos-outcome-intelligence, #pos-commercial-dna { margin:14px 0; }
   .decision-flow-note { margin:0 0 12px; font-size:11px; color:#7a7f89; letter-spacing:.03em; }
   .ve-support-group { margin:10px 0; border:1px solid #dfe2e7; border-radius:12px; background:#fff; overflow:hidden; }
   .ve-support-group > summary { cursor:pointer; list-style:none; padding:13px 14px; font-size:12.5px; font-weight:850; color:#1f2430; background:#fafbfc; }
@@ -133,7 +133,7 @@
   .ve-support-body > div { margin:0 !important; }
   .ve-support-body > div > section { margin:8px 0 !important; box-shadow:none !important; }
 
-  #pos-decision-cockpit > *, #pos-trust-certification > *, #pos-commercial-truth-model > *, #pos-decision-flip-map > *, #pos-commercial-war-room > *, #pos-procurement-memory > *, #pos-outcome-intelligence > *, #pos-commercial-dna > * { border-radius:14px !important; }
+  #pos-decision-cockpit > *, #pos-trust-certification > *, #pos-commercial-truth-model > *, #pos-decision-flip-map > *, #pos-commercial-war-room > *, #pos-supplier-memory > *, #pos-procurement-memory > *, #pos-outcome-intelligence > *, #pos-commercial-dna > * { border-radius:14px !important; }
   #loading { max-width:720px; margin:80px auto; background:#fff; border:1px solid var(--line); border-radius:20px; padding:34px; box-shadow:var(--shadow); font-weight:600; color:#454952; }
   @media (max-width:760px) {
     body { padding:0 15px 48px; }
@@ -174,8 +174,8 @@
   </div>
   <div style="text-align:center"><button id="ask-btn" class="primary-btn" onclick="askQuestion()">Get my position →</button></div>
   <div style="text-align:center; margin-top:14px">
-    <button class="example-btn" onclick="triggerFileUpload()" style="border-style:dashed">📄 Upload Documents (.txt, .csv, .xlsx, .pdf, .eml, .zip)</button>
-    <input type="file" id="file-input" accept=".txt,.csv,.xlsx,.pdf,.eml,.zip" multiple style="display:none" onchange="handleFileUpload(event)" />
+    <button class="example-btn" onclick="triggerFileUpload()" style="border-style:dashed">📄 Bring Your Own Format / Documents (.txt, .csv, .xlsx, .pdf, .docx, .pptx, .eml, .zip)</button>
+    <input type="file" id="file-input" accept=".txt,.csv,.xlsx,.pdf,.docx,.pptx,.eml,.zip" multiple style="display:none" onchange="handleFileUpload(event)" />
   </div>
 </div>
 
@@ -210,11 +210,17 @@
   <div class="card">
     <p style="color:#777; font-size:11px; font-weight:800; letter-spacing:.12em; margin:0 0 8px; text-transform:uppercase">Your decision</p>
     <div id="pos-thread-indicator"></div>
+    <div id="pos-decision-engine"></div>
+    <div id="pos-model-orchestration"></div>
+  <div id="pos-agentic-workflow"></div>
     <div id="pos-decision-cockpit"></div>
+    <div id="pos-trust-engine"></div>
     <div id="pos-trust-certification"></div>
     <div id="pos-commercial-truth-model"></div>
     <div id="pos-decision-flip-map"></div>
     <div id="pos-commercial-war-room"></div>
+    <div id="pos-negotiation-intelligence"></div>
+    <div id="pos-supplier-memory"></div>
     <div id="pos-procurement-memory"></div>
     <div id="pos-outcome-intelligence"></div>
     <div id="pos-commercial-dna"></div>
@@ -544,6 +550,7 @@ async function inviteTeammate() {
 }
 
 let currentDecisionId = null;
+let selectedIngestionArtifactIds = [];
 let currentMissingFields = [];
 let currentHasFeedback = false;
 let currentRawQuestion = "";
@@ -873,6 +880,36 @@ function renderNegotiationDimensions(pos) {
   `;
 }
 
+function renderNegotiationIntelligence(pos) {
+  const el = document.getElementById("pos-negotiation-intelligence");
+  if (!el) return;
+  const n = pos.negotiation_intelligence;
+  if (!n || !n.available) { el.innerHTML = ""; return; }
+  const status = String(n.readiness || "CONDITIONAL");
+  const badge = status === "READY" ? "READY" : status === "HOLD_FOR_EVIDENCE_CONFLICT" ? "HOLD — EVIDENCE CONFLICT" : "CONDITIONAL";
+  const rows = (n.give_get_matrix || []).slice(0,6).map(x => `
+    <tr style="border-top:1px solid #eee">
+      <td style="padding:7px 9px;font-weight:700">${escapeHtml(String(x.dimension||""))}</td>
+      <td style="padding:7px 9px">${escapeHtml(String(x.buyer_target||""))}</td>
+      <td style="padding:7px 9px">${escapeHtml(String(x.buyer_boundary||""))}</td>
+      <td style="padding:7px 9px;color:#555">${escapeHtml(String(x.rule||""))}</td>
+    </tr>`).join("");
+  const scenarios = (n.response_scenarios || []).slice(0,5).map(x => `<div style="padding:7px 0;border-top:1px solid #eee"><b>${escapeHtml(String(x.trigger||""))}</b><div style="margin-top:3px">${escapeHtml(String(x.buyer_move||""))}</div><div style="font-size:9.5px;color:#9a5b00;margin-top:2px">Scenario — not a supplier prediction</div></div>`).join("");
+  const escalations = (n.escalation_triggers || []).slice(0,5).map(x => `<li style="margin:5px 0"><b>${escapeHtml(String(x.trigger||""))}</b> — ${escapeHtml(String(x.action||""))}</li>`).join("");
+  const checklist = (n.preparation_checklist || []).slice(0,5).map(x => `<li style="margin:5px 0">${escapeHtml(String(x))}</li>`).join("");
+  el.innerHTML = `
+    <div style="border:1px solid #ddd;border-radius:12px;margin:10px 0;padding:12px 14px;background:#fff">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+        <div><div style="font-size:9px;letter-spacing:.15em;font-weight:900;opacity:.65">NEGOTIATION INTELLIGENCE</div><div style="font-size:17px;font-weight:900;margin-top:3px">Prepare → trade → respond → escalate</div><div style="font-size:10.5px;opacity:.7;margin-top:4px">Evidence-backed operating guidance. Supplier reactions are never presented as predictions.</div></div>
+        <span style="font-size:9px;font-weight:900;padding:5px 7px;border:1px solid #ddd;border-radius:999px">${escapeHtml(badge)}</span>
+      </div>
+      ${rows ? `<details open style="margin-top:11px"><summary style="cursor:pointer;font-size:11px;font-weight:900">GIVE / GET MATRIX</summary><div style="overflow:auto;margin-top:6px"><table style="width:100%;border-collapse:collapse;font-size:11px"><tr style="color:#888"><td style="padding:4px 9px">Dimension</td><td style="padding:4px 9px">Target</td><td style="padding:4px 9px">Boundary</td><td style="padding:4px 9px">Trading rule</td></tr>${rows}</table></div></details>` : ""}
+      ${scenarios ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">RESPONSE PLAYBOOK</summary><div style="margin-top:5px">${scenarios}</div></details>` : ""}
+      ${escalations ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">ESCALATION TRIGGERS</summary><ul style="font-size:11px;padding-left:18px;margin:6px 0">${escalations}</ul></details>` : ""}
+      ${checklist ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">BEFORE YOU NEGOTIATE</summary><ul style="font-size:11px;padding-left:18px;margin:6px 0">${checklist}</ul></details>` : ""}
+    </div>`;
+}
+
 function renderTalkTrack(pos) {
   const el = document.getElementById("pos-talk-track");
   if (!el) return;
@@ -964,6 +1001,35 @@ function renderCommercialTruthModel(pos) {
     </section>`;
 }
 
+
+function renderTrustEngine(pos) {
+  const el = document.getElementById("pos-trust-engine");
+  if (!el) return;
+  const t = pos.trust_engine;
+  if (!t) { el.innerHTML = ""; return; }
+  const counts = t.counts || {};
+  const palette = { VERIFIED:"#1f7a4d", CALCULATED:"#356aa0", ASSUMED:"#9a6a00", INFERRED:"#7050a0", UNKNOWN:"#a23b3b" };
+  const pills = Object.keys(palette).map(k => `<span style="display:inline-flex;gap:4px;align-items:center;border:1px solid #e3e3e6;border-radius:999px;padding:4px 7px;font-size:9.5px;font-weight:900;color:${palette[k]}">${k} ${Number(counts[k]||0)}</span>`).join("");
+  const entries = (t.entries || []).slice(0, 24).map(e => {
+    const c = palette[e.state] || "#666";
+    const supplier = e.supplier ? ` · ${escapeHtml(e.supplier)}` : "";
+    const conflict = e.conflicting ? ` <span style="color:#a23b3b;font-weight:900">CONFLICT</span>` : "";
+    return `<div style="display:grid;grid-template-columns:1.2fr 1.6fr auto;gap:8px;align-items:start;padding:7px 0;border-top:1px solid #eee"><div style="font-size:10.5px;font-weight:800">${escapeHtml(String(e.field))}${supplier}</div><div style="font-size:10.5px;color:#555;overflow-wrap:anywhere">${escapeHtml(String(e.value))}${conflict}</div><div style="font-size:9px;font-weight:900;color:${c};white-space:nowrap">${escapeHtml(String(e.state))}</div></div>`;
+  }).join("");
+  const unresolved = (t.unresolved || []).slice(0, 6).map(e => `<li style="margin:3px 0">${escapeHtml(String(e.field))}: ${escapeHtml(String(e.value))}</li>`).join("");
+  el.innerHTML = `<section style="border:1px solid #cfd5df;border-radius:13px;margin:0 0 12px;overflow:hidden;background:#fff">
+    <div style="padding:11px 14px;background:#f3f5f8;display:flex;justify-content:space-between;gap:10px;align-items:center">
+      <div><div style="font-size:9px;letter-spacing:.14em;font-weight:900;color:#687080">TRUST ENGINE</div><div style="font-size:15px;font-weight:900;margin-top:2px">What is fact, calculation, assumption, inference — and what is unknown</div></div>
+      <div style="font-size:9px;font-weight:900;color:${t.decision_integrity === "PASS" ? "#1f7a4d" : "#a23b3b"};border:1px solid currentColor;padding:5px 8px;border-radius:999px">${escapeHtml(t.decision_integrity || "REVIEW")}</div>
+    </div>
+    <div style="padding:10px 14px">
+      <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px">${pills}</div>
+      <div style="font-size:10.5px;color:#666;margin-bottom:8px">VendorEdge does not treat a model inference as evidence. Calculations are system-owned. Missing or conflicting evidence stays visible.</div>
+      <details open><summary style="cursor:pointer;font-size:11px;font-weight:900">Evidence & decision ledger</summary><div style="margin-top:5px">${entries}</div></details>
+      ${unresolved ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:11px;font-weight:900;color:#a23b3b">What remains unresolved (${Number(t.unresolved_count||0)})</summary><ul style="font-size:10.5px;color:#555;padding-left:18px">${unresolved}</ul></details>` : ""}
+      <div style="font-size:9.5px;color:#999;margin-top:8px">Five-state trust semantics: VERIFIED · CALCULATED · ASSUMED · INFERRED · UNKNOWN</div>
+    </div></section>`;
+}
 
 function renderTrustCertification(pos) {
   const el = document.getElementById("pos-trust-certification");
@@ -1059,6 +1125,216 @@ function renderCommercialWarRoom(pos) {
     </section>`;
 }
 
+function renderModelOrchestration(pos) {
+  const el = document.getElementById("pos-model-orchestration");
+  if (!el) return;
+  const m = pos.model_orchestration;
+  if (!m || !m.available) { el.innerHTML = ""; return; }
+  const invoked = !!m.challenger_invoked;
+  const review = !!m.review_required;
+  const title = invoked ? "INDEPENDENT SECOND OPINION" : "MODEL REVIEW GATE";
+  const badge = review ? "HUMAN REVIEW" : (invoked ? "DUAL-MODEL CHECK" : "PRIMARY ONLY");
+  const badgeBg = review ? "#fff3d6" : "#eef6ff";
+  const badgeColor = review ? "#8a5a00" : "#315a85";
+  const reasons = (m.trigger_reasons || []).slice(0,5).map(x => `<li>${escapeHtml(String(x))}</li>`).join("");
+  const challenged = (m.challenged_claims || []).slice(0,5).map(x => `<li>${escapeHtml(String(x))}</li>`).join("");
+  const risks = (m.overlooked_risks || []).slice(0,5).map(x => `<li>${escapeHtml(String(x))}</li>`).join("");
+  const basis = (m.evidence_basis || []).slice(0,5).map(x => `<li>${escapeHtml(String(x))}</li>`).join("");
+  el.innerHTML = `
+    <section style="border:1px solid #496a88;border-radius:15px;margin:0 0 14px;overflow:hidden;background:#fff;box-shadow:0 5px 18px rgba(17,24,39,.07)">
+      <div style="padding:13px 15px;background:#f4f8fb;display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+        <div><div style="font-size:9px;letter-spacing:.15em;font-weight:900;color:#496a88">${title}</div><div style="font-size:17px;font-weight:900;margin-top:3px">A second model tries to break the decision</div><div style="font-size:10.5px;color:#666;margin-top:4px">Independent challenge, not a second recommendation and not evidence.</div></div>
+        <div style="font-size:9px;font-weight:900;color:${badgeColor};background:${badgeBg};padding:5px 8px;border-radius:999px;white-space:nowrap">${badge}</div>
+      </div>
+      <div style="padding:12px 15px">
+        ${reasons ? `<div style="font-size:10px;font-weight:900;letter-spacing:.06em;color:#777">WHY THIS CASE WAS CHALLENGED</div><ul style="margin:5px 0 0 18px;font-size:10.5px;line-height:1.45">${reasons}</ul>` : ""}
+        ${m.mode === "PRIMARY_ONLY" ? `<div style="margin-top:9px;font-size:10.5px;color:#555">No second model call was necessary. VendorEdge uses an adaptive gate so routine cases do not pay the latency/cost of a second opinion.</div>` : ""}
+        ${m.provider_error ? `<div style="margin-top:9px;padding:9px 10px;background:#fff7ed;border-radius:9px;font-size:10.5px;color:#7a5c00"><b>Second opinion unavailable.</b> The case remains flagged for human review rather than silently upgrading confidence.</div>` : ""}
+        ${m.verdict ? `<div style="margin-top:10px;padding:9px 10px;background:#f7f7f9;border-radius:9px;font-size:11px"><b>Challenger verdict:</b> ${escapeHtml(String(m.verdict).replaceAll("_"," "))}${m.challenge_level ? ` · <b>challenge:</b> ${escapeHtml(String(m.challenge_level))}` : ""}</div>` : ""}
+        ${challenged ? `<details style="margin-top:8px;border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">CLAIMS CHALLENGED</summary><ul style="margin:6px 0 0 18px;font-size:10.5px;line-height:1.45">${challenged}</ul></details>` : ""}
+        ${risks ? `<details style="margin-top:8px;border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">OVERLOOKED RISKS</summary><ul style="margin:6px 0 0 18px;font-size:10.5px;line-height:1.45">${risks}</ul></details>` : ""}
+        ${m.alternative_frame ? `<div style="margin-top:9px;padding:9px 10px;background:#eef6ff;border-radius:9px;font-size:10.5px"><b>Alternative frame:</b> ${escapeHtml(String(m.alternative_frame))}</div>` : ""}
+        ${basis ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:10px;font-weight:900;color:#777">EVIDENCE BASIS</summary><ul style="margin:6px 0 0 18px;font-size:10px;line-height:1.4">${basis}</ul></details>` : ""}
+        <div style="font-size:9.5px;color:#999;margin-top:9px">${escapeHtml(m.honesty_note || "Second opinions are advisory and cannot rewrite the primary commercial position.")}</div>
+      </div>
+    </section>`;
+}
+
+function renderAgenticWorkflow(pos) {
+  const el = document.getElementById("pos-agentic-workflow");
+  if (!el) return;
+  const w = pos.agentic_workflow;
+  if (!w || !w.available) { el.innerHTML = ""; return; }
+  const actions = (w.actions || []).slice(0,6).map(a => {
+    const status = String(a.status || "").replaceAll("_", " ");
+    if (a.id === "draft-supplier-message") return "";
+    const payload = typeof a.prepared_output === "string" ? escapeHtml(a.prepared_output) : escapeHtml(JSON.stringify(a.prepared_output || {}, null, 2));
+    return `<div style="border:1px solid #eee;border-radius:10px;padding:10px;margin-top:8px">
+      <div style="display:flex;justify-content:space-between;gap:8px"><b style="font-size:11px">${escapeHtml(a.title || a.id)}</b><span style="font-size:9px;font-weight:900;padding:4px 7px;border-radius:999px;background:#f3f4f6;color:#555">${escapeHtml(status)}</span></div>
+      <div style="font-size:9px;color:#888;margin-top:3px">${escapeHtml(a.stage || "")} · ${a.approval_required ? "approval required" : "no approval required"}</div>
+      <pre style="white-space:pre-wrap;font:10px/1.45 inherit;color:#444;margin:7px 0 0">${payload}</pre>
+      <div style="font-size:9px;color:#999;margin-top:6px">${escapeHtml(a.side_effect || "No external side effect")}</div>
+    </div>`;
+  }).join("");
+  const agentDoes = (w.agent_does || []).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const human = (w.human_approves || []).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  el.innerHTML = `<section style="border:1px solid #6a5b8a;border-radius:15px;margin:0 0 14px;overflow:hidden;background:#fff;box-shadow:0 5px 18px rgba(17,24,39,.07)">
+    <div style="padding:13px 15px;background:#f7f4fb;display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+      <div><div style="font-size:9px;letter-spacing:.15em;font-weight:900;color:#6a5b8a">BOUNDED AGENTIC WORKFLOW</div><div style="font-size:17px;font-weight:900;margin-top:3px">VendorEdge prepares the work — you control the commitment</div><div style="font-size:10.5px;color:#666;margin-top:4px">Draft → Review → Approve → Send. VendorEdge never contacts a supplier without your explicit approval.</div></div>
+      <div style="font-size:9px;font-weight:900;color:#6a5b8a;background:#eee9f7;padding:5px 8px;border-radius:999px;white-space:nowrap">HUMAN GATED</div>
+    </div>
+    <div style="padding:12px 15px">
+      <div id="ve-supplier-response-center"></div>
+      <div style="font-size:10px;font-weight:900;letter-spacing:.06em;color:#777;margin-top:12px">WORK QUEUE</div>${actions || '<div style="font-size:11px;color:#777;margin-top:6px">No additional executable work has been safely prepared.</div>'}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+        <div style="border:1px solid #eee;border-radius:9px;padding:9px"><div style="font-size:9px;font-weight:900;color:#777">AGENT DOES</div><ul style="margin:6px 0 0 17px;font-size:10.5px;line-height:1.45">${agentDoes}</ul></div>
+        <div style="border:1px solid #eee;border-radius:9px;padding:9px"><div style="font-size:9px;font-weight:900;color:#777">HUMAN APPROVES</div><ul style="margin:6px 0 0 17px;font-size:10.5px;line-height:1.45">${human}</ul></div>
+      </div>
+      <div style="margin-top:9px;padding:9px 10px;background:#fff8e8;border-radius:9px;font-size:10.5px;color:#6b5600">${escapeHtml(w.execution_boundary || "External execution is disabled in this workflow.")}</div>
+      <div style="font-size:9.5px;color:#999;margin-top:8px">${escapeHtml(w.trust_note || "Prepared outputs require buyer review before use.")}</div>
+    </div></section>`;
+  loadSupplierResponseCenter();
+}
+
+async function loadSupplierResponseCenter() {
+  const el = document.getElementById("ve-supplier-response-center");
+  if (!el || !currentDecisionId) return;
+  el.innerHTML = `<div style="padding:12px;border:1px solid #e6e0ef;border-radius:11px;background:#fcfbfe;font-size:10.5px;color:#666">Preparing supplier response workspace…</div>`;
+  try {
+    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/supplier-response`, {headers: HEADERS});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Could not load supplier response workspace.");
+    const d = data.draft || {};
+    const approved = (data.approvals || []).some(a => a.action_id === "draft-supplier-message");
+    const sent = (data.deliveries || []).find(x => x.status === "SENT");
+    const handoff = (data.deliveries || []).find(x => x.status === "HANDOFF_READY");
+    const latestReply = (data.replies || [])[0];
+    const status = sent ? "SENT" : (handoff ? "HANDOFF READY" : (approved ? "APPROVED — READY TO SEND" : "DRAFT — REVIEW REQUIRED"));
+    const badge = sent ? "#e8f6ee" : (approved ? "#fff4d8" : "#eef4ff");
+    el.innerHTML = `<div style="border:1px solid #d9d1e7;border-radius:11px;padding:11px;background:#fcfbfe">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><div><div style="font-size:9px;letter-spacing:.08em;font-weight:900;color:#6a5b8a">SUPPLIER RESPONSE CENTER</div><div style="font-size:14px;font-weight:900;margin-top:3px">Review and send the supplier response</div></div><span style="font-size:9px;font-weight:900;padding:5px 8px;border-radius:999px;background:${badge};color:#5d4d79">${status}</span></div>
+      <div style="display:grid;grid-template-columns:1fr;gap:7px;margin-top:9px">
+        <input id="ve-response-recipient" value="${escapeHtml(d.recipient || "")}" placeholder="Supplier email address" style="padding:9px;border:1px solid #ddd;border-radius:8px;font:12px inherit">
+        <input id="ve-response-subject" value="${escapeHtml(d.subject || "")}" placeholder="Subject" style="padding:9px;border:1px solid #ddd;border-radius:8px;font:12px inherit">
+        <textarea id="ve-response-body" data-version="${Number(d.version || 1)}" rows="9" style="padding:9px;border:1px solid #ddd;border-radius:8px;font:12px/1.45 inherit;resize:vertical">${escapeHtml(d.body || "")}</textarea>
+      </div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:9px">
+        <button class="secondary" onclick="saveSupplierResponseDraft(${Number(d.version || 1)})">Save edited draft</button>
+        <button class="primary" onclick="approveSupplierResponse()" ${approved || sent ? "disabled" : ""}>${approved || sent ? "Approved" : "Approve response"}</button>
+        ${data.email_webhook_configured ? `<button class="primary" onclick="sendSupplierResponse(${Number(d.version || 1)})" ${!approved || sent ? "disabled" : ""}>${sent ? "Sent" : "Send to supplier"}</button>` : `<button class="secondary" onclick="handoffSupplierResponse(${Number(d.version || 1)})" ${!approved || sent ? "disabled" : "Open in email client"}</button>`}
+      </div>
+      <div id="ve-response-message" style="font-size:10px;color:#666;margin-top:8px">${data.email_webhook_configured ? "Server email connector is configured. Sending remains blocked until this exact draft is approved." : "No email connector is configured. The safe test path opens your own email client; VendorEdge records the approved handoff but does not claim the message was sent."}</div>
+      <details style="margin-top:11px;border-top:1px solid #eee;padding-top:9px"><summary style="cursor:pointer;font-size:10px;font-weight:900">CAPTURE SUPPLIER REPLY</summary>
+        <textarea id="ve-supplier-reply" rows="5" placeholder="Paste the supplier's reply here after they respond…" style="width:100%;box-sizing:border-box;margin-top:7px;padding:9px;border:1px solid #ddd;border-radius:8px;font:12px/1.45 inherit;resize:vertical"></textarea>
+        <button class="secondary" onclick="captureSupplierReply()" style="margin-top:7px">Record supplier reply</button>
+        ${latestReply ? `<div style="margin-top:8px;padding:8px;background:#f7f7f9;border-radius:8px;font-size:10px"><b>Latest captured reply</b><pre style="white-space:pre-wrap;font:10px/1.4 inherit;margin:5px 0 0">${escapeHtml(latestReply.body || "")}</pre></div>` : ""}
+      </details>
+    </div>`;
+  } catch (e) {
+    el.innerHTML = `<div style="padding:10px;border:1px solid #f0d4d4;border-radius:9px;background:#fff8f8;color:#8a3b3b;font-size:10.5px">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function saveSupplierResponseDraft(expectedVersion) {
+  const recipient = document.getElementById("ve-response-recipient")?.value.trim();
+  const subject = document.getElementById("ve-response-subject")?.value.trim();
+  const body = document.getElementById("ve-response-body")?.value || "";
+  const msg = document.getElementById("ve-response-message");
+  if (!recipient || !subject || !body) { if (msg) msg.innerText = "Recipient, subject and message are required."; return false; }
+  try {
+    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/supplier-response`, {method:"PUT",headers:{...HEADERS,"Content-Type":"application/json"},body:JSON.stringify({recipient,subject,body,expected_version:expectedVersion})});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Could not save draft.");
+    if (msg) msg.innerText = `Draft saved as version ${data.version}. Approval must be renewed for this edited version.`;
+    await loadSupplierResponseCenter();
+    return true;
+  } catch(e) { if (msg) msg.innerText = e.message; return false; }
+}
+
+async function approveSupplierResponse() {
+  const currentVersion = Number(document.getElementById("ve-response-body")?.dataset?.version || 1);
+  if (!(await saveSupplierResponseDraft(currentVersion))) return;
+  try {
+    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/agent-workflow/draft-supplier-message/approve`, {method:"POST",headers:HEADERS});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Approval failed.");
+    await loadSupplierResponseCenter();
+  } catch(e) { const msg=document.getElementById("ve-response-message"); if(msg) msg.innerText=e.message; }
+}
+
+async function sendSupplierResponse(version) {
+  if (!confirm("Send this exact approved message to the supplier?")) return;
+  try {
+    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/supplier-response/send`, {method:"POST",headers:{...HEADERS,"Content-Type":"application/json"},body:JSON.stringify({expected_version:version})});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Email delivery failed.");
+    await loadSupplierResponseCenter();
+  } catch(e) { const msg=document.getElementById("ve-response-message"); if(msg) msg.innerText=e.message; }
+}
+
+async function handoffSupplierResponse(version) {
+  try {
+    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/supplier-response/handoff`, {method:"POST",headers:{...HEADERS,"Content-Type":"application/json"},body:JSON.stringify({expected_version:version})});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Could not prepare email handoff.");
+    window.location.href = data.mailto;
+    await loadSupplierResponseCenter();
+  } catch(e) { const msg=document.getElementById("ve-response-message"); if(msg) msg.innerText=e.message; }
+}
+
+async function captureSupplierReply() {
+  const box = document.getElementById("ve-supplier-reply");
+  const body = box?.value.trim();
+  const msg = document.getElementById("ve-response-message");
+  if (!body) { if (msg) msg.innerText = "Paste the supplier reply first."; return; }
+  try {
+    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/supplier-response/reply`, {method:"POST",headers:{...HEADERS,"Content-Type":"application/json"},body:JSON.stringify({body})});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Could not record supplier reply.");
+    await loadSupplierResponseCenter();
+  } catch(e) { if (msg) msg.innerText = e.message; }
+}
+
+function renderSupplierMemory(pos) {
+  const el = document.getElementById("pos-supplier-memory");
+  if (!el) return;
+  const m = pos.supplier_memory;
+  if (!m || !m.available) { el.innerHTML = ""; return; }
+  const strength = m.memory_strength || "NEW_SUPPLIER";
+  const map = {ESTABLISHED:["ESTABLISHED MEMORY","#1f7a4d"],EMERGING:["EMERGING MEMORY","#9a5b00"],NEW_SUPPLIER:["FIRST BASELINE","#666"]};
+  const badge = map[strength] || [strength,"#666"];
+  const b = m.current_baseline || {};
+  const fields = [
+    ["Incoterm", b.incoterm], ["Payment terms", b.payment_terms], ["Currency", b.currency],
+    ["Lead time", b.lead_time_weeks != null ? `${b.lead_time_weeks} weeks` : null],
+    ["OTIF", b.otif_percent != null ? `${b.otif_percent}%` : null],
+    ["Defect rate", b.defect_rate_percent != null ? `${b.defect_rate_percent}%` : null]
+  ].filter(x => x[1] != null && String(x[1]).trim() !== "" && String(x[1]).toLowerCase() !== "unknown");
+  const fieldRows = fields.map(x => `<div style="padding:7px 8px;border-top:1px solid #eee"><div style="font-size:9px;color:#777;font-weight:800">${escapeHtml(x[0])}</div><div style="font-size:11px;font-weight:800;margin-top:2px">${escapeHtml(String(x[1]))}</div></div>`).join("");
+  const changes = (m.deterministic_changes || []).slice(0,5).map(x => `<div style="padding:7px 0;border-top:1px solid #eee"><b>${escapeHtml(String(x.field || "").replaceAll("_"," "))}</b>: ${escapeHtml(String(x.previous))} → ${escapeHtml(String(x.current))}</div>`).join("");
+  const cases = (m.prior_cases || []).slice(0,4).map(c => `<div style="padding:7px 0;border-top:1px solid #eee"><div style="font-size:11px;font-weight:800">${escapeHtml(c.recommendation || c.content_type || "Prior supplier case")}</div><div style="font-size:9.5px;color:#777;margin-top:3px">${escapeHtml(c.date || "")}${c.validation_verdict ? " · " + escapeHtml(c.validation_verdict.replaceAll("_"," ")) : " · no recorded outcome"}</div>${c.outcome ? `<div style="font-size:10.5px;margin-top:3px">Recorded outcome: ${escapeHtml(c.outcome)}</div>` : ""}</div>`).join("");
+  const unknowns = (m.current_unknown_fields || []).slice(0,6).map(x => `<span style="display:inline-block;padding:4px 7px;border-radius:999px;background:#f5f5f5;font-size:9.5px;margin:2px 3px 2px 0">${escapeHtml(String(x).replaceAll("_"," "))}</span>`).join("");
+  el.innerHTML = `
+    <section style="border:1px solid #0f766e;border-radius:15px;margin:0 0 14px;overflow:hidden;background:#fff;box-shadow:0 5px 18px rgba(17,24,39,.07)">
+      <div style="padding:13px 15px;background:#f0fdfa;display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+        <div><div style="font-size:9px;letter-spacing:.15em;font-weight:900;color:#0f766e">SUPPLIER MEMORY</div><div style="font-size:17px;font-weight:900;margin-top:3px">${escapeHtml(m.supplier_name || "Supplier")}</div><div style="font-size:10.5px;color:#666;margin-top:4px">A living commercial baseline built from what your organization has actually captured</div></div>
+        <div style="font-size:9px;font-weight:900;color:${badge[1]};background:#fff;padding:5px 8px;border-radius:999px;white-space:nowrap">${escapeHtml(badge[0])}</div>
+      </div>
+      <div style="padding:12px 15px">
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">PRIOR CASES</div><div style="font-size:16px;font-weight:900;margin-top:3px">${Number(m.prior_case_count || 0)}</div></div>
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">RECORDED OUTCOMES</div><div style="font-size:16px;font-weight:900;margin-top:3px">${Number(m.recorded_outcome_count || 0)}</div></div>
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">HELD / MISSES</div><div style="font-size:11px;font-weight:900;margin-top:3px">${Number(m.outcome_summary?.reasoning_held || 0)} / ${Number(m.outcome_summary?.recorded_misses || 0)}</div></div>
+        </div>
+        ${fieldRows ? `<div style="margin-top:10px;border:1px solid #eee;border-radius:10px;overflow:hidden"><div style="padding:9px;font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">LATEST CAPTURED BASELINE</div><div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr))">${fieldRows}</div></div>` : ""}
+        ${changes ? `<details style="margin-top:9px;border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">WHAT CHANGED SINCE THE LAST CAPTURE?</summary><div style="margin-top:5px;font-size:10.5px">${changes}</div></details>` : ""}
+        ${cases ? `<details style="margin-top:8px;border:1px solid #eee;border-radius:9px;padding:8px 10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">PRIOR COMMERCIAL POSITIONS</summary><div style="margin-top:5px">${cases}</div></details>` : ""}
+        ${unknowns ? `<div style="margin-top:9px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777;margin-bottom:3px">NOT YET CAPTURED</div>${unknowns}</div>` : ""}
+        <div style="font-size:9.5px;color:#999;margin-top:9px">${escapeHtml(m.history_note || "History is context, not proof of future behavior.")}</div>
+      </div>
+    </section>`;
+}
+
 function renderProcurementMemory(pos) {
   const el = document.getElementById("pos-procurement-memory");
   if (!el) return;
@@ -1126,7 +1402,10 @@ function renderOutcomeIntelligence(pos) {
         </div>
         ${o.outcome_description ? `<div style="border:1px solid #eee;border-radius:10px;padding:10px;margin-top:10px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">RECORDED OUTCOME</div><div style="font-size:11.5px;margin-top:5px;line-height:1.45">${escapeHtml(o.outcome_description)}</div></div>` : ""}
         ${lessons ? `<div style="border:1px solid #eee;border-radius:10px;padding:10px;margin-top:9px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">WHAT WE SHOULD LEARN</div><ul style="margin:6px 0 0 18px;font-size:11px;line-height:1.5">${lessons}</ul></div>` : ""}
+        ${o.next_time_controls && o.next_time_controls.length ? `<div style="border:1px solid #eee;border-radius:10px;padding:10px;margin-top:9px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">NEXT-TIME CONTROL</div><ul style="margin:6px 0 0 18px;font-size:11px;line-height:1.5">${o.next_time_controls.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul></div>` : ""}
+        ${o.calibration && o.calibration.available ? `<div style="border:1px solid #eee;border-radius:10px;padding:10px;margin-top:9px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#777">HISTORICAL CALIBRATION</div><div style="font-size:11px;margin-top:6px"><b>${escapeHtml(o.calibration.direction || "HISTORY")}</b> · ${escapeHtml(String(o.calibration.sample_size))} measured outcomes · ${escapeHtml(String(o.calibration.within_10_percent_percent))}% within ±10% of expected</div><div style="font-size:10px;color:#777;margin-top:4px">Mean signed variance: ${o.calibration.mean_signed_variance_percent != null ? escapeHtml(String(o.calibration.mean_signed_variance_percent)) + "%" : "Not available"}. Historical calibration is evidence, not a forecast.</div></div>` : ""}
         <div style="font-size:10px;color:#888;margin-top:9px">${escapeHtml(o.historical_realization_note || "")}</div>
+        <div style="font-size:10px;color:#777;margin-top:6px"><b>ATTRIBUTION:</b> ${escapeHtml(o.attribution_level || "UNRESOLVED")} — ${escapeHtml(o.attribution_detail || "")}</div>
         <div style="font-size:9.5px;color:#999;margin-top:6px">${escapeHtml(o.attribution_note || "")}</div>
       </div>
     </section>`;
@@ -1201,6 +1480,40 @@ function renderCommercialDNA(pos) {
         <div style="font-size:9.5px;color:#999;margin-top:6px">${escapeHtml(d.honesty_note || "")}</div>
       </div>
     </section>`;
+}
+
+function renderCommercialDecisionEngine(pos) {
+  const el = document.getElementById("pos-decision-engine");
+  if (!el) return;
+  const e = pos.commercial_decision_engine || {};
+  if (!Object.keys(e).length) { el.innerHTML = ""; return; }
+  const d = e.decision || {};
+  const ev = e.evidence || {};
+  const econ = e.economics || {};
+  const ex = e.execution || {};
+  const mode = String(d.mode || "REVIEW").toUpperCase();
+  const labels = {
+    DECIDE: ["READY TO ACT", "Evidence supports action within the stated conditions."],
+    PROTECT: ["ACT WITH A GUARDRAIL", "Act now only with explicit limits while uncertainty remains."],
+    ASK: ["ONE ANSWER FIRST", "Resolve the decision-critical question before an irreversible commitment."],
+    REVIEW: ["REVIEW", "Review the validated evidence before committing."]
+  };
+  const badge = labels[mode] || labels.REVIEW;
+  const list = (items) => (items || []).filter(Boolean).slice(0,4).map(x => `<li>${escapeHtml(String(x))}</li>`).join("");
+  const money = econ.available ? (econ.headline || (econ.potential_annual_impact_usd != null ? `$${Number(econ.potential_annual_impact_usd).toLocaleString()} potential annual impact` : "Economics available")) : "Not safely quantified";
+  el.innerHTML = `<section class="buyer-hero" style="margin-top:10px">
+    <div class="buyer-hero-top"><div><div class="buyer-eyebrow">COMMERCIAL DECISION ENGINE</div><h2>${escapeHtml(d.recommendation || pos.recommendation || "Review the evidence")}</h2></div><div class="buyer-status">${escapeHtml(badge[0])}</div></div>
+    <p class="buyer-mode-note">${escapeHtml(badge[1])}</p>
+    <div class="buyer-summary-grid">
+      <div><label>DECISION MODE</label><strong>${escapeHtml(mode)}</strong></div>
+      <div><label>EVIDENCE</label><strong>${escapeHtml(ev.status || "LIMITED")}</strong></div>
+      <div><label>MONEY</label><strong>${escapeHtml(money)}</strong></div>
+    </div>
+    <div class="buyer-primary-action"><span>DO THIS NEXT</span><b>${escapeHtml(ex.next_move || "Review the validated recommendation before acting.")}</b></div>
+    ${(ev.blockers || []).length ? `<div class="buyer-subhead">Before acting</div><ul class="buyer-list">${list(ev.blockers)}</ul>` : ""}
+    ${(e.change_conditions || []).length ? `<div class="buyer-subhead">Recheck if</div><ul class="buyer-list">${list(e.change_conditions)}</ul>` : ""}
+    <div class="buyer-muted" style="margin-top:8px">This is VendorEdge's operational decision spine. It compresses validated evidence, economics and safeguards; it does not create new facts or thresholds.</div>
+  </section>`;
 }
 
 function renderDecisionCockpit(pos) {
@@ -1342,7 +1655,7 @@ function renderDecisionSnapshot(pos) {
         </tr>
         <tr style="border-top:1px solid #eee">
           <td style="padding:8px 12px; color:#888; vertical-align:top">Confidence</td>
-          <td style="padding:8px 12px">${confidence.level ? confidence.level.charAt(0).toUpperCase() + confidence.level.slice(1) : "Not available"}</td>
+          <td style="padding:8px 12px">${pos.confidence.level.charAt(0).toUpperCase() + pos.confidence.level.slice(1)}</td>
         </tr>
         <tr style="border-top:1px solid #eee">
           <td style="padding:8px 12px; color:#888; vertical-align:top">Top Risk</td>
@@ -1390,41 +1703,23 @@ async function handleFileUpload(event) {
 async function processOneFile(file, results) {
   const name = file.name.toLowerCase();
   const questionBox = document.getElementById("question");
-
-  if (name.endsWith(".txt") || name.endsWith(".csv")) {
-    // Genuinely safe: reading the file entirely in the browser, no upload
-    // to any server, no new backend code or parsing risk. The resulting
-    // text feeds straight into the SAME extraction pipeline already tested
-    // all night -- this is not a new engine, just a new way to get text in.
-    const text = await file.text();
-    questionBox.value = (questionBox.value ? questionBox.value + "\n\n" : "") + text;
-    results.added.push(file.name);
-  } else if (name.endsWith(".xlsx") || name.endsWith(".pdf") || name.endsWith(".eml") || name.endsWith(".zip")) {
-    // Real document parsing, via the backend -- deterministic, no AI
-    // call, feeding the extracted text into the same tested pipeline.
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch(`${API}/extract-file`, { method: "POST", headers: { "Authorization": HEADERS.Authorization, "x-org-id": HEADERS["x-org-id"], "x-user-id": HEADERS["x-user-id"] }, body: formData });
-      const data = await res.json();
-      if (!res.ok) {
-        results.unsupported.push(`${file.name} (${data.detail || "could not read"})`);
-        return;
-      }
-      questionBox.value = (questionBox.value ? questionBox.value + "\n\n" : "") + data.extracted_text;
-      results.added.push(file.name);
-    } catch (e) {
-      results.unsupported.push(`${file.name} (server unreachable)`);
-    }
-  } else {
-    // Honest handling for formats we genuinely don't parse yet (scanned
-    // PDFs, Word docs) -- still logs real demand, same as the original
-    // fake-door test, but now gives useful guidance instead of just an apology.
-    try {
-      await fetch(`${API}/interest-signal?feature=binary_file_upload_${name.split(".").pop()}`, { method: "POST", headers: HEADERS });
-    } catch (e) { /* non-critical */ }
+  const supported = [".txt",".csv",".xlsx",".pdf",".docx",".pptx",".eml",".zip"].some(ext => name.endsWith(ext));
+  if (!supported) {
+    try { await fetch(`${API}/interest-signal?feature=binary_file_upload_${name.split(".").pop()}`, { method:"POST", headers:HEADERS }); } catch(e) {}
     results.unsupported.push(`${file.name} (format not supported yet)`);
+    return;
   }
+  try {
+    const formData = new FormData(); formData.append("file", file);
+    const res = await fetch(`${API}/ingest-file`, { method:"POST", headers:{"Authorization":HEADERS.Authorization}, body:formData });
+    const data = await res.json();
+    if (!res.ok) { results.unsupported.push(`${file.name} (${data.detail || "could not read"})`); return; }
+    selectedIngestionArtifactIds.push(data.id);
+    // The preview is visible to the buyer, while the artifact ID keeps the
+    // original deterministic extraction attached to the eventual case.
+    questionBox.value = (questionBox.value ? questionBox.value + "\n\n" : "") + data.content_preview;
+    results.added.push(file.name);
+  } catch (e) { results.unsupported.push(`${file.name} (server unreachable)`); }
 }
 
 function show(id) {
@@ -1439,6 +1734,7 @@ function showPilotLimitScreen() {
 }
 
 function goToNewCase() {
+  selectedIngestionArtifactIds = [];
   document.getElementById("question").value = "";
   updateCharCount();
   show("ask-screen");
@@ -1489,6 +1785,10 @@ async function openCase(decisionId) {
   try {
     const res = await fetch(`${API}/commercial-decisions/${decisionId}`, { headers: HEADERS });
     const data = await res.json();
+    if (!res.ok) {
+      showError(data.detail || `Could not open this case (status ${res.status}).`);
+      return;
+    }
     handleDecisionResponse(data);
   } catch (err) {
     showError("Could not open this case. Details: " + err.message);
@@ -1551,6 +1851,7 @@ async function pollRealStatus(decisionId, stopFlag) {
 // a static label that could just as easily mean the page is frozen.
 function renderProcessingState(data) {
   const el = document.getElementById("loading");
+  if (!el) return;
   const elapsed = data.processing_elapsed_seconds;
   const elapsedText = (elapsed !== null && elapsed !== undefined)
     ? ` (${Math.round(elapsed)}s so far)` : "";
@@ -1620,7 +1921,7 @@ async function askQuestion() {
   try {
     const res = await fetch(`${API}/commercial-decisions`, {
       method: "POST", headers: HEADERS,
-      body: JSON.stringify({ raw_question: question, client_decision_id: clientDecisionId }),
+      body: JSON.stringify({ raw_question: question, client_decision_id: clientDecisionId, ingestion_artifact_ids: selectedIngestionArtifactIds }),
     });
     const data = await res.json();
     if (res.status === 429) {
@@ -1672,18 +1973,15 @@ function handleDecisionResponse(data) {
   } else if (data.status === "completed") {
     currentPositionObj = data.commercial_position;
     const threadEl = document.getElementById("pos-thread-indicator");
-    if (!threadEl) {
-      showError("Could not open this case because the decision page is missing a required display area. Please hard-refresh the page.");
-      return;
-    }
-    threadEl.innerHTML = data.parent_decision_id
+    if (threadEl) threadEl.innerHTML = data.parent_decision_id
       ? `<p style="font-size:12px; color:#999; margin:0 0 8px">↳ This continues an earlier case</p>`
       : "";
     renderPosition(currentPositionObj);
     const pilotCard = document.getElementById("pilot-experience-card");
     if (pilotCard) {
       pilotCard.classList.toggle("hidden", !shouldShowPilotExperience(data.id));
-      document.getElementById("pilot-experience-thanks").classList.add("hidden");
+      const pilotThanks = document.getElementById("pilot-experience-thanks");
+      if (pilotThanks) pilotThanks.classList.add("hidden");
     }
     if (currentHasFeedback) {
       // Reopening a case that already has a recorded outcome -- rebuild the
@@ -2010,12 +2308,21 @@ Confidence: {{confidence}}
 Financial impact: {{financial_impact}}
 Approval required: {{action_plan}}" style="width:100%;box-sizing:border-box;border:1px solid #ddd;border-radius:7px;padding:9px;font-size:11.5px"></textarea>
           <button class="secondary-btn" onclick="renderCustomFormat()">Render my format</button>
+          <div style="margin-top:12px;padding-top:10px;border-top:1px dashed #ddd">
+            <div style="font-weight:800;font-size:12px;margin-bottom:5px">Save your company's deck format</div>
+            <div style="font-size:11px;color:#777;margin-bottom:6px">Upload a real company PowerPoint once. VendorEdge learns the slide sequence and purpose, then reuses that structure for future cases.</div>
+            <input type="file" id="org-format-input" accept=".pptx" style="font-size:11px" onchange="importOrganisationFormat(event)" />
+            <select id="saved-format-select" style="display:none;width:auto;min-width:230px;padding:7px;border:1px solid #ccc;border-radius:7px;font-size:12px;margin-top:7px"></select>
+            <button id="saved-format-render-btn" class="secondary-btn" style="display:none" onclick="renderSavedOrganisationFormat()">Render in our format</button>
+            <div id="saved-format-status" style="font-size:11px;color:#666;margin-top:6px"></div>
+          </div>
           <pre id="custom-format-result" class="hidden" style="white-space:pre-wrap;background:#fafafa;border:1px solid #ddd;border-radius:7px;padding:9px;font-size:11px;max-height:260px;overflow:auto"></pre>
         </div>
         <div id="action-plan-result" class="hidden" style="margin-top:10px;border-top:1px solid #eee;padding-top:10px"></div>
       </div>
     </details>`;
   document.getElementById("decision-pack-text").value = buildDecisionBriefText(pos);
+  loadSavedOrganisationFormats();
 }
 
 async function copyDecisionPack() {
@@ -2091,6 +2398,47 @@ async function renderCustomFormat() {
   } catch (err) { alert(err.message); }
 }
 
+async function importOrganisationFormat(event) {
+  const file = event.target.files?.[0];
+  const status = document.getElementById("saved-format-status");
+  if (!file) return;
+  status.textContent = "Learning your deck structure...";
+  try {
+    const fd = new FormData(); fd.append("file", file);
+    const res = await fetch(`${API}/organisation-formats/import`, { method:"POST", headers:{"Authorization":HEADERS.Authorization}, body:fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Could not learn this format.");
+    status.textContent = `Saved “${data.name}” · ${data.slide_count} slides · ${data.format_type}`;
+    await loadSavedOrganisationFormats(data.id);
+  } catch (e) { status.textContent = e.message || "Could not learn this format."; }
+  event.target.value = "";
+}
+
+async function loadSavedOrganisationFormats(selectId) {
+  const select=document.getElementById("saved-format-select"), btn=document.getElementById("saved-format-render-btn");
+  if (!select) return;
+  try {
+    const res=await fetch(`${API}/organisation-formats`,{headers:HEADERS});
+    const data=await res.json();
+    if (!res.ok) throw new Error(data.detail || "Could not load saved formats.");
+    select.innerHTML=data.map(x=>`<option value="${String(x.id)}">${escapeHtml(String(x.name))} · ${escapeHtml(String(x.format_type))}</option>`).join("");
+    select.style.display=data.length?"inline-block":"none"; btn.style.display=data.length?"inline-block":"none";
+    if(selectId) select.value=selectId;
+  } catch(e) { /* optional enhancement; existing decision flow remains usable */ }
+}
+
+async function renderSavedOrganisationFormat() {
+  const id=document.getElementById("saved-format-select")?.value, out=document.getElementById("custom-format-result");
+  if(!id || !currentDecisionId) return;
+  try {
+    const res=await fetch(`${API}/commercial-decisions/${currentDecisionId}/organisation-format`,{method:"POST",headers:HEADERS,body:JSON.stringify({format_id:id})});
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.detail || "Could not render the organization format.");
+    out.textContent=(data.slides||[]).map(x=>`SLIDE ${x.slide_number}: ${x.title}\nROLE: ${x.role}\n${x.content}`).join("\n\n");
+    out.classList.remove("hidden");
+  } catch(e) { alert(e.message); }
+}
+
 async function loadActionPlan() {
   const out = document.getElementById("action-plan-result");
   if (!currentDecisionId) return;
@@ -2116,7 +2464,11 @@ function organizeDecisionPage() {
   ];
   hideIds.forEach(id => {
     const el = document.getElementById(id);
-    if (el) { el.innerHTML = ""; el.style.display = "none"; }
+    // Hide supporting blocks without destroying their DOM children. Some
+    // blocks (notably #pos-assumption-wrap) contain nested render targets.
+    // Clearing innerHTML here makes those targets disappear and causes a
+    // null.innerHTML crash when the completed case is reopened.
+    if (el) el.style.display = "none";
   });
 
   const card = document.querySelector("#position-screen .card");
@@ -2126,17 +2478,17 @@ function organizeDecisionPage() {
 
   const groups = [
     ["numbers", "Numbers & commercial evidence", "The figures behind the position — supplier comparison, price basis, TCO and calculations.",
-      ["pos-commercial-truth-model", "pos-cost-drivers", "pos-financial-scenarios", "pos-key-figures", "pos-supplier-comparison", "pos-financial-impact", "pos-methodology"]],
+      ["pos-model-orchestration", "pos-commercial-truth-model", "pos-cost-drivers", "pos-financial-scenarios", "pos-key-figures", "pos-supplier-comparison", "pos-financial-impact", "pos-methodology"]],
     ["negotiation", "Negotiation strategy", "How to use the evidence, where to push, and what to say.",
       ["pos-commercial-war-room", "pos-negotiation-dimensions", "pos-talk-track", "pos-alternatives"]],
     ["risk", "Risks & decision safeguards", "What can go wrong, what is still unknown, and what evidence would change the call.",
       ["pos-decision-flip-map", "pos-sensitivity", "pos-stress-test", "pos-decision-audit", "pos-hypothesis", "pos-factors", "pos-assumption-wrap", "pos-walkaway"]],
     ["execution", "Execution", "The practical actions required to move from decision to result.",
-      ["pos-control-tower", "pos-decision-pack"]],
+      ["pos-agentic-workflow", "pos-control-tower", "pos-decision-pack"]],
     ["history", "History & learning", "Prior decisions and outcomes — shown only when they add something new to this case.",
-      ["pos-procurement-memory", "pos-outcome-intelligence", "pos-commercial-dna"]],
+      ["pos-supplier-memory", "pos-procurement-memory", "pos-outcome-intelligence", "pos-commercial-dna"]],
     ["trust", "Evidence trail & trust checks", "Why VendorEdge trusts the inputs and where the evidence has limits.",
-      ["pos-trust-certification"]]
+      ["pos-trust-engine", "pos-trust-certification"]]
   ];
 
   const wrap = document.createElement("div");
@@ -2161,10 +2513,16 @@ function organizeDecisionPage() {
 }
 
 function renderPosition(pos) {
-  if (!pos || typeof pos !== "object") {
-    showError("Could not render this case because the saved commercial position is missing or invalid.");
-    return;
-  }
+  // Persisted cases can outlive a UI/schema revision. Normalize the minimum
+  // shape here so one missing optional field cannot take down the entire
+  // completed-case view.
+  pos = pos && typeof pos === "object" ? pos : {};
+  pos.confidence = pos.confidence && typeof pos.confidence === "object" ? pos.confidence : {};
+  pos.confidence.factors = Array.isArray(pos.confidence.factors) ? pos.confidence.factors : [];
+  pos.commercial_insights = Array.isArray(pos.commercial_insights) ? pos.commercial_insights : [];
+  pos.assumptions = Array.isArray(pos.assumptions) ? pos.assumptions : [];
+
+  renderTrustEngine(pos);
   renderTrustCertification(pos);
   renderCommercialTruthModel(pos);
   renderDecisionFlipMap(pos);
@@ -2172,6 +2530,8 @@ function renderPosition(pos) {
   renderProcurementMemory(pos);
   renderOutcomeIntelligence(pos);
   renderCommercialDNA(pos);
+  renderCommercialDecisionEngine(pos);
+  renderAgenticWorkflow(pos);
   renderDecisionCockpit(pos);
   renderControlTower(pos);
 
@@ -2179,11 +2539,13 @@ function renderPosition(pos) {
   // "informed by 0 cases" claim, the same empty-moat problem flagged
   // earlier tonight when discussing organizational memory honestly.
   const caseCountEl = document.getElementById("pos-case-count");
-  if (caseCountEl && pos.informed_by_case_count > 0) {
-    const n = pos.informed_by_case_count;
-    caseCountEl.innerHTML = `<span style="display:inline-block; font-size:11px; color:#3a7ac9; background:#eaf3fb; border-radius:100px; padding:2px 10px; margin:4px 0">Informed by ${n} past ${n === 1 ? "case" : "cases"} from your organization</span>`;
-  } else if (caseCountEl) {
-    caseCountEl.innerHTML = "";
+  if (caseCountEl) {
+    if (pos.informed_by_case_count > 0) {
+      const n = pos.informed_by_case_count;
+      caseCountEl.innerHTML = `<span style="display:inline-block; font-size:11px; color:#3a7ac9; background:#eaf3fb; border-radius:100px; padding:2px 10px; margin:4px 0">Informed by ${n} past ${n === 1 ? "case" : "cases"} from your organization</span>`;
+    } else {
+      caseCountEl.innerHTML = "";
+    }
   }
 
   const whyWinsEl = document.getElementById("pos-why-wins");
@@ -2191,29 +2553,31 @@ function renderPosition(pos) {
 
   // Reset the quick-feedback prompt for this new answer -- otherwise a
   // previous question's "thanks" state would incorrectly persist.
-  const feedbackButtons = document.getElementById("quick-feedback-buttons");
-  const feedbackFollowup = document.getElementById("quick-feedback-followup");
-  const feedbackThanks = document.getElementById("quick-feedback-thanks");
-  const feedbackReason = document.getElementById("quick-feedback-reason");
-  if (feedbackButtons) feedbackButtons.classList.remove("hidden");
-  if (feedbackFollowup) feedbackFollowup.classList.add("hidden");
-  if (feedbackThanks) feedbackThanks.classList.add("hidden");
-  if (feedbackReason) feedbackReason.value = "";
+  const quickFeedbackButtons = document.getElementById("quick-feedback-buttons");
+  const quickFeedbackFollowup = document.getElementById("quick-feedback-followup");
+  const quickFeedbackThanks = document.getElementById("quick-feedback-thanks");
+  const quickFeedbackReason = document.getElementById("quick-feedback-reason");
+  if (quickFeedbackButtons) quickFeedbackButtons.classList.remove("hidden");
+  if (quickFeedbackFollowup) quickFeedbackFollowup.classList.add("hidden");
+  if (quickFeedbackThanks) quickFeedbackThanks.classList.add("hidden");
+  if (quickFeedbackReason) quickFeedbackReason.value = "";
 
-  const insightsEl = document.getElementById("pos-commercial-insights");
-  if (insightsEl) insightsEl.innerHTML =
-    `<p style="font-size:11px; font-weight:600; letter-spacing:0.03em; color:#6a5acd; text-transform:uppercase; margin:0 0 6px; font-style:normal">Why this commercial position wins</p>` +
-    (pos.commercial_insights || []).map(i => `<p style="margin:4px 0">• ${escapeHtml(i)}</p>`).join("");
+  const commercialInsightsEl = document.getElementById("pos-commercial-insights");
+  if (commercialInsightsEl) {
+    commercialInsightsEl.innerHTML =
+      `<p style="font-size:11px; font-weight:600; letter-spacing:0.03em; color:#6a5acd; text-transform:uppercase; margin:0 0 6px; font-style:normal">Why this commercial position wins</p>` +
+      pos.commercial_insights.map(i => `<p style="margin:4px 0">• ${escapeHtml(i)}</p>`).join("");
+  }
   const hypothesisEl = document.getElementById("pos-hypothesis");
-  if (pos.commercial_hypothesis) {
+  if (hypothesisEl && pos.commercial_hypothesis) {
     hypothesisEl.innerHTML = `<p style="font-size:13px; color:#7a5c00; background:#fff3d6; border-radius:6px; padding:8px 10px"><b>Hypothesis (unconfirmed):</b> ${escapeHtml(pos.commercial_hypothesis)}</p>`;
-  } else {
+  } else if (hypothesisEl) {
     hypothesisEl.innerHTML = "";
   }
   const methodologyEl = document.getElementById("pos-methodology");
-  if (pos.methodology_applied) {
+  if (methodologyEl && pos.methodology_applied) {
     methodologyEl.innerHTML = `<p style="font-size:12.5px; color:#3a5a7a; background:#eaf3fb; border-radius:6px; padding:6px 10px"><b>Approach used:</b> ${escapeHtml(pos.methodology_applied)}</p>`;
-  } else {
+  } else if (methodologyEl) {
     methodologyEl.innerHTML = "";
   }
   renderCostDriverComparison(pos);
@@ -2221,17 +2585,19 @@ function renderPosition(pos) {
   renderKeyFigures(pos);
   renderSupplierComparison(pos);
   renderNegotiationDimensions(pos);
+  renderNegotiationIntelligence(pos);
+  renderModelOrchestration(pos);
+  renderSupplierMemory(pos);
   renderTalkTrack(pos);
   renderDecisionAudit(pos);
   renderSensitivity(pos);
   renderStressTest(pos);
   renderAlternatives(pos);
   const reasoningEl = document.getElementById("pos-reasoning");
-  if (reasoningEl) reasoningEl.innerText = pos.reasoning;
-  organizeDecisionPage();
+  if (reasoningEl) reasoningEl.innerText = pos.reasoning || "";
 
   const fiEl = document.getElementById("pos-financial-impact");
-  if (pos.financial_impact && fiEl) {
+  if (fiEl && pos.financial_impact) {
     const fi = pos.financial_impact;
     const fmt = (n) => "$" + Number(n).toLocaleString(undefined, {maximumFractionDigits: 0});
     fiEl.innerHTML = `
@@ -2247,15 +2613,16 @@ function renderPosition(pos) {
     fiEl.innerHTML = "";
   }
 
-  const confidence = pos.confidence || {};
-  const confidenceFactors = Array.isArray(confidence.factors) ? confidence.factors : [];
-  const supportingFactors = confidenceFactors.filter(f => f.weight === "increases confidence");
-  const limitingFactors = confidenceFactors.filter(f => f.weight === "decreases confidence");
+  const supportingFactors = pos.confidence.factors.filter(f => f && f.weight === "increases confidence");
+  const limitingFactors = pos.confidence.factors.filter(f => f && f.weight === "decreases confidence");
 
+  const confidenceLevel = String(pos.confidence.level || "unknown");
   const badgeEl = document.getElementById("pos-badge");
-  if (badgeEl) badgeEl.innerHTML =
-    `<span class="badge">Recommendation Confidence: ${confidence.level ? confidence.level.charAt(0).toUpperCase() + confidence.level.slice(1) : "Not available"}</span>` +
-    (pos.confidence_calibration_note ? `<p style="font-size:11.5px; color:#888; margin:6px 0 0; font-style:italic">${escapeHtml(pos.confidence_calibration_note)}</p>` : "");
+  if (badgeEl) {
+    badgeEl.innerHTML =
+      `<span class="badge">Recommendation Confidence: ${confidenceLevel.charAt(0).toUpperCase() + confidenceLevel.slice(1)}</span>` +
+      (pos.confidence_calibration_note ? `<p style="font-size:11.5px; color:#888; margin:6px 0 0; font-style:italic">${escapeHtml(pos.confidence_calibration_note)}</p>` : "");
+  }
 
   const factorsEl = document.getElementById("pos-factors");
   if (factorsEl) factorsEl.innerHTML = `
@@ -2272,10 +2639,13 @@ function renderPosition(pos) {
   `;
   const derivationEl = document.getElementById("pos-derivation");
   if (derivationEl) derivationEl.innerText = pos.confidence.derivation_note;
-  document.getElementById("pos-assumption").innerHTML =
-    "<ul style='margin:4px 0 0 18px;padding:0'>" +
-    (pos.assumptions || []).map(a => `<li>${escapeHtml(a)}</li>`).join("") +
-    "</ul>";
+  const assumptionEl = document.getElementById("pos-assumption");
+  if (assumptionEl) {
+    assumptionEl.innerHTML =
+      "<ul style='margin:4px 0 0 18px;padding:0'>" +
+      pos.assumptions.map(a => `<li>${escapeHtml(a)}</li>`).join("") +
+      "</ul>";
+  }
   // Note: opening_position is intentionally NOT rendered again here --
   // it's already surfaced as "Next Action" in the Decision Snapshot above.
   // Rendering it a second time as a standalone callout was the source of
@@ -2288,7 +2658,11 @@ function renderPosition(pos) {
     walkawayEl.innerHTML = "";
   }
   const disconfirmEl = document.getElementById("pos-disconfirm");
-  if (disconfirmEl) disconfirmEl.innerText = pos.disconfirming_condition;
+  if (disconfirmEl) disconfirmEl.innerText = pos.disconfirming_condition || "";
+
+  // Organize only after every renderer has populated its target. This avoids
+  // hiding newly rendered blocks and ensures supporting groups are complete.
+  organizeDecisionPage();
 }
 
 // --- Sprint 1: outcome capture as auto-generated case documentation ---

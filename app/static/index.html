@@ -147,9 +147,36 @@
     .hero-proof-row { flex-wrap:wrap; margin-bottom:28px; }
     .journey-track { overflow-x:auto; }
   }
+  /* Prevent authenticated actions from racing the workspace bootstrap. */
+  body.workspace-initializing nav,
+  body.workspace-initializing #ask-screen,
+  body.workspace-initializing footer {
+    pointer-events: none;
+    opacity: .62;
+  }
+  #workspace-bootstrap {
+    max-width: 720px;
+    margin: 80px auto 20px;
+    padding: 22px 26px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    color: #454952;
+    text-align: center;
+    font-weight: 600;
+  }
+  #workspace-bootstrap .bootstrap-detail {
+    margin-top: 7px;
+    color: #777;
+    font-size: 12.5px;
+    font-weight: 400;
+  }
 </style>
 </head>
-<body>
+<body class="workspace-initializing">
+
+<div id="workspace-bootstrap">Preparing your private workspace…<div class="bootstrap-detail">This should only take a moment. Your case screen will unlock when your secure session is ready.</div></div>
 
 <nav>
   <span class="brand">VendorEdge</span>
@@ -429,6 +456,8 @@ const API = "/api/v1";
 // can bookmark. This is a private-link model, not full password login --
 // adequate for a controlled pilot with known, invited testers.
 let HEADERS = null;
+let workspaceInitPromise = null;
+let workspaceInitError = null;
 const SESSION_STORAGE_KEY = "vendoredge_session";
 
 function sessionHeaders(token, org, user) {
@@ -568,7 +597,7 @@ function startFreshWorkspace() {
 
 async function inviteTeammate() {
   try {
-    const res = await fetch(`${API}/workspaces/invite`, { method: "POST", headers: HEADERS });
+    const res = await authenticatedFetch(`${API}/workspaces/invite`, { method: "POST", headers: HEADERS });
     if (!res.ok) {
       alert("Could not create an invite link right now. Please try again in a moment.");
       return;
@@ -625,7 +654,7 @@ async function showFeedbackModal() {
     return;
   }
   try {
-    const res = await fetch(`${API}/general-feedback`, {
+    const res = await authenticatedFetch(`${API}/general-feedback`, {
       method: "POST", headers: HEADERS, body: JSON.stringify({ message: message.trim() }),
     });
     if (!res.ok) { alert("Could not send right now -- please try again in a moment."); return; }
@@ -633,6 +662,46 @@ async function showFeedbackModal() {
   } catch (e) {
     alert("Could not reach the server. Details: " + e.message);
   }
+}
+
+async function waitForWorkspaceReady(maxWaitMs = 10000) {
+  if (HEADERS) return true;
+  if (workspaceInitPromise) {
+    try {
+      // Do not let an individual click wait forever if workspace bootstrap
+      // itself is stalled. Bootstrap continues independently; the caller can
+      // safely retry once the session exists.
+      await Promise.race([
+        workspaceInitPromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Workspace initialization is taking longer than expected.")), maxWaitMs)),
+      ]);
+    } catch (e) {
+      workspaceInitError = workspaceInitError || e;
+    }
+  }
+  return !!HEADERS;
+}
+
+// Single authenticated API boundary. Normal application code must use this
+// instead of fetch(..., { headers: HEADERS }). This makes it structurally
+// impossible to construct a RequestInit object with null headers during
+// workspace bootstrap, and it also centralises header merging for JSON and
+// FormData requests. The three workspace bootstrap endpoints above remain
+// deliberately raw because they create/redeem the session itself.
+async function authenticatedFetch(input, init = {}) {
+  const ready = await waitForWorkspaceReady();
+  if (!ready || !HEADERS) {
+    throw new Error(workspaceInitError?.message || "Workspace session is not ready yet.");
+  }
+
+  const options = { ...init };
+  const mergedHeaders = new Headers(HEADERS);
+  if (init.headers) {
+    const extraHeaders = new Headers(init.headers);
+    extraHeaders.forEach((value, key) => mergedHeaders.set(key, value));
+  }
+  options.headers = mergedHeaders;
+  return fetch(input, options);
 }
 
 async function waitForHeaders(maxWaitMs = 8000) {
@@ -658,7 +727,7 @@ async function submitPilotExperience() {
     missing_or_frustrating: document.getElementById("pilot-missing").value.trim() || null,
   };
   try {
-    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/pilot-experience`, {
+    const res = await authenticatedFetch(`${API}/commercial-decisions/${currentDecisionId}/pilot-experience`, {
       method: "POST", headers: HEADERS, body: JSON.stringify(payload),
     });
     if (!res.ok) {
@@ -688,8 +757,8 @@ async function clickNotifyMe() {
   const email = prompt("What's your work email? We'll let you know when more pilot cases are available.");
   if (!email || !email.trim()) return;
   try {
-    await fetch(`${API}/interest-signal?feature=notify_me_click`, { method: "POST", headers: HEADERS });
-    const res = await fetch(`${API}/pilot-lead`, {
+    await authenticatedFetch(`${API}/interest-signal?feature=notify_me_click`, { method: "POST", headers: HEADERS });
+    const res = await authenticatedFetch(`${API}/pilot-lead`, {
       method: "POST", headers: HEADERS,
       body: JSON.stringify({ email: email.trim(), next_case_category: "other" }),
     });
@@ -738,7 +807,7 @@ async function submitContinueCase() {
   const clientDecisionId = crypto.randomUUID();
 
   try {
-    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/continue`, {
+    const res = await authenticatedFetch(`${API}/commercial-decisions/${currentDecisionId}/continue`, {
       method: "POST", headers: HEADERS,
       body: JSON.stringify({ what_happened: whatHappened, client_decision_id: clientDecisionId }),
     });
@@ -864,7 +933,7 @@ function renderSupplierComparison(pos) {
 async function submitQuickFeedback(wasHelpful) {
   document.getElementById("quick-feedback-buttons").classList.add("hidden");
   try {
-    await fetch(`${API}/interest-signal?feature=${wasHelpful ? "helpful_yes" : "helpful_no"}`, { method: "POST", headers: HEADERS });
+    await authenticatedFetch(`${API}/interest-signal?feature=${wasHelpful ? "helpful_yes" : "helpful_no"}`, { method: "POST", headers: HEADERS });
   } catch (e) { /* non-critical */ }
   if (wasHelpful) {
     document.getElementById("quick-feedback-thanks").classList.remove("hidden");
@@ -879,7 +948,7 @@ async function submitQuickFeedbackReason() {
   const reason = document.getElementById("quick-feedback-reason").value.trim();
   if (reason) {
     try {
-      await fetch(`${API}/interest-signal?feature=${encodeURIComponent("helpful_no_reason: " + reason.slice(0, 150))}`, { method: "POST", headers: HEADERS });
+      await authenticatedFetch(`${API}/interest-signal?feature=${encodeURIComponent("helpful_no_reason: " + reason.slice(0, 150))}`, { method: "POST", headers: HEADERS });
     } catch (e) { /* non-critical */ }
   }
   document.getElementById("quick-feedback-followup").classList.add("hidden");
@@ -1249,7 +1318,7 @@ async function loadSupplierResponseCenter() {
   if (!el || !currentDecisionId) return;
   el.innerHTML = `<div style="padding:12px;border:1px solid #e6e0ef;border-radius:11px;background:#fcfbfe;font-size:10.5px;color:#666">Preparing supplier response workspace…</div>`;
   try {
-    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/supplier-response`, {headers: HEADERS});
+    const res = await authenticatedFetch(`${API}/commercial-decisions/${currentDecisionId}/supplier-response`, {headers: HEADERS});
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Could not load supplier response workspace.");
     const d = data.draft || {};
@@ -1290,7 +1359,7 @@ async function saveSupplierResponseDraft(expectedVersion) {
   const msg = document.getElementById("ve-response-message");
   if (!recipient || !subject || !body) { if (msg) msg.innerText = "Recipient, subject and message are required."; return false; }
   try {
-    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/supplier-response`, {method:"PUT",headers:{...HEADERS,"Content-Type":"application/json"},body:JSON.stringify({recipient,subject,body,expected_version:expectedVersion})});
+    const res = await authenticatedFetch(`${API}/commercial-decisions/${currentDecisionId}/supplier-response`, {method:"PUT",headers:{...HEADERS,"Content-Type":"application/json"},body:JSON.stringify({recipient,subject,body,expected_version:expectedVersion})});
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Could not save draft.");
     if (msg) msg.innerText = `Draft saved as version ${data.version}. Approval must be renewed for this edited version.`;
@@ -1303,7 +1372,7 @@ async function approveSupplierResponse() {
   const currentVersion = Number(document.getElementById("ve-response-body")?.dataset?.version || 1);
   if (!(await saveSupplierResponseDraft(currentVersion))) return;
   try {
-    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/agent-workflow/draft-supplier-message/approve`, {method:"POST",headers:HEADERS});
+    const res = await authenticatedFetch(`${API}/commercial-decisions/${currentDecisionId}/agent-workflow/draft-supplier-message/approve`, {method:"POST",headers:HEADERS});
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Approval failed.");
     await loadSupplierResponseCenter();
@@ -1313,7 +1382,7 @@ async function approveSupplierResponse() {
 async function sendSupplierResponse(version) {
   if (!confirm("Send this exact approved message to the supplier?")) return;
   try {
-    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/supplier-response/send`, {method:"POST",headers:{...HEADERS,"Content-Type":"application/json"},body:JSON.stringify({expected_version:version})});
+    const res = await authenticatedFetch(`${API}/commercial-decisions/${currentDecisionId}/supplier-response/send`, {method:"POST",headers:{...HEADERS,"Content-Type":"application/json"},body:JSON.stringify({expected_version:version})});
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Email delivery failed.");
     await loadSupplierResponseCenter();
@@ -1322,7 +1391,7 @@ async function sendSupplierResponse(version) {
 
 async function handoffSupplierResponse(version) {
   try {
-    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/supplier-response/handoff`, {method:"POST",headers:{...HEADERS,"Content-Type":"application/json"},body:JSON.stringify({expected_version:version})});
+    const res = await authenticatedFetch(`${API}/commercial-decisions/${currentDecisionId}/supplier-response/handoff`, {method:"POST",headers:{...HEADERS,"Content-Type":"application/json"},body:JSON.stringify({expected_version:version})});
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Could not prepare email handoff.");
     window.location.href = data.mailto;
@@ -1336,7 +1405,7 @@ async function captureSupplierReply() {
   const msg = document.getElementById("ve-response-message");
   if (!body) { if (msg) msg.innerText = "Paste the supplier reply first."; return; }
   try {
-    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/supplier-response/reply`, {method:"POST",headers:{...HEADERS,"Content-Type":"application/json"},body:JSON.stringify({body})});
+    const res = await authenticatedFetch(`${API}/commercial-decisions/${currentDecisionId}/supplier-response/reply`, {method:"POST",headers:{...HEADERS,"Content-Type":"application/json"},body:JSON.stringify({body})});
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Could not record supplier reply.");
     await loadSupplierResponseCenter();
@@ -1758,6 +1827,10 @@ function triggerFileUpload() {
 }
 
 async function handleFileUpload(event) {
+  if (!(await waitForWorkspaceReady())) {
+    alert("Your private workspace is still starting. Please try again in a moment.");
+    return;
+  }
   const files = Array.from(event.target.files);
   if (files.length === 0) return;
 
@@ -1787,13 +1860,13 @@ async function processOneFile(file, results) {
   const questionBox = document.getElementById("question");
   const supported = [".txt",".csv",".xlsx",".pdf",".docx",".pptx",".eml",".zip"].some(ext => name.endsWith(ext));
   if (!supported) {
-    try { await fetch(`${API}/interest-signal?feature=binary_file_upload_${name.split(".").pop()}`, { method:"POST", headers:HEADERS }); } catch(e) {}
+    try { await authenticatedFetch(`${API}/interest-signal?feature=binary_file_upload_${name.split(".").pop()}`, { method:"POST", headers:HEADERS }); } catch(e) {}
     results.unsupported.push(`${file.name} (format not supported yet)`);
     return;
   }
   try {
     const formData = new FormData(); formData.append("file", file);
-    const res = await fetch(`${API}/ingest-file`, { method:"POST", headers:{"Authorization":HEADERS.Authorization}, body:formData });
+    const res = await authenticatedFetch(`${API}/ingest-file`, { method:"POST", headers:{"Authorization":HEADERS.Authorization}, body:formData });
     const data = await res.json();
     if (!res.ok) { results.unsupported.push(`${file.name} (${data.detail || "could not read"})`); return; }
     selectedIngestionArtifactIds.push(data.id);
@@ -1824,10 +1897,14 @@ function goToNewCase() {
 }
 
 async function goToCases() {
+  if (!(await waitForWorkspaceReady())) {
+    showError("Your private workspace is still starting. Please try again in a moment.");
+    return;
+  }
   show("loading");
   document.getElementById("loading").innerText = "Loading your cases...";
   try {
-    const res = await fetch(`${API}/commercial-decisions`, { headers: HEADERS });
+    const res = await authenticatedFetch(`${API}/commercial-decisions`, { headers: HEADERS });
     const cases = await res.json();
     renderCasesList(cases);
     show("cases-screen");
@@ -1861,11 +1938,15 @@ function renderCasesList(cases) {
 }
 
 async function openCase(decisionId) {
+  if (!(await waitForWorkspaceReady())) {
+    showError("Your private workspace is still starting. Please try again in a moment.");
+    return;
+  }
   currentDecisionId = decisionId;
   show("loading");
   document.getElementById("loading").innerText = "Opening case...";
   try {
-    const res = await fetch(`${API}/commercial-decisions/${decisionId}`, { headers: HEADERS });
+    const res = await authenticatedFetch(`${API}/commercial-decisions/${decisionId}`, { headers: HEADERS });
     const data = await res.json();
     if (!res.ok) {
       showError(data.detail || `Could not open this case (status ${res.status}).`);
@@ -1881,7 +1962,7 @@ async function renderNudgeBanner() {
   const container = document.getElementById("nudge-container");
   container.innerHTML = "";
   try {
-    const res = await fetch(`${API}/commercial-decisions`, { headers: HEADERS });
+    const res = await authenticatedFetch(`${API}/commercial-decisions`, { headers: HEADERS });
     const cases = await res.json();
     const awaiting = cases.filter(c => c.status === "completed" && !c.has_outcome_feedback);
     if (awaiting.length > 0) {
@@ -1910,7 +1991,7 @@ const STATUS_LABELS = {
 async function pollRealStatus(decisionId, stopFlag) {
   while (!stopFlag.stop) {
     try {
-      const res = await fetch(`${API}/commercial-decisions/${decisionId}`, { headers: HEADERS });
+      const res = await authenticatedFetch(`${API}/commercial-decisions/${decisionId}`, { headers: HEADERS });
       if (res.ok) {
         const data = await res.json();
         if (data.status === "reasoning" && !stopFlag.stop) {
@@ -1965,10 +2046,14 @@ function renderProcessingState(data) {
 // endpoint, which reuses the evidence already stored rather than asking
 // the user to retype anything.
 async function retryCase(decisionId) {
+  if (!(await waitForWorkspaceReady())) {
+    showError("Your private workspace is still starting. Please try again in a moment.");
+    return;
+  }
   show("loading");
   document.getElementById("loading").innerText = "Retrying...";
   try {
-    const res = await fetch(`${API}/commercial-decisions/${decisionId}/respond`, {
+    const res = await authenticatedFetch(`${API}/commercial-decisions/${decisionId}/respond`, {
       method: "POST", headers: HEADERS, body: JSON.stringify({ user_supplied_inputs: {} }),
     });
     const data = await res.json();
@@ -1983,6 +2068,10 @@ async function retryCase(decisionId) {
 }
 
 async function askQuestion() {
+  if (!(await waitForWorkspaceReady())) {
+    showError("Your private workspace is still starting. Please try again in a moment.");
+    return;
+  }
   const question = document.getElementById("question").value.trim();
   if (!question) return;
   if (question.length > QUESTION_CHAR_LIMIT) {
@@ -2001,7 +2090,7 @@ async function askQuestion() {
   const clientDecisionId = crypto.randomUUID();
 
   try {
-    const res = await fetch(`${API}/commercial-decisions`, {
+    const res = await authenticatedFetch(`${API}/commercial-decisions`, {
       method: "POST", headers: HEADERS,
       body: JSON.stringify({ raw_question: question, client_decision_id: clientDecisionId, ingestion_artifact_ids: selectedIngestionArtifactIds }),
     });
@@ -2154,6 +2243,10 @@ function renderEvidenceForm() {
 }
 
 async function submitEvidence() {
+  if (!(await waitForWorkspaceReady())) {
+    showError("Your private workspace is still starting. Please try again in a moment.");
+    return;
+  }
   const inputs = {};
   currentMissingFields.forEach((f) => {
     inputs[f.field] = document.getElementById(`field-${f.field}`).value;
@@ -2167,7 +2260,7 @@ async function submitEvidence() {
   document.getElementById("loading").innerText = "Getting started...";
 
   try {
-    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/respond`, {
+    const res = await authenticatedFetch(`${API}/commercial-decisions/${currentDecisionId}/respond`, {
       method: "POST", headers: HEADERS, body: JSON.stringify({ user_supplied_inputs: inputs }),
     });
     const data = await res.json();
@@ -2435,7 +2528,7 @@ function downloadDecisionPack() {
 async function downloadDecisionCSV() {
   if (!currentDecisionId) return;
   try {
-    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/export.csv`, { headers: HEADERS });
+    const res = await authenticatedFetch(`${API}/commercial-decisions/${currentDecisionId}/export.csv`, { headers: HEADERS });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.detail || "Could not export this case.");
@@ -2455,7 +2548,7 @@ async function renderNativeFormat() {
   const out = document.getElementById("native-format-result");
   if (!format || !currentDecisionId) return;
   try {
-    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/format`, {
+    const res = await authenticatedFetch(`${API}/commercial-decisions/${currentDecisionId}/format`, {
       method: "POST", headers: HEADERS, body: JSON.stringify({format_name: format}),
     });
     const data = await res.json();
@@ -2470,7 +2563,7 @@ async function renderCustomFormat() {
   const out = document.getElementById("custom-format-result");
   if (!template || !currentDecisionId) return;
   try {
-    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/custom-format`, {
+    const res = await authenticatedFetch(`${API}/commercial-decisions/${currentDecisionId}/custom-format`, {
       method: "POST", headers: HEADERS, body: JSON.stringify({ template })
     });
     const data = await res.json();
@@ -2487,7 +2580,7 @@ async function importOrganisationFormat(event) {
   status.textContent = "Learning your deck structure...";
   try {
     const fd = new FormData(); fd.append("file", file);
-    const res = await fetch(`${API}/organisation-formats/import`, { method:"POST", headers:{"Authorization":HEADERS.Authorization}, body:fd });
+    const res = await authenticatedFetch(`${API}/organisation-formats/import`, { method:"POST", headers:{"Authorization":HEADERS.Authorization}, body:fd });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Could not learn this format.");
     status.textContent = `Saved “${data.name}” · ${data.slide_count} slides · ${data.format_type}`;
@@ -2500,7 +2593,7 @@ async function loadSavedOrganisationFormats(selectId) {
   const select=document.getElementById("saved-format-select"), btn=document.getElementById("saved-format-render-btn");
   if (!select) return;
   try {
-    const res=await fetch(`${API}/organisation-formats`,{headers:HEADERS});
+    const res=await authenticatedFetch(`${API}/organisation-formats`,{headers:HEADERS});
     const data=await res.json();
     if (!res.ok) throw new Error(data.detail || "Could not load saved formats.");
     select.innerHTML=data.map(x=>`<option value="${String(x.id)}">${escapeHtml(String(x.name))} · ${escapeHtml(String(x.format_type))}</option>`).join("");
@@ -2513,7 +2606,7 @@ async function renderSavedOrganisationFormat() {
   const id=document.getElementById("saved-format-select")?.value, out=document.getElementById("custom-format-result");
   if(!id || !currentDecisionId) return;
   try {
-    const res=await fetch(`${API}/commercial-decisions/${currentDecisionId}/organisation-format`,{method:"POST",headers:HEADERS,body:JSON.stringify({format_id:id})});
+    const res=await authenticatedFetch(`${API}/commercial-decisions/${currentDecisionId}/organisation-format`,{method:"POST",headers:HEADERS,body:JSON.stringify({format_id:id})});
     const data=await res.json();
     if(!res.ok) throw new Error(data.detail || "Could not render the organization format.");
     out.textContent=(data.slides||[]).map(x=>`SLIDE ${x.slide_number}: ${x.title}\nROLE: ${x.role}\n${x.content}`).join("\n\n");
@@ -2525,7 +2618,7 @@ async function loadActionPlan() {
   const out = document.getElementById("action-plan-result");
   if (!currentDecisionId) return;
   try {
-    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/action-plan`, { headers: HEADERS });
+    const res = await authenticatedFetch(`${API}/commercial-decisions/${currentDecisionId}/action-plan`, { headers: HEADERS });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Could not load action plan.");
     out.innerHTML = `<div style="font-weight:600;font-size:12px;margin-bottom:6px">Approval-gated action plan</div>` +
@@ -2838,7 +2931,7 @@ async function submitOutcome() {
   }
   if (!outcome_description) return;
   try {
-    const res = await fetch(`${API}/commercial-decisions/${currentDecisionId}/feedback`, {
+    const res = await authenticatedFetch(`${API}/commercial-decisions/${currentDecisionId}/feedback`, {
       method: "POST", headers: HEADERS,
       body: JSON.stringify({ outcome_description, validation_verdict, decision_alignment, unexpected_insight, actual_financial_impact_usd, actual_measurement_basis }),
     });
@@ -2882,7 +2975,7 @@ async function tryResumeLastCase() {
   }
   if (!lastId) return false;
   try {
-    const res = await fetch(`${API}/commercial-decisions/${lastId}`, { headers: HEADERS });
+    const res = await authenticatedFetch(`${API}/commercial-decisions/${lastId}`, { headers: HEADERS });
     if (!res.ok) {
       clearPersistedCase();
       return false;
@@ -2904,10 +2997,22 @@ async function tryResumeLastCase() {
 }
 
 (async function initializeApp() {
-  await ensureWorkspace();
-  const resumed = await tryResumeLastCase();
-  if (!resumed) {
-    renderNudgeBanner();
+  workspaceInitPromise = ensureWorkspace();
+  try {
+    await workspaceInitPromise;
+    document.body.classList.remove("workspace-initializing");
+    const bootstrap = document.getElementById("workspace-bootstrap");
+    if (bootstrap) bootstrap.remove();
+    const resumed = await tryResumeLastCase();
+    if (!resumed) {
+      renderNudgeBanner();
+    }
+  } catch (e) {
+    workspaceInitError = e;
+    document.body.classList.remove("workspace-initializing");
+    const bootstrap = document.getElementById("workspace-bootstrap");
+    if (bootstrap) bootstrap.remove();
+    showError("Could not start your private workspace. Please refresh and try again. Details: " + (e.message || "workspace initialization failed"));
   }
 })();
 </script>

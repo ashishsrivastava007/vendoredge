@@ -1,0 +1,20 @@
+{
+  "release": "R37.2",
+  "name": "Authenticated API Boundary & Cold-Start Hardening",
+  "version": "R37.2.0",
+  "purpose": "Prevent authenticated application requests from being constructed before workspace session headers exist.",
+  "critical_invariant": "No normal authenticated application request may be constructed while HEADERS is null.",
+  "primary_change": "All normal authenticated API calls use authenticatedFetch(), which waits for workspace readiness and safely merges headers.",
+  "bootstrap_exceptions": [
+    "/workspaces/accept-invite",
+    "/workspaces/legacy-session",
+    "/workspaces",
+    "/workspaces/me"
+  ],
+  "validation": {
+    "python_compile": "PASS",
+    "frontend_syntax": "PASS",
+    "release_tests": "115 passed",
+    "zip_integrity": "PASS"
+  }
+}

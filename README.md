@@ -179,3 +179,7 @@ R36.2 is a quality hardening release following the first real ABC Marine case te
 Phase 9 adds a deliberately thin, user-testable execution loop: **Draft → Review → Approve → Execute → Confirm → Audit**. Buyers can edit the supplier response, explicitly approve it, send through a deployment-configured email webhook, or safely hand off to their own email client when no connector is configured. Supplier replies can be captured back against the case.
 
 The system does not autonomously contact suppliers, make commitments, change contracts/POs, or silently reinterpret replies. Draft edits revoke prior approval, outbound messages are idempotency-protected, and delivery/reply records are tenant-scoped and auditable.
+
+## R37.2 — Authenticated API Boundary & Cold-Start Hardening
+
+R37.2 removes the class of browser startup races where normal authenticated API calls could be constructed before the workspace session existed. All application API calls now cross a single `authenticatedFetch()` boundary that waits for workspace readiness and safely merges headers. Workspace bootstrap endpoints remain raw by design. Individual user actions have a bounded readiness wait so a stalled bootstrap cannot leave a click hanging forever.

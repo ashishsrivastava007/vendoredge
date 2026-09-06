@@ -166,6 +166,14 @@ cannot become generic production 500 errors. See `R25_2_2_LLM_EXTRACTION_CONTRAC
 VendorEdge can now prepare an execution-ready work queue from a completed commercial decision, including negotiation packages and supplier-response drafts. The workflow is explicitly bounded: approvals are recorded as tenant-scoped audit events, but VendorEdge does not send supplier messages, alter contracts, create purchase orders, or commit spend. External integrations remain responsible for execution authorization.
 
 
+## R37 — Commercial Reasoning Loop
+
+R37 turns the existing VendorEdge intelligence layers into a single buyer-readable reasoning chain: **situation → economics → evidence → trade-off → decision → what could change it**. The independent challenger remains separate, but its strongest counter-case is now surfaced directly beside the primary recommendation. Material price-increase exposure can trigger an independent challenge through the configurable `VENDOREDGE_PRICE_INCREASE_CHALLENGE_EXPOSURE_USD` model-cost gate. See `CTO_RELEASE_37_COMMERCIAL_REASONING.md`.
+
+## R36.2 — Commercial truth & decision UX hardening
+
+R36.2 is a quality hardening release following the first real ABC Marine case test. It prevents unsupported numeric negotiation targets, requires explicit attribution of external market context, removes non-material supplier-attribute noise from the decision audit, and makes the Commercial Decision Cockpit the single primary decision surface. No new intelligence module is added. See `CTO_RELEASE_36_2_COMMERCIAL_TRUTH.md`.
+
 ## R36.1 — Phase 9 supplier response execution
 
 Phase 9 adds a deliberately thin, user-testable execution loop: **Draft → Review → Approve → Execute → Confirm → Audit**. Buyers can edit the supplier response, explicitly approve it, send through a deployment-configured email webhook, or safely hand off to their own email client when no connector is configured. Supplier replies can be captured back against the case.

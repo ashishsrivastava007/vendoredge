@@ -25,7 +25,7 @@ def _normalized(warnings=None):
 
 
 def test_r35_routine_case_uses_primary_only():
-    pos = _position()
+    pos = _position(exposure=50000)
     n = _normalized()
     should, reasons = challenge_trigger(n, pos)
     assert should is False
@@ -55,3 +55,10 @@ def test_r35_critical_challenger_requires_review_without_mutating_position():
     assert out["mode"] == "DUAL_MODEL_REVIEW"
     assert out["review_required"] is True
     assert pos.recommendation == "Negotiate"
+
+
+def test_r37_material_price_increase_exposure_triggers_challenge():
+    pos = _position(exposure=157250)
+    should, reasons = challenge_trigger(_normalized(), pos)
+    assert should is True
+    assert any("material price-increase exposure" in x for x in reasons)

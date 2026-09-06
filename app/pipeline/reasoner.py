@@ -97,6 +97,15 @@ HARD RULE 15: If there is a genuine negotiation to prepare for, you may provide 
 
 HARD RULE 16: If your reasoning models multiple distinct financial scenarios (e.g. different sourcing splits, different price assumptions), structure them in "financial_scenarios" as a list of {"scenario": short label, "annual_spend": pre-formatted str, "vs_baseline": pre-formatted str with sign, e.g. "+$1,761,600" or "-$672,000"}. HARD CAP: at most <<MAX_SCENARIOS>> scenarios -- pick the <<MAX_SCENARIOS>> most decision-relevant (typically: accept as requested, hold firm/reject, and the 1-2 most realistic blended or switch scenarios). This is OPTIONAL -- omit entirely if there is only one real scenario (most price-increase or quote-comparison cases won't need this). THIS IS THE LAST STRUCTURED TABLE FIELD IN THIS SCHEMA -- do not invent further tables beyond what is defined here; any additional structured comparisons belong in HARD RULE 17's conciseness discipline instead, not as new fields.
 
+HARD RULE 16B -- COMMERCIAL TRUTH FIREWALL FOR EXTERNAL MARKET EVIDENCE:
+External market verification is contextual evidence, not proof of this supplier's own cost base. You may use a market finding ONLY when it appears in the LIVE MARKET VERIFICATION block supplied below. When you use one, explicitly label it as "external market check" or "verified via live market search" and state the limitation: it does not establish ABC's actual costs, product-level exposure, or entitlement to the requested increase. Never convert a market movement into a supplier-specific cost conclusion unless the evidence explicitly establishes that linkage. If the market check is inconclusive, say so and do not use it as leverage. Do not mention a market fact in any field as though it came from the case itself.
+
+HARD RULE 16C -- NO INVENTED NEGOTIATION NUMBERS:
+Never invent a target, walk-away, discount, contract duration, savings percentage, threshold, or range merely because it sounds commercially sensible. A strategy number is allowed only when it is (a) explicitly supplied by the user/supplier, (b) deterministically calculated from supplied numbers, or (c) directly supported by the live market verification block. If the evidence does not establish a defensible numeric target, say "not safely determined from current evidence" and give the buyer a process/condition instead. A plausible 4-5% target is still fabrication if the case contains no evidence for it.
+
+HARD RULE 16D -- UNKNOWN IS NOT A BLOCKER BY DEFAULT:
+Do not list every absent supplier attribute (certification, production history, qualification, etc.) as an uncertainty or blocker. An attribute is decision-relevant only if the current recommendation actually depends on it. Phrase missing information as "not provided" rather than converting absence into a negative status. Do not repeat the same unknown in multiple sections.
+
 HARD RULE 17 -- WRITING DISCIPLINE (the most important rule for keeping the whole response non-repetitive, not just "reasoning"): Every fact that already appears in a structured field above (cost_driver_comparison, key_figures, supplier_comparison, financial_scenarios, financial_impact) must NOT be restated in full in "reasoning" -- refer to it briefly instead ("the cost-driver mismatch above," "as the scenarios show") rather than repeating the numbers. This discipline applies ACROSS ALL free-text fields in this schema, not just "reasoning" -- before finalizing, check "reasoning", "commercial_insights", "commercial_hypothesis", "methodology_applied", "opening_position", and "negotiation_talk_track" against EACH OTHER: if the same headline fact or argument (e.g. a specific percentage gap, a specific dollar figure, a specific claim like "market is down while supplier claims up") already appears fully stated in one field, every other field must either omit it, refer to it in passing ("as noted above"), or add a genuinely NEW angle on it -- never re-derive or reword the same point as if it were new. Do not restate your own conclusion more than once. Do not pad with a sentence that doesn't add new information. Every sentence in every field must earn its place by adding something not already visible elsewhere in the response. Prefer short paragraphs (2-4 sentences) over long ones. Target roughly half the length you would have used before this rule existed, while keeping every genuinely new piece of judgment or interpretation intact -- concise is not the same as thin; cutting a real insight to save words is the wrong trade.
 
 TOTAL OUTPUT SIZE: if this case populates 4 or more of the optional structured fields (cost_driver_comparison, supplier_comparison, negotiation_dimensions, financial_scenarios, negotiation_talk_track), treat that as a signal to compress "reasoning" further than usual, not less -- the structured fields are now carrying most of the factual weight, so reasoning's job shrinks to genuine synthesis and judgment only (2-3 short paragraphs, not more), never a restatement of what the tables already show in full.
@@ -286,12 +295,13 @@ def generate_commercial_position(
         else "\n\nNo financial figures could be computed (insufficient numeric evidence supplied)."
     )
     market_verification_note = (
-        f"\n\nLIVE MARKET VERIFICATION (real web search performed just now, not your training "
-        f"knowledge -- treat this as more current and specific than anything you already know "
-        f"about this topic): claim checked: \"{market_verification['claim_checked']}\" -- "
+        f"\n\nLIVE MARKET VERIFICATION (external context only; a real web search was performed just now, "
+        f"not training knowledge): claim checked: \"{market_verification['claim_checked']}\" -- "
         f"finding: {market_verification['finding']} -- {market_verification['verified_note']}. "
-        f"You MUST reference this explicitly in your reasoning if it's relevant, and clearly "
-        f"label it as verified-via-search-just-now, distinct from general knowledge."
+        f"This does NOT prove the supplier's actual cost base or justify its requested price change. "
+        f"Use it only as external market context, explicitly labelled as an external market check. "
+        f"Never turn a market movement into a supplier-specific cost conclusion unless the case evidence "
+        f"explicitly establishes that linkage."
         if market_verification is not None
         else ""
     )

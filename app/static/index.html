@@ -121,7 +121,7 @@
   .journey-step b { font-size:10.5px; line-height:1.1; }
   .journey-step small { color:#9296a0; font-size:8.5px; margin-top:2px; }
   .journey-line { flex:1; height:1px; min-width:14px; background:#dedfe4; margin:0 8px; }
-  #pos-decision-cockpit, #pos-trust-certification, #pos-commercial-truth-model, #pos-decision-flip-map, #pos-commercial-war-room, #pos-supplier-memory, #pos-procurement-memory, #pos-outcome-intelligence, #pos-commercial-dna { margin:14px 0; }
+  #pos-reasoning-loop, #pos-decision-cockpit, #pos-trust-certification, #pos-commercial-truth-model, #pos-decision-flip-map, #pos-commercial-war-room, #pos-supplier-memory, #pos-procurement-memory, #pos-outcome-intelligence, #pos-commercial-dna { margin:14px 0; }
   .decision-flow-note { margin:0 0 12px; font-size:11px; color:#7a7f89; letter-spacing:.03em; }
   .ve-support-group { margin:10px 0; border:1px solid #dfe2e7; border-radius:12px; background:#fff; overflow:hidden; }
   .ve-support-group > summary { cursor:pointer; list-style:none; padding:13px 14px; font-size:12.5px; font-weight:850; color:#1f2430; background:#fafbfc; }
@@ -133,7 +133,12 @@
   .ve-support-body > div { margin:0 !important; }
   .ve-support-body > div > section { margin:8px 0 !important; box-shadow:none !important; }
 
-  #pos-decision-cockpit > *, #pos-trust-certification > *, #pos-commercial-truth-model > *, #pos-decision-flip-map > *, #pos-commercial-war-room > *, #pos-supplier-memory > *, #pos-procurement-memory > *, #pos-outcome-intelligence > *, #pos-commercial-dna > * { border-radius:14px !important; }
+  #pos-reasoning-loop > *, #pos-decision-cockpit > *, #pos-trust-certification > *, #pos-commercial-truth-model > *, #pos-decision-flip-map > *, #pos-commercial-war-room > *, #pos-supplier-memory > *, #pos-procurement-memory > *, #pos-outcome-intelligence > *, #pos-commercial-dna > * { border-radius:14px !important; }
+  .buyer-reasoning-trace { display:grid; gap:7px; margin-top:10px; }
+  .buyer-reasoning-step { display:grid; grid-template-columns:24px 1fr; gap:9px; align-items:start; padding:8px 9px; border:1px solid #e6e7ea; border-radius:9px; background:#fafbfc; }
+  .buyer-reasoning-step > span { width:22px; height:22px; display:grid; place-items:center; border-radius:7px; background:#f0f1f4; color:#6f737c; font-size:10px; font-weight:800; }
+  .buyer-reasoning-step label { display:block; font-size:9px; letter-spacing:.09em; font-weight:800; color:#858a94; margin-bottom:2px; }
+  .buyer-reasoning-step strong { display:block; font-size:11.5px; line-height:1.35; font-weight:650; }
   #loading { max-width:720px; margin:80px auto; background:#fff; border:1px solid var(--line); border-radius:20px; padding:34px; box-shadow:var(--shadow); font-weight:600; color:#454952; }
   @media (max-width:760px) {
     body { padding:0 15px 48px; }
@@ -205,49 +210,81 @@
   <div id="cases-list"></div>
 </div>
 
+
+<style>
+.ve-secondary{border:1px solid #e1e3e7;border-radius:10px;background:#fff;overflow:hidden}
+.ve-secondary>summary{cursor:pointer;padding:11px 13px;font-size:12px;font-weight:800;list-style:none}
+.ve-secondary>summary::-webkit-details-marker{display:none}
+.ve-secondary>summary:before{content:"+";display:inline-block;width:18px;color:#777;font-size:14px}
+.ve-secondary[open]>summary:before{content:"−"}
+.ve-secondary>summary span{font-weight:500;color:#888;margin-left:6px}
+.ve-secondary>div{padding:0 11px 4px}
+</style>
 <div id="position-screen" class="hidden">
-  <div class="decision-flow-note">Decision → Why → Money → Negotiation → Next move</div>
+  <div class="decision-flow-note">What happened → What it means → What to do → What to send</div>
   <div class="card">
-    <p style="color:#777; font-size:11px; font-weight:800; letter-spacing:.12em; margin:0 0 8px; text-transform:uppercase">Your decision</p>
+    <p style="color:#777; font-size:11px; font-weight:800; letter-spacing:.12em; margin:0 0 8px; text-transform:uppercase">Your commercial decision</p>
     <div id="pos-thread-indicator"></div>
-    <div id="pos-decision-engine"></div>
-    <div id="pos-model-orchestration"></div>
-  <div id="pos-agentic-workflow"></div>
     <div id="pos-decision-cockpit"></div>
-    <div id="pos-trust-engine"></div>
-    <div id="pos-trust-certification"></div>
-    <div id="pos-commercial-truth-model"></div>
-    <div id="pos-decision-flip-map"></div>
-    <div id="pos-commercial-war-room"></div>
+    <div id="pos-reasoning-loop"></div>
+    <div id="pos-agentic-workflow"></div>
     <div id="pos-negotiation-intelligence"></div>
-    <div id="pos-supplier-memory"></div>
-    <div id="pos-procurement-memory"></div>
-    <div id="pos-outcome-intelligence"></div>
-    <div id="pos-commercial-dna"></div>
-    <div id="pos-case-count"></div>
-    <p id="pos-why-wins" style="font-size:13.5px; color:#444; font-style:italic; margin:6px 0 0"></p>
-    <div id="pos-commercial-insights" style="font-size:14px; font-style:italic; color:#4a4a6a; border-left:3px solid #6a5acd; padding-left:10px; margin:10px 0"></div>
-    <div id="pos-hypothesis"></div>
-    <div id="pos-methodology"></div>
-    <div id="pos-cost-drivers"></div>
-    <div id="pos-financial-scenarios"></div>
-    <div id="pos-key-figures"></div>
-    <div id="pos-supplier-comparison"></div>
-    <div id="pos-financial-impact"></div>
-    <div id="pos-badge"></div>
-    <div id="pos-factors"></div>
-    <p id="pos-derivation" style="font-size:13px; color:#555; margin-top:10px"></p>
-    <p id="pos-assumption-wrap" style="font-size:13px; margin-top:14px"><b>This depends on:</b> <span id="pos-assumption"></span></p>
-    <div id="pos-walkaway"></div>
-    <div id="pos-negotiation-dimensions"></div>
-    <div id="pos-talk-track"></div>
-    <div id="pos-decision-audit"></div>
-    <div id="pos-sensitivity"></div>
-    <div id="pos-stress-test"></div>
-  <div id="pos-alternatives"></div>
-  <div id="pos-control-tower"></div>
-  <div id="pos-decision-pack"></div>
-    <p id="pos-disconfirm-wrap" style="font-size:13px"><b>What would change this:</b> <span id="pos-disconfirm"></span></p>
+
+    <details class="ve-secondary" style="margin-top:12px">
+      <summary>Evidence &amp; trust <span>facts, calculations, sources and audit trail</span></summary>
+      <div id="pos-trust-engine"></div>
+      <div id="pos-trust-certification"></div>
+      <div id="pos-commercial-truth-model"></div>
+      <div id="pos-market-verification"></div>
+      <div id="pos-decision-audit"></div>
+    </details>
+
+    <details class="ve-secondary" style="margin-top:10px">
+      <summary>Commercial analysis <span>economics, alternatives and sensitivity</span></summary>
+      <div id="pos-financial-impact"></div>
+      <div id="pos-financial-scenarios"></div>
+      <div id="pos-cost-drivers"></div>
+      <div id="pos-key-figures"></div>
+      <div id="pos-supplier-comparison"></div>
+      <div id="pos-alternatives"></div>
+      <div id="pos-sensitivity"></div>
+      <div id="pos-stress-test"></div>
+      <div id="pos-decision-flip-map"></div>
+      <div id="pos-commercial-war-room"></div>
+      <div id="pos-control-tower"></div>
+    </details>
+
+    <details class="ve-secondary" style="margin-top:10px">
+      <summary>Negotiation detail <span>targets, give/get, scenarios and talk track</span></summary>
+      <div id="pos-negotiation-dimensions"></div>
+      <div id="pos-talk-track"></div>
+      <div id="pos-walkaway"></div>
+      <div id="pos-disconfirm-wrap" style="font-size:13px"><b>What would change this:</b> <span id="pos-disconfirm"></span></div>
+    </details>
+
+    <details class="ve-secondary" style="margin-top:10px">
+      <summary>Memory &amp; learning <span>supplier history, outcomes and organisational learning</span></summary>
+      <div id="pos-supplier-memory"></div>
+      <div id="pos-procurement-memory"></div>
+      <div id="pos-outcome-intelligence"></div>
+      <div id="pos-commercial-dna"></div>
+      <div id="pos-case-count"></div>
+    </details>
+
+    <details class="ve-secondary" style="margin-top:10px">
+      <summary>Advanced review <span>model challenge, methodology and decision pack</span></summary>
+      <div id="pos-model-orchestration"></div>
+      <div id="pos-why-wins"></div>
+      <div id="pos-commercial-insights"></div>
+      <div id="pos-hypothesis"></div>
+      <div id="pos-methodology"></div>
+      <div id="pos-badge"></div>
+      <div id="pos-factors"></div>
+      <p id="pos-derivation" style="font-size:13px; color:#555; margin-top:10px"></p>
+      <p id="pos-assumption-wrap" style="font-size:13px; margin-top:14px"><b>This depends on:</b> <span id="pos-assumption"></span></p>
+      <div id="pos-decision-pack"></div>
+    </details>
+
     <div id="quick-feedback-prompt" style="margin-top:16px; padding:12px; background:#f7f7f9; border-radius:8px">
       <p style="font-size:13px; font-weight:500; margin:0 0 8px">Did this help you make a better commercial decision?</p>
       <div id="quick-feedback-buttons">
@@ -1002,6 +1039,17 @@ function renderCommercialTruthModel(pos) {
 }
 
 
+function renderMarketVerification(pos) {
+  const el = document.getElementById("pos-market-verification");
+  if (!el) return;
+  const m = pos.market_verification;
+  if (!m) { el.innerHTML = ""; return; }
+  const finding = String(m.finding || "inconclusive").toUpperCase();
+  const label = finding === "SUPPORTED" ? "SUPPORTS MARKET CONTEXT" : finding === "CONTRADICTED" ? "CONTRADICTS MARKET CLAIM" : "INCONCLUSIVE";
+  const sources = (m.sources || []).slice(0,3).map(x => `<li><a href="${escapeHtml(String(x.url||""))}" target="_blank" rel="noopener noreferrer">${escapeHtml(String(x.title||x.url||"Source"))}</a></li>`).join("");
+  el.innerHTML = `<details style="margin:10px 0;border:1px solid #ddd;border-radius:9px;overflow:hidden"><summary style="cursor:pointer;padding:9px 12px;background:#f7f7f9;font-size:12px;font-weight:800">External market check — ${escapeHtml(label)}</summary><div style="padding:10px 12px;font-size:12px"><div><b>Claim checked:</b> ${escapeHtml(String(m.claim_checked||""))}</div><div style="margin-top:6px;color:#555">${escapeHtml(String(m.verified_note||""))}</div><div style="margin-top:8px;padding:8px 10px;background:#fffaf0;border-radius:7px;color:#6b5b2a"><b>Important:</b> This is external market context. It does not prove the supplier's actual cost base or entitlement to the requested increase.</div>${sources ? `<div style="margin-top:8px;font-weight:700">Sources</div><ul style="margin:4px 0 0 18px">${sources}</ul>` : `<div style="margin-top:8px;color:#888">Source metadata was not returned by the market-check provider.</div>`}</div></details>`;
+}
+
 function renderTrustEngine(pos) {
   const el = document.getElementById("pos-trust-engine");
   if (!el) return;
@@ -1513,6 +1561,40 @@ function renderCommercialDecisionEngine(pos) {
     ${(ev.blockers || []).length ? `<div class="buyer-subhead">Before acting</div><ul class="buyer-list">${list(ev.blockers)}</ul>` : ""}
     ${(e.change_conditions || []).length ? `<div class="buyer-subhead">Recheck if</div><ul class="buyer-list">${list(e.change_conditions)}</ul>` : ""}
     <div class="buyer-muted" style="margin-top:8px">This is VendorEdge's operational decision spine. It compresses validated evidence, economics and safeguards; it does not create new facts or thresholds.</div>
+  </section>`;
+}
+
+function renderCommercialReasoningLoop(pos) {
+  const el = document.getElementById("pos-reasoning-loop");
+  if (!el) return;
+  const r = pos.reasoning_loop || {};
+  if (!r.available) { el.innerHTML = ""; return; }
+  const stabilityMap = {
+    STABLE_WITH_CURRENT_EVIDENCE: ["STABLE WITH CURRENT EVIDENCE", "The current recommendation has no material independent challenge recorded."],
+    CONDITIONAL: ["CONDITIONAL", "The recommendation remains usable, but a material caveat must stay visible."],
+    REQUIRES_REVIEW: ["REQUIRES REVIEW", "An independent challenge is material enough to resolve before consequential action."]
+  };
+  const [stability, stabilityNote] = stabilityMap[r.stability] || stabilityMap.CONDITIONAL;
+  const trace = (r.reasoning_trace || []).slice(0,5);
+  const changers = (r.decision_changers || []).filter(Boolean).slice(0,3);
+  const evidence = (r.strongest_evidence || []).filter(Boolean).slice(0,3);
+  const tension = (r.commercial_tension || []).filter(Boolean).slice(0,2);
+  const counter = r.strongest_counterargument || "No independent counterargument was generated for this case.";
+  const badgeClass = r.stability === "REQUIRES_REVIEW" ? "buyer-status" : "buyer-status";
+  el.innerHTML = `<section class="buyer-hero" style="margin-top:10px">
+    <div class="buyer-hero-top">
+      <div><div class="buyer-eyebrow">COMMERCIAL REASONING LOOP</div><h2>Why VendorEdge landed here</h2></div>
+      <div class="${badgeClass}">${escapeHtml(stability)}</div>
+    </div>
+    <p class="buyer-mode-note">${escapeHtml(stabilityNote)}</p>
+    <div class="buyer-reasoning-trace">
+      ${trace.map(x => `<div class="buyer-reasoning-step"><span>${escapeHtml(String(x.step))}</span><div><label>${escapeHtml(x.label || "STEP")}</label><strong>${escapeHtml(x.finding || "")}</strong></div></div>`).join("")}
+    </div>
+    ${counter ? `<div class="buyer-callout" style="margin-top:10px"><span>STRONGEST COUNTER-ARGUMENT</span><b>${escapeHtml(counter)}</b><div class="buyer-muted" style="margin-top:5px">${escapeHtml(r.counterargument_source === "independent_challenger" ? "Independent challenger view — not evidence and not a replacement recommendation." : "No independent challenger view is recorded.")}</div></div>` : ""}
+    ${tension.length ? `<div class="buyer-subhead">Commercial tension</div><ul class="buyer-list">${tension.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}
+    ${evidence.length ? `<div class="buyer-subhead">Strongest evidence</div><ul class="buyer-list">${evidence.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}
+    ${changers.length ? `<div class="buyer-subhead">What could change the decision</div><ul class="buyer-list">${changers.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}
+    <div class="buyer-muted" style="margin-top:8px">VendorEdge separates the primary decision from its challenge. The loop exposes the reasoning chain; it does not manufacture new facts or thresholds.</div>
   </section>`;
 }
 
@@ -2478,7 +2560,7 @@ function organizeDecisionPage() {
 
   const groups = [
     ["numbers", "Numbers & commercial evidence", "The figures behind the position — supplier comparison, price basis, TCO and calculations.",
-      ["pos-model-orchestration", "pos-commercial-truth-model", "pos-cost-drivers", "pos-financial-scenarios", "pos-key-figures", "pos-supplier-comparison", "pos-financial-impact", "pos-methodology"]],
+["pos-reasoning-loop", "pos-model-orchestration", "pos-commercial-truth-model", "pos-cost-drivers", "pos-financial-scenarios", "pos-key-figures", "pos-supplier-comparison", "pos-financial-impact", "pos-methodology"]],
     ["negotiation", "Negotiation strategy", "How to use the evidence, where to push, and what to say.",
       ["pos-commercial-war-room", "pos-negotiation-dimensions", "pos-talk-track", "pos-alternatives"]],
     ["risk", "Risks & decision safeguards", "What can go wrong, what is still unknown, and what evidence would change the call.",
@@ -2523,14 +2605,15 @@ function renderPosition(pos) {
   pos.assumptions = Array.isArray(pos.assumptions) ? pos.assumptions : [];
 
   renderTrustEngine(pos);
+  renderMarketVerification(pos);
   renderTrustCertification(pos);
+  renderCommercialReasoningLoop(pos);
   renderCommercialTruthModel(pos);
   renderDecisionFlipMap(pos);
   renderCommercialWarRoom(pos);
   renderProcurementMemory(pos);
   renderOutcomeIntelligence(pos);
   renderCommercialDNA(pos);
-  renderCommercialDecisionEngine(pos);
   renderAgenticWorkflow(pos);
   renderDecisionCockpit(pos);
   renderControlTower(pos);

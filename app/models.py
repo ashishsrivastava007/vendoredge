@@ -270,6 +270,9 @@ class CommercialPosition(BaseModel):
     # region checked (e.g. "Southeast Asia") or "global" when no region
     # was given, or None when no market verification ran at all.
     market_verification_scope: Optional[str] = None
+    # External market context is preserved separately from supplier evidence.
+    # It can inform questions, but never becomes proof of the supplier's own cost base.
+    market_verification: Optional[dict[str, Any]] = None
     negotiation_dimensions: Optional[list[NegotiationDimension]] = Field(default=None, max_length=caps.MAX_NEGOTIATION_DIMENSIONS)
     negotiation_talk_track: Optional[list[NegotiationMove]] = Field(default=None, min_length=caps.MIN_TALK_TRACK_MOVES, max_length=caps.MAX_TALK_TRACK_MOVES)
     financial_scenarios: Optional[list[FinancialScenario]] = Field(default=None, max_length=caps.MAX_FINANCIAL_SCENARIOS)
@@ -345,6 +348,9 @@ class CommercialPosition(BaseModel):
     supplier_memory: Optional[dict[str, Any]] = None
     # Release 34.1: adaptive second-opinion model orchestration; advisory only.
     model_orchestration: Optional[dict[str, Any]] = None
+    # R37: deterministic commercial reasoning loop. Reconciles the validated
+    # decision layers and exposes the strongest independent counter-case.
+    reasoning_loop: Optional[dict[str, Any]] = None
     # Release 35.1: bounded agentic workflow; preparation/approval state only.
     agentic_workflow: Optional[dict[str, Any]] = None
     # Release 7: deterministic challenge of the recommendation using only

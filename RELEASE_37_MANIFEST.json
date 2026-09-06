@@ -1,0 +1,24 @@
+{
+  "release": "R37",
+  "name": "Commercial Reasoning Loop",
+  "version": "37.0",
+  "base_release": "R36.2",
+  "status": "validated",
+  "changes": [
+    "deterministic commercial reasoning loop",
+    "independent challenger counter-case surfaced in primary decision UX",
+    "content-aware challenger routing for material price-increase exposure",
+    "answer-first reasoning trace"
+  ],
+  "safety": [
+    "reasoning loop cannot create or mutate facts, calculations, thresholds, or recommendation",
+    "challenger remains advisory and separate from evidence",
+    "unsupported strategy-number controls from R36.2 retained"
+  ],
+  "validation": {
+    "release_tests": "107/107 passed",
+    "python_compile": "passed",
+    "frontend_javascript_syntax": "passed",
+    "full_live_postgres_provider_suite": "not run in sandbox"
+  }
+}

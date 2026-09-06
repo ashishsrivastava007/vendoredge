@@ -53,6 +53,17 @@ def build_trust_engine(normalized: NormalizedEvidence, position: CommercialPosit
 
     # Explicitly expose important decision-layer values that are not evidence
     # fields themselves. They are never relabelled as verified facts.
+    if getattr(position, "market_verification", None):
+        mv = position.market_verification
+        entries.append({
+            "field": "external_market_context",
+            "value": _display(mv.get("verified_note") or mv.get("finding")),
+            "state": "VERIFIED",
+            "source": "external_market_search",
+            "supplier": None,
+            "conflicting": False,
+        })
+
     if position.financial_impact is not None:
         entries.append({
             "field": "financial_impact.net_exposure_usd",

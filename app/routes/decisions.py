@@ -46,7 +46,7 @@ from app.pipeline.methodology_consistency import (
     claims_kraljic_methodology, check_kraljic_reasoning_coverage,
 )
 from app.pipeline.contradiction_check import check_all_contradictions
-from app.pipeline.claim_integrity import check_all_claim_overstatements
+from app.pipeline.claim_integrity import check_all_claim_overstatements, sanitize_unsupported_strategy_numbers
 from app.pipeline.confidence_gate import apply_confidence_ceiling
 from app.pipeline.decision_integrity import (
     compute_pre_reasoning_confidence, build_stakeholder_decision_protocol,
@@ -70,6 +70,7 @@ from app.pipeline.commercial_dna import build_commercial_dna
 from app.pipeline.negotiation_playbook import build_negotiation_playbook
 from app.pipeline.negotiation_intelligence import build_negotiation_intelligence
 from app.pipeline.model_orchestration import build_model_orchestration, run_challenger, challenge_trigger
+from app.pipeline.commercial_reasoning import build_commercial_reasoning_loop
 from app.pipeline.agentic_workflow import build_agentic_workflow
 from app.pipeline.supplier_memory import build_supplier_memory
 from app.pipeline.decision_formats import render_decision
@@ -1844,6 +1845,7 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
         position = _reasoning_call("primary_reasoning")
         if market_verification is not None:
             position.market_verification_scope = market_verification.get("scope")
+            position.market_verification = market_verification
         try:
             position.confidence_calibration_note = _compute_confidence_calibration(org_id)
         except Exception as e:
@@ -1951,6 +1953,9 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
             retried_position = _reasoning_call("claim_integrity_check", methodology_correction=correction_text)
             if financial_impact is not None:
                 retried_position.financial_impact = financial_impact
+            if market_verification is not None:
+                retried_position.market_verification_scope = market_verification.get("scope")
+                retried_position.market_verification = market_verification
             retried_position.informed_by_case_count = len(history)
             _log_fallback_fired("claim_integrity_retry_fired", content_type, organisation_id=org_id)
             still_overstating = check_all_claim_overstatements(
@@ -1958,8 +1963,16 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
             )
             if len(still_overstating) < len(overstatements):
                 position = retried_position
+            else:
+                changed_fields = sanitize_unsupported_strategy_numbers(position, raw_question)
+                if changed_fields:
+                    print(f"Sanitized unsupported strategy numbers: {changed_fields}")
         except Exception as e:
             print(f"Claim-integrity retry skipped (non-blocking): {type(e).__name__}: {e}")
+
+    if market_verification is not None:
+        position.market_verification_scope = market_verification.get("scope")
+        position.market_verification = market_verification
 
     position = apply_confidence_ceiling(position, normalized)
     try:
@@ -2035,6 +2048,14 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
             )
     except Exception as e:
         print(f"Model orchestration skipped (non-blocking): {type(e).__name__}: {e}")
+
+    # R37: Commercial Reasoning Loop. This is intentionally after the
+    # independent challenger and final deterministic layers, so the buyer sees
+    # one reconciled chain instead of a pile of disconnected intelligence cards.
+    try:
+        position.reasoning_loop = build_commercial_reasoning_loop(normalized, position)
+    except Exception as e:
+        print(f"Commercial reasoning loop skipped (non-blocking): {type(e).__name__}: {e}")
 
     # Release 33: supplier-centric deterministic memory. It is built from the
     # same tenant-scoped completed history used for prior supplier memory, but

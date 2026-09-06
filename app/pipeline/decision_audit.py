@@ -77,13 +77,30 @@ def build_decision_audit(normalized: NormalizedEvidence, position: CommercialPos
     for field, prov in normalized.provenance.items():
         if prov.conflicting:
             uncertainties.append(f"Conflicting evidence for {field}")
+    # Do not turn every absent supplier attribute into a user-facing blocker.
+    # "Not provided" is not automatically decision-relevant, and surfacing
+    # qualification/certification/production-history gaps for every supplier
+    # creates false urgency and noisy repetition. Only surface qualification
+    # when the current decision actually relies on an alternative supplier.
+    alternative_reliance = any(
+        any(token in str(text).lower() for token in (
+            "alternative", "reallocate", "reallocation", "switch", "dual-source",
+            "rebid", "competitive sourcing", "competitive bid", "volume allocation"
+        ))
+        for text in (
+            position.recommendation, position.reasoning, position.opening_position,
+            position.walk_away_threshold, position.disconfirming_condition,
+        ) if text
+    )
     for supplier in normalized.suppliers:
-        if supplier.qualification_status in {"unknown", "not_started", "in_progress"}:
-            uncertainties.append(f"{supplier.supplier_name}: qualification status is not complete")
-        if supplier.production_history_status == "unknown":
-            uncertainties.append(f"{supplier.supplier_name}: production history is unknown")
-        if supplier.certification_status == "unknown":
-            uncertainties.append(f"{supplier.supplier_name}: certification status is unknown")
+        if alternative_reliance and not supplier.is_incumbent and supplier.capacity_percent is not None:
+            if supplier.qualification_status in {"unknown", "not_started", "in_progress"}:
+                uncertainties.append(
+                    f"{supplier.supplier_name}: qualification status was not provided"
+                )
+        # Certification and production history are not emitted merely because
+        # the fields are absent. They become visible only when an actual
+        # decision field explicitly relies on that attribute elsewhere.
     if not normalized.stakeholder_views:
         pass
     else:
@@ -113,8 +130,13 @@ def build_decision_audit(normalized: NormalizedEvidence, position: CommercialPos
     reversal_conditions = []
     if position.disconfirming_condition:
         reversal_conditions.append(position.disconfirming_condition)
-    for u in uncertainties[:4]:
+    for u in uncertainties:
         reversal_conditions.append(f"Reassess if this unresolved point changes materially: {u}")
+    # Preserve only distinct reversal conditions; repeating the same unknown
+    # in multiple audit sections makes the product look less trustworthy.
+    reversal_conditions = list(dict.fromkeys(x.strip() for x in reversal_conditions if x and x.strip()))
+
+    uncertainties = list(dict.fromkeys(x.strip() for x in uncertainties if x and x.strip()))
 
     inferred = []
     if position.commercial_hypothesis:

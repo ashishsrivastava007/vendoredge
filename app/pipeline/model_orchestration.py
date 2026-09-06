@@ -30,6 +30,10 @@ from app.models import CommercialPosition
 CHALLENGER_MODEL = os.environ.get("VENDOREDGE_CHALLENGER_MODEL") or "claude-sonnet-4-6"
 CHALLENGER_PROVIDER = os.environ.get("VENDOREDGE_CHALLENGER_PROVIDER") or "anthropic"
 CHALLENGE_FINANCIAL_EXPOSURE_USD = float(os.environ.get("VENDOREDGE_CHALLENGE_EXPOSURE_USD", "500000"))
+# R37 adds a lower, content-aware trigger for material price-increase cases.
+# This is a model-cost policy, not a commercial threshold: it only decides
+# whether to request an independent second opinion.
+PRICE_INCREASE_CHALLENGE_EXPOSURE_USD = float(os.environ.get("VENDOREDGE_PRICE_INCREASE_CHALLENGE_EXPOSURE_USD", "100000"))
 CHALLENGER_MAX_TOKENS = 1800
 PROVIDER_OPERATION_TIMEOUT_SECONDS = 20 * 60
 
@@ -60,6 +64,9 @@ def challenge_trigger(normalized: NormalizedEvidence, position: CommercialPositi
         reasons.append("primary confidence is low")
     if position.financial_impact and position.financial_impact.potential_annual_impact_usd >= CHALLENGE_FINANCIAL_EXPOSURE_USD:
         reasons.append("financial exposure exceeds the challenge threshold")
+    if (normalized.content_type == "price_increase" and position.financial_impact
+            and position.financial_impact.potential_annual_impact_usd >= PRICE_INCREASE_CHALLENGE_EXPOSURE_USD):
+        reasons.append("material price-increase exposure warrants an independent commercial challenge")
     if position.walk_away_threshold and position.disconfirming_condition:
         reasons.append("the case contains both a commercial boundary and a reversal condition")
     return bool(reasons), reasons

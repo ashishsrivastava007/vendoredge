@@ -639,6 +639,129 @@ def check_material_caveat_omission(position: CommercialPosition, normalized: Nor
     return issues
 
 
+def check_market_context_attribution(position: CommercialPosition) -> list[str]:
+    """Require market-derived claims to be visibly attributed and scoped.
+
+    External market context is a separate evidence class. If the reasoner uses
+    it, the buyer must be able to tell that it came from a live external check
+    rather than from the supplied case or the model's background knowledge.
+    """
+    text = position.reasoning or ""
+    market = getattr(position, "market_verification", None)
+    if not market:
+        return []
+    label_ok = ("external market check", "external market context", "live market search", "verified via live market")
+    issues: list[str] = []
+    for sentence in _split_sentences(text):
+        low = sentence.lower()
+        if not any(term in low for term in ("market", "steel", "brass", "commodity", "input cost", "raw material")):
+            continue
+        # Avoid flagging explicit limitations such as "no market evidence was provided".
+        if any(x in low for x in ("no market", "market evidence is unavailable", "market data was not provided", "not established by market")):
+            continue
+        if not any(x in low for x in label_ok):
+            issues.append(
+                f"The sentence \"{sentence.strip()}\" uses external market context without explicitly labelling it as an external market check; "
+                "market context must not be presented as supplier-specific evidence."
+            )
+            break
+        if str(market.get("finding") or "").lower() == "inconclusive" and any(x in low for x in ("supports", "proves", "justifies", "confirms")):
+            issues.append(
+                "The live market check was inconclusive, but the response uses it as affirmative support. "
+                "Treat an inconclusive market check only as a reason to ask for supplier evidence."
+            )
+            break
+    return issues
+
+
+def check_unsupported_strategy_numbers(
+    position: CommercialPosition, normalized: NormalizedEvidence, raw_question: str = ""
+) -> list[str]:
+    """Reject invented numeric negotiation targets/boundaries.
+
+    VendorEdge may calculate numbers, but a model must not turn an unsupported
+    percentage or contract duration into a seemingly precise target/walk-away.
+    Source percentages/durations already present in the case are allowed;
+    deterministic exposure figures are also allowed elsewhere. This check is
+    intentionally limited to negotiation strategy fields, where invented
+    numbers can directly steer a buyer's commercial decision.
+    """
+    source = (raw_question or "").lower()
+    fields = [position.opening_position, position.walk_away_threshold]
+    fields += [position.disconfirming_condition]
+    for d in (position.negotiation_dimensions or []):
+        fields.extend([d.opening_ask, d.target_outcome, d.walk_away])
+    text = " ".join(str(x) for x in fields if x)
+    issues: list[str] = []
+
+    # Percentages: permit only percentages explicitly present in the case.
+    source_pcts = {m.group(0).replace(" ", "") for m in re.finditer(r"\b\d+(?:\.\d+)?\s*%", source)}
+    for m in re.finditer(r"\b\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?\s*%", text):
+        token = m.group(0).replace(" ", "")
+        # Every endpoint in a range must be sourced.
+        endpoints = re.findall(r"\d+(?:\.\d+)?", token)
+        if all((ep + "%") in source_pcts for ep in endpoints):
+            continue
+        issues.append(f"Unsupported negotiation percentage '{m.group(0).strip()}' is not present in the supplied case evidence.")
+        break
+
+    # Contract durations: only durations explicitly supplied by the user may
+    # become a strategy number. Do not invent "2-3 years" from a 7-month term.
+    source_durations = {
+        m.group(0).lower().replace(" ", "")
+        for m in re.finditer(r"\b\d+(?:\s*-\s*\d+)?\s*(?:years?|yrs?|months?|mos?)\b", source)
+    }
+    for m in re.finditer(r"\b\d+(?:\s*-\s*\d+)?\s*(?:years?|yrs?|months?|mos?)\b", text.lower()):
+        token = m.group(0).replace(" ", "")
+        if token in source_durations:
+            continue
+        issues.append(f"Unsupported negotiation duration '{m.group(0).strip()}' is not present in the supplied case evidence.")
+        break
+
+    return issues
+
+
+def sanitize_unsupported_strategy_numbers(position: CommercialPosition, raw_question: str = "") -> list[str]:
+    """Last-resort deterministic guard for negotiation strategy fields.
+
+    If a model still returns a new numeric target/range after the correction
+    retry, replace only the affected strategy field with an evidence-honest
+    non-numeric position. We never rewrite the recommendation itself and we
+    never alter user-supplied or deterministic financial numbers.
+    """
+    source = (raw_question or "").lower()
+    source_pcts = {m.group(0).replace(" ", "") for m in re.finditer(r"\b\d+(?:\.\d+)?\s*%", source)}
+    source_durations = {m.group(0).lower().replace(" ", "") for m in re.finditer(r"\b\d+(?:\s*-\s*\d+)?\s*(?:years?|yrs?|months?|mos?)\b", source)}
+    changed: list[str] = []
+
+    def bad(text: str | None) -> bool:
+        if not text:
+            return False
+        for m in re.finditer(r"\b\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?\s*%", text):
+            if not all((ep + "%") in source_pcts for ep in re.findall(r"\d+(?:\.\d+)?", m.group(0))):
+                return True
+        for m in re.finditer(r"\b\d+(?:\s*-\s*\d+)?\s*(?:years?|yrs?|months?|mos?)\b", text.lower()):
+            if m.group(0).replace(" ", "") not in source_durations:
+                return True
+        return False
+
+    if bad(position.walk_away_threshold):
+        position.walk_away_threshold = "Do not cross a commercial boundary that has not been established by the current evidence; exact numeric walk-away is not safely determined."
+        changed.append("walk_away_threshold")
+    if bad(position.disconfirming_condition):
+        position.disconfirming_condition = "Reassess if new evidence materially changes the supplier cost justification or the viability of alternatives; no numeric reversal point is safely established yet."
+        changed.append("disconfirming_condition")
+    dims = position.negotiation_dimensions or []
+    for d in dims:
+        if bad(d.target_outcome):
+            d.target_outcome = "Negotiate materially below the requested level; exact numeric target is not safely determined from current evidence."
+            changed.append(f"{d.dimension}:target_outcome")
+        if bad(d.walk_away):
+            d.walk_away = "Do not accept an unsupported commercial commitment; exact numeric boundary is not safely determined."
+            changed.append(f"{d.dimension}:walk_away")
+    return changed
+
+
 # ---------------------------------------------------------------------------
 # Aggregate entry point
 # ---------------------------------------------------------------------------
@@ -689,4 +812,6 @@ def check_all_claim_overstatements(
         + check_preferred_supplier_overstatement(position, normalized)
         + check_performance_characterization_overstatement(position, normalized)
         + check_unquantified_tradeoff_overstatement(position, normalized)
+        + check_unsupported_strategy_numbers(position, normalized, raw_question)
+        + check_market_context_attribution(position)
     )

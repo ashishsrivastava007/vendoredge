@@ -120,7 +120,8 @@ def verify_market_claim(stated_justification: str, region: str | None = None) ->
                 f'"finding": "supported | contradicted | inconclusive", '
                 f'"verified_note": "one or two sentences on what the search actually found, '
                 f'in plain language, citing roughly what the search showed, and explicitly noting '
-                f'if genuine regional data was unavailable and a global figure was used instead"}}'
+                f'if genuine regional data was unavailable and a global figure was used instead", '
+                f'"sources": [{{"title": "source name", "url": "https://..."}}]}}'
             ),
         }]
         response = client.messages.create(
@@ -155,6 +156,21 @@ def verify_market_claim(stated_justification: str, region: str | None = None) ->
 
         if not all(k in result for k in ("claim_checked", "finding", "verified_note")):
             return None
+        if result.get("finding") not in {"supported", "contradicted", "inconclusive"}:
+            return None
+        # Sources are audit metadata, not a reason to trust the model's claim.
+        # Keep only well-formed absolute URLs and source titles; if none were
+        # returned, the market check still remains usable as contextual evidence
+        # but the UI will explicitly show that source metadata was unavailable.
+        cleaned_sources = []
+        for src in result.get("sources") or []:
+            if not isinstance(src, dict):
+                continue
+            title = str(src.get("title") or "").strip()
+            url = str(src.get("url") or "").strip()
+            if title and re.match(r"^https?://", url):
+                cleaned_sources.append({"title": title[:180], "url": url[:500]})
+        result["sources"] = cleaned_sources[:5]
         # Deterministic, code-set -- not left to the model to self-report,
         # same "guarantee, don't just ask nicely" pattern used throughout.
         result["scope"] = scope_label

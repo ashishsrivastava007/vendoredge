@@ -357,6 +357,12 @@ class CommercialPosition(BaseModel):
     # R37: deterministic commercial reasoning loop. Reconciles the validated
     # decision layers and exposes the strongest independent counter-case.
     reasoning_loop: Optional[dict[str, Any]] = None
+    # R38: deterministic buyer-facing answer packet. Compresses validated decision layers
+    # into one actionable answer; it cannot create new facts, calculations, thresholds or
+    # supplier economics.
+    commercial_answer: Optional[dict[str, Any]] = None
+    # R39: unified buyer-first commercial memory across supplier history, organizational precedent and observed activity.
+    commercial_memory: Optional[dict[str, Any]] = None
     # Release 35.1: bounded agentic workflow; preparation/approval state only.
     agentic_workflow: Optional[dict[str, Any]] = None
     # Release 7: deterministic challenge of the recommendation using only

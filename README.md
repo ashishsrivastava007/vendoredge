@@ -186,3 +186,21 @@ R37.2 removes the class of browser startup races where normal authenticated API 
 
 ## R37.3 — Workspace Bootstrap Reliability
 R37.3 hardens the private-workspace bootstrap lifecycle with request timeouts, bounded retry, retry-safe workspace creation, pre-unlock session validation, explicit UI states, stale-run protection, and a true fresh-workspace reset. Release tests: 122 passed.
+
+
+## R37.4 — Startup Configuration Hardening
+Production startup now validates mandatory database configuration and connectivity before accepting traffic, and aborts startup if bounded demo-organisation initialization still cannot complete.
+
+## R38 — Commercial Answer Engine
+R38 introduces a deterministic buyer-first Commercial Answer packet across specialist and general triage cases. It surfaces the decision, guaranteed economics, evidence classes, next actions, negotiation state, counter-case, decision changers, and an editable supplier response in one place. Unsupported negotiation numbers are withheld, supplier claims and stakeholder views remain distinct from verified facts, and structured evidence renders without `[object Object]` leakage. The front door also supports proactive questions about observed patterns and category strategy, not only supplier requests.
+
+
+## R38.1 — Commercial Answer UX consolidation
+R38.1 hardens the Commercial Answer against the repetition pattern found in real buyer-output review. The consolidated answer owns the decision, economics, actions and decision-changing conditions. The legacy Decision Cockpit is suppressed when the consolidated answer exists; the reasoning loop retains only trace + counter-case; answer-owned unknowns and reversal conditions are filtered out of the audit; and the execution Control Tower is collapsed by default. Focused regression coverage verifies these ownership rules.
+
+
+## R39 — Commercial Memory
+R39 adds a single buyer-facing Commercial Memory layer that unifies supplier precedent, organizational history, recorded learning, and current-year observed activity. It supports proactive use cases as well as supplier-triggered decisions and is deterministic/read-only.
+
+## R40 — Commercial Workbench
+R40 changes the authenticated landing page from a request form into a daily Commercial Workbench. Buyers can start from a supplier request, something they noticed proactively, or a category/strategy question. The workbench surfaces actionable in-progress work, recorded current-year activity, and recent decisions without inventing urgency or predictions.

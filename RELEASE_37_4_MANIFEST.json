@@ -1,0 +1,19 @@
+{
+  "release": "R37.4",
+  "name": "Startup Configuration Hardening",
+  "purpose": "Fail fast on missing/unreachable mandatory production database configuration instead of surfacing bootstrap failures to users.",
+  "changes": [
+    "Validate DATABASE_URL during lifespan startup",
+    "Require MIGRATION_DATABASE_URL in production",
+    "Probe configured DSNs with bounded 10-second SELECT 1 checks",
+    "Abort startup after bounded demo-organisation setup retries fail",
+    "Preserve explicit Render database and auth-secret wiring"
+  ],
+  "validation": {
+    "python_compile": "PASS",
+    "javascript_syntax": "PASS",
+    "startup_configuration_tests": "PASS",
+    "release_tests": "133 passed",
+    "live_validation": false
+  }
+}

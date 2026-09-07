@@ -1,0 +1,26 @@
+{
+  "release": "R38.1",
+  "name": "Commercial Answer Engine",
+  "purpose": "Compress validated VendorEdge intelligence into one actionable buyer-facing answer without creating new commercial facts or thresholds.",
+  "changes": [
+    "Deterministic buyer-facing commercial answer packet",
+    "Guaranteed annual/monthly requested-change arithmetic when safely supported",
+    "Explicit supplier-rate scenario arithmetic for unambiguous from-X-to-Y percentage statements",
+    "Unsupported negotiation-number withholding at the presentation boundary",
+    "Supplier-claim and stakeholder-view separation",
+    "Editable deterministic supplier-response draft for price-increase cases",
+    "General-triage support for proactive observed-pattern/category questions",
+    "Structured evidence renderer hardened against [object Object]",
+    "Commercial Answer is the single owner of the buyer-facing decision summary; legacy Decision Cockpit is suppressed when R38 answer is available",
+    "Decision-critical unknowns surfaced once in the Commercial Answer and answer-owned audit repetition is filtered",
+    "Commercial Reasoning Loop reduced to reasoning trace and counter-case only",
+    "Control Tower collapsed by default to reduce duplicate decision-summary content"
+  ],
+  "validation": {
+    "python_compile": "PASS",
+    "javascript_syntax": "PASS",
+    "release_tests": "134 passed",
+    "live_validation": false,
+    "focused_repetition_tests": "5 passed"
+  }
+}

@@ -14,7 +14,7 @@ load_dotenv()
 from app.routes.decisions import router as decisions_router
 from app.seed import ensure_demo_org_exists, run_migrations
 from app.auth import require_session, verify_membership, _secret
-from app.database import close_pool
+from app.database import close_pool, validate_database_configuration
 from app.pipeline.job_queue import recoverable_jobs
 from app.pipeline.dispatcher import start_dispatcher
 
@@ -28,9 +28,13 @@ async def lifespan(app: FastAPI):
             os.environ.get("ALLOW_LEGACY_WORKSPACE_LINKS", "false").lower() == "true"):
         raise RuntimeError("ALLOW_LEGACY_WORKSPACE_LINKS must be disabled in production.")
 
-    # Authentication is mandatory for protected API routes. Fail fast rather
-    # than creating workspaces that cannot receive a signed session.
+    # Authentication and database configuration are mandatory. Fail fast before
+    # the service begins accepting traffic rather than discovering a missing
+    # secret/DSN on the first real user request.
     _secret()
+    validate_database_configuration(
+        require_migration_url=os.environ.get("ENVIRONMENT", "").lower() in {"production", "prod"}
+    )
 
     # Applies any small, safe schema catch-up changes first, so an existing
     # database (from an earlier build, before some column existed) stays in
@@ -61,10 +65,9 @@ async def lifespan(app: FastAPI):
             print(f"Demo org setup attempt {attempt}/5 failed ({e}); retrying...")
             time.sleep(2)
     else:
-        print(
-            "WARNING: could not set up the demo organisation after 5 attempts. "
-            "The app will start, but every request will fail until this is resolved -- "
-            "check that the database is reachable at the configured DATABASE_URL."
+        raise RuntimeError(
+            "Database connectivity was not stable enough to complete demo organisation setup; "
+            "application startup aborted."
         )
     # A worker restart must not strand queued or leased work. Jobs are
     # persisted first; this dispatch only wakes the durable queue again.

@@ -37,9 +37,38 @@
   #case-summary-text { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12.5px; background: white; border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px; max-height: 340px; overflow-y: auto; }
   .copy-confirm { font-size: 12px; color: #216b3e; margin-left: 8px; }
 
+  /* R40 — Commercial Workbench: daily/proactive home without inventing urgency. */
+  #home-screen { max-width:1120px; margin:0 auto; }
+  .ve-home-hero { border:1px solid var(--line); border-radius:18px; background:#fff; box-shadow:var(--shadow); padding:22px 24px; }
+  .ve-home-kicker { font-size:9px; font-weight:900; letter-spacing:.16em; color:#7b8089; }
+  .ve-home-title { margin:6px 0 7px; font-size:30px; line-height:1.15; letter-spacing:-.035em; font-weight:750; }
+  .ve-home-sub { margin:0; max-width:760px; color:#666b75; font-size:13px; line-height:1.55; }
+  .ve-home-actions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-top:16px; }
+  .ve-home-action { text-align:left; border:1px solid #e1e3e8; border-radius:13px; background:#fafbfc; padding:13px 14px; cursor:pointer; }
+  .ve-home-action:hover { border-color:#b8b2ee; background:#fff; }
+  .ve-home-action b { display:block; font-size:12.5px; }
+  .ve-home-action span { display:block; margin-top:4px; font-size:10.5px; color:#7a7f88; line-height:1.4; }
+  .ve-home-grid { display:grid; grid-template-columns:1.1fr .9fr; gap:12px; margin-top:12px; }
+  .ve-home-panel { border:1px solid var(--line); border-radius:15px; background:#fff; box-shadow:0 6px 20px rgba(17,19,24,.04); padding:14px 16px; }
+  .ve-home-panel h3 { margin:0 0 9px; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#767b85; }
+  .ve-home-stat-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+  .ve-home-stat { background:#f7f7f9; border-radius:10px; padding:9px; }
+  .ve-home-stat small { display:block; color:#80858e; font-size:8.5px; font-weight:850; letter-spacing:.08em; }
+  .ve-home-stat strong { display:block; margin-top:3px; font-size:18px; }
+  .ve-home-row { padding:9px 0; border-top:1px solid #eee; }
+  .ve-home-row:first-child { border-top:0; padding-top:0; }
+  .ve-home-row button { background:none; border:0; padding:0; text-align:left; width:100%; }
+  .ve-home-row b { font-size:11.5px; color:#222731; }
+  .ve-home-row small { display:block; margin-top:3px; color:#858a94; font-size:9.5px; line-height:1.4; }
+  .ve-home-observation { padding:10px 11px; border:1px solid #e7e8ec; border-radius:10px; background:#fafbfc; margin-top:7px; }
+  .ve-home-observation b { font-size:11.5px; }
+  .ve-home-observation span { display:block; margin-top:4px; color:#767b85; font-size:10px; line-height:1.4; }
+  .ve-home-empty { color:#888d96; font-size:11px; line-height:1.45; }
+  @media (max-width:760px) { .ve-home-actions,.ve-home-grid,.ve-home-stat-grid { grid-template-columns:1fr; } .ve-home-title{font-size:25px;} }
+
   /* R27 Buyer Experience: the engine stays deep; the default UI stays shallow. */
   #pos-trust-certification, #pos-commercial-truth-model, #pos-decision-flip-map,
-  #pos-commercial-war-room, #pos-supplier-memory, #pos-procurement-memory, #pos-outcome-intelligence,
+  #pos-commercial-war-room, #pos-commercial-memory, #pos-supplier-memory, #pos-procurement-memory, #pos-outcome-intelligence,
   #pos-commercial-dna, #pos-case-count, #pos-commercial-insights,
   #pos-hypothesis, #pos-methodology, #pos-cost-drivers, #pos-financial-scenarios,
   #pos-key-figures, #pos-supplier-comparison, #pos-financial-impact, #pos-badge,
@@ -121,7 +150,31 @@
   .journey-step b { font-size:10.5px; line-height:1.1; }
   .journey-step small { color:#9296a0; font-size:8.5px; margin-top:2px; }
   .journey-line { flex:1; height:1px; min-width:14px; background:#dedfe4; margin:0 8px; }
-  #pos-reasoning-loop, #pos-decision-cockpit, #pos-trust-certification, #pos-commercial-truth-model, #pos-decision-flip-map, #pos-commercial-war-room, #pos-supplier-memory, #pos-procurement-memory, #pos-outcome-intelligence, #pos-commercial-dna { margin:14px 0; }
+  #pos-reasoning-loop, #pos-decision-cockpit, #pos-trust-certification, #pos-commercial-truth-model, #pos-decision-flip-map, #pos-commercial-war-room, #pos-commercial-memory, #pos-supplier-memory, #pos-procurement-memory, #pos-outcome-intelligence, #pos-commercial-dna { margin:14px 0; }
+  #pos-commercial-answer { margin:14px 0; }
+  .ve-answer { border:1px solid #1d2733; border-radius:16px; overflow:hidden; background:#fff; box-shadow:0 3px 12px rgba(0,0,0,.06); }
+  .ve-answer-head { padding:14px 16px; background:#111827; color:#fff; display:flex; justify-content:space-between; align-items:flex-start; gap:14px; }
+  .ve-answer-eyebrow { font-size:9px; letter-spacing:.12em; font-weight:800; opacity:.7; }
+  .ve-answer-title { margin:3px 0 0; font-size:18px; line-height:1.3; font-weight:850; }
+  .ve-answer-badge { font-size:10px; font-weight:850; padding:5px 8px; border-radius:999px; background:#eef2ff; color:#243b78; white-space:nowrap; }
+  .ve-answer-body { padding:14px 16px; }
+  .ve-answer-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:0 0 12px; }
+  .ve-answer-metric { border:1px solid #e7e9ed; border-radius:10px; padding:9px 10px; background:#fafbfc; }
+  .ve-answer-metric label { display:block; font-size:8.5px; font-weight:850; letter-spacing:.08em; color:#7d838d; }
+  .ve-answer-metric strong { display:block; margin-top:3px; font-size:14px; line-height:1.25; }
+  .ve-answer-section { margin-top:12px; }
+  .ve-answer-section h4 { margin:0 0 6px; font-size:10px; letter-spacing:.09em; font-weight:850; color:#69707b; }
+  .ve-answer-list { margin:0 0 0 18px; padding:0; font-size:12px; line-height:1.48; }
+  .ve-answer-list li { margin:3px 0; }
+  .ve-answer-callout { padding:10px 11px; border:1px solid #e5e7eb; border-radius:10px; background:#fbfbfc; font-size:12px; line-height:1.45; }
+  .ve-answer-money { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
+  .ve-answer-money div { padding:8px 9px; border-radius:9px; background:#f6f7f9; }
+  .ve-answer-money small { display:block; font-size:8.5px; color:#777; font-weight:800; }
+  .ve-answer-money b { display:block; margin-top:2px; font-size:12.5px; }
+  .ve-answer-actions { display:grid; gap:6px; }
+  .ve-answer-action { padding:8px 9px; border-left:3px solid #7c8aa5; background:#fafbfc; border-radius:7px; font-size:12px; }
+  .ve-answer-email { white-space:pre-wrap; font-family:inherit; font-size:12px; line-height:1.5; }
+  @media (max-width:760px) { .ve-answer-grid,.ve-answer-money { grid-template-columns:1fr; } .ve-answer-head { flex-direction:column; } }
   .decision-flow-note { margin:0 0 12px; font-size:11px; color:#7a7f89; letter-spacing:.03em; }
   .ve-support-group { margin:10px 0; border:1px solid #dfe2e7; border-radius:12px; background:#fff; overflow:hidden; }
   .ve-support-group > summary { cursor:pointer; list-style:none; padding:13px 14px; font-size:12.5px; font-weight:850; color:#1f2430; background:#fafbfc; }
@@ -133,7 +186,7 @@
   .ve-support-body > div { margin:0 !important; }
   .ve-support-body > div > section { margin:8px 0 !important; box-shadow:none !important; }
 
-  #pos-reasoning-loop > *, #pos-decision-cockpit > *, #pos-trust-certification > *, #pos-commercial-truth-model > *, #pos-decision-flip-map > *, #pos-commercial-war-room > *, #pos-supplier-memory > *, #pos-procurement-memory > *, #pos-outcome-intelligence > *, #pos-commercial-dna > * { border-radius:14px !important; }
+  #pos-reasoning-loop > *, #pos-decision-cockpit > *, #pos-trust-certification > *, #pos-commercial-truth-model > *, #pos-decision-flip-map > *, #pos-commercial-war-room > *, #pos-commercial-memory > *, #pos-supplier-memory > *, #pos-procurement-memory > *, #pos-outcome-intelligence > *, #pos-commercial-dna > * { border-radius:14px !important; }
   .buyer-reasoning-trace { display:grid; gap:7px; margin-top:10px; }
   .buyer-reasoning-step { display:grid; grid-template-columns:24px 1fr; gap:9px; align-items:start; padding:8px 9px; border:1px solid #e6e7ea; border-radius:9px; background:#fafbfc; }
   .buyer-reasoning-step > span { width:22px; height:22px; display:grid; place-items:center; border-radius:7px; background:#f0f1f4; color:#6f737c; font-size:10px; font-weight:800; }
@@ -185,12 +238,41 @@
 <nav>
   <span class="brand">VendorEdge</span>
   <span class="nav-links">
+    <button class="link-btn" onclick="goToWorkspace()">Workspace</button>
     <button class="link-btn" onclick="goToCases()">My Cases</button>
     <button class="link-btn" onclick="goToNewCase()">+ New Case</button>
   </span>
 </nav>
 
-<div id="ask-screen">
+<div id="home-screen" class="hidden">
+  <div class="ve-home-hero">
+    <div class="ve-home-kicker">COMMERCIAL WORKBENCH</div>
+    <div class="ve-home-title">What needs your commercial attention?</div>
+    <p class="ve-home-sub">Use VendorEdge when a supplier asks for something, when you notice a pattern yourself, or when you want to pressure-test a category decision before it becomes a problem.</p>
+    <div class="ve-home-actions">
+      <button class="ve-home-action" onclick="startPrompt('Supplier request')"><b>Supplier request</b><span>Price increase, MOQ change, surcharge, payment terms, renewal, allocation.</span></button>
+      <button class="ve-home-action" onclick="startPrompt('Something I noticed')"><b>Something I noticed</b><span>A pattern in spend, supplier share, pricing, risk, demand or performance.</span></button>
+      <button class="ve-home-action" onclick="startPrompt('Category / strategy question')"><b>Category / strategy question</b><span>Ask what to investigate, prepare or change before the next negotiation or planning cycle.</span></button>
+    </div>
+  </div>
+  <div class="ve-home-grid">
+    <section class="ve-home-panel">
+      <h3>Work in progress</h3>
+      <div id="home-attention"></div>
+    </section>
+    <section class="ve-home-panel">
+      <h3>Your recent commercial activity</h3>
+      <div id="home-stats"></div>
+      <div id="home-observations" style="margin-top:10px"></div>
+    </section>
+  </div>
+  <div class="ve-home-panel" style="margin-top:12px">
+    <h3>Recent decisions</h3>
+    <div id="home-recent-cases"></div>
+  </div>
+</div>
+
+<div id="ask-screen" class="hidden">
   <div id="nudge-container"></div>
   <div class="hero-eyebrow"><span class="hero-dot"></span> COMMERCIAL DECISION INTELLIGENCE</div>
   <h1 class="hero-title">Bring the mess.<br><em>Leave with a decision.</em></h1>
@@ -199,14 +281,13 @@
     <span>Evidence-grounded</span><i></i><span>Deterministic economics</span><i></i><span>Decision traceable</span>
   </div>
   <h2>Start a Procurement Case</h2>
-  <p class="sub">Don't worry about writing the perfect prompt. Just upload whatever you have --
-    supplier emails, RFQs, quotes, contracts, meeting notes, spreadsheets. VendorEdge will
-    understand the evidence, identify what's missing, and recommend your commercial position.</p>
+  <p class="sub">Don't worry about writing the perfect prompt. Bring a supplier request, a pattern you have noticed, a category strategy question, a cost or risk concern, or whatever evidence you have. Upload supplier emails, RFQs, quotes, contracts, meeting notes, spreadsheets. VendorEdge will turn it into a defensible commercial next step.</p>
   <textarea id="question" rows="3" placeholder="Describe your situation, or attach documents below" oninput="updateCharCount()"></textarea>
   <p id="char-count" style="font-size:11.5px; color:#999; text-align:right; margin:2px 0 0"></p>
   <div style="text-align:center; margin-top:10px">
-    <button class="example-btn" onclick="setExample('Our supplier wants to raise prices 12 percent, is that fair?')">A supplier wants a price increase</button>
-    <button class="example-btn" onclick="setExample('I have two supplier quotes, which one is the better deal?')">Compare supplier quotes</button>
+    <button class="example-btn" onclick="setExample('Our supplier wants to raise prices 12 percent. What should I do?')">A supplier wants a price increase</button>
+    <button class="example-btn" onclick="setExample('I have two supplier quotes. Which one is the better commercial deal?')">Compare supplier quotes</button>
+    <button class="example-btn" onclick="setExample('Our category spend is up 18 percent this year and one supplier is taking more share. What should I investigate and do next?')">I noticed a category pattern</button>
   </div>
   <div style="text-align:center"><button id="ask-btn" class="primary-btn" onclick="askQuestion()">Get my position →</button></div>
   <div style="text-align:center; margin-top:14px">
@@ -256,6 +337,7 @@
   <div class="card">
     <p style="color:#777; font-size:11px; font-weight:800; letter-spacing:.12em; margin:0 0 8px; text-transform:uppercase">Your commercial decision</p>
     <div id="pos-thread-indicator"></div>
+    <div id="pos-commercial-answer"></div>
     <div id="pos-decision-cockpit"></div>
     <div id="pos-reasoning-loop"></div>
     <div id="pos-agentic-workflow"></div>
@@ -295,6 +377,7 @@
 
     <details class="ve-secondary" style="margin-top:10px">
       <summary>Memory &amp; learning <span>supplier history, outcomes and organisational learning</span></summary>
+      <div id="pos-commercial-memory"></div>
       <div id="pos-supplier-memory"></div>
       <div id="pos-procurement-memory"></div>
       <div id="pos-outcome-intelligence"></div>
@@ -678,7 +761,7 @@ async function retryWorkspaceBootstrap() {
     if (bootstrap) bootstrap.remove();
     setWorkspaceBootstrapMode("ready");
     const resumed = await tryResumeLastCase();
-    if (!resumed) renderNudgeBanner();
+    if (!resumed) await loadCommercialWorkspace();
     return;
   }
   setWorkspaceBootstrapMode("failed");
@@ -1558,6 +1641,43 @@ async function captureSupplierReply() {
   } catch(e) { if (msg) msg.innerText = e.message; }
 }
 
+function renderCommercialMemory(pos) {
+  const el = document.getElementById("pos-commercial-memory");
+  if (!el) return;
+  const m = pos.commercial_memory;
+  if (!m || !m.available) { el.innerHTML = ""; return; }
+  const scope = m.scope || {};
+  const signals = (m.repeated_signals || []).slice(0,3).map(x => `
+    <div style="border:1px solid #e8e8e8;border-radius:10px;padding:9px;margin-top:7px">
+      <div style="font-size:9px;font-weight:900;letter-spacing:.06em;color:#7c3aed">OBSERVED ACTIVITY</div>
+      <div style="font-size:11.5px;font-weight:900;margin-top:3px">${escapeHtml(x.finding || "Repeated activity observed")}</div>
+      <div style="font-size:9.5px;color:#888;margin-top:3px">${escapeHtml(x.interpretation || "Observed history only.")}</div>
+    </div>`).join("");
+  const precedent = m.strongest_precedent;
+  const lessons = (m.lessons || []).slice(0,3).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const pattern = m.pattern_level === "OBSERVED" ? "OBSERVED PATTERN" : (m.pattern_level === "EMERGING" ? "EMERGING SIGNAL" : "NO PATTERN CLAIM");
+  const supplier = m.supplier_name ? ` · ${escapeHtml(m.supplier_name)}` : "";
+  el.innerHTML = `
+    <section style="border:1px solid #4338ca;border-radius:15px;margin:0 0 14px;overflow:hidden;background:#fff;box-shadow:0 5px 18px rgba(17,24,39,.07)">
+      <div style="padding:13px 15px;background:#eef2ff;display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+        <div><div style="font-size:9px;letter-spacing:.15em;font-weight:900;color:#4338ca">COMMERCIAL MEMORY · R39</div><div style="font-size:17px;font-weight:900;margin-top:3px">What should we remember before acting?${supplier}</div><div style="font-size:10.5px;color:#666;margin-top:4px">Prior decisions, supplier precedent and observed activity — context, not prediction</div></div>
+        <div style="font-size:9px;font-weight:900;color:#4338ca;background:#fff;padding:5px 8px;border-radius:999px;white-space:nowrap">${escapeHtml(pattern)}</div>
+      </div>
+      <div style="padding:12px 15px">
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">SUPPLIER CASES</div><div style="font-size:16px;font-weight:900;margin-top:3px">${escapeHtml(String(scope.supplier_cases ?? 0))}</div></div>
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">SAME-TYPE CASES</div><div style="font-size:16px;font-weight:900;margin-top:3px">${escapeHtml(String(scope.same_type_cases ?? 0))}</div></div>
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">THIS YEAR</div><div style="font-size:16px;font-weight:900;margin-top:3px">${escapeHtml(String(scope.current_year_completed_cases ?? 0))}</div></div>
+          <div style="background:#f7f7f9;border-radius:9px;padding:9px"><div style="font-size:9px;color:#777;font-weight:800">THIS TYPE · YEAR</div><div style="font-size:16px;font-weight:900;margin-top:3px">${escapeHtml(String(scope.current_year_same_type_cases ?? 0))}</div></div>
+        </div>
+        ${precedent ? `<div style="margin-top:10px;border:1px solid #e5e7eb;border-radius:10px;padding:10px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#555">STRONGEST PRIOR PRECEDENT</div><div style="font-size:11.5px;font-weight:800;margin-top:4px">${escapeHtml(precedent.question || precedent.recommendation || "Prior case")}</div>${precedent.outcome ? `<div style="font-size:10.5px;margin-top:5px"><b>Recorded outcome:</b> ${escapeHtml(precedent.outcome)}</div>` : `<div style="font-size:10px;color:#888;margin-top:5px">No recorded outcome. Do not treat this as evidence of success.</div>`}</div>` : ""}
+        ${lessons ? `<div style="margin-top:9px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#555">WHAT WE LEARNED</div><ul style="margin:5px 0 0 18px;font-size:11px;line-height:1.45">${lessons}</ul></div>` : ""}
+        ${signals ? `<div style="margin-top:9px"><div style="font-size:10px;letter-spacing:.06em;font-weight:900;color:#555">OBSERVED CURRENT-YEAR ACTIVITY</div>${signals}</div>` : ""}
+        <div style="margin-top:9px;font-size:9.5px;color:#888">${escapeHtml(m.next_time_note || "History is context, not a forecast.")}</div>
+      </div>
+    </section>`;
+}
+
 function renderSupplierMemory(pos) {
   const el = document.getElementById("pos-supplier-memory");
   if (!el) return;
@@ -1779,6 +1899,66 @@ function renderCommercialDecisionEngine(pos) {
   </section>`;
 }
 
+function renderCommercialAnswer(pos) {
+  const el = document.getElementById("pos-commercial-answer");
+  if (!el) return;
+  const a = pos.commercial_answer || {};
+  if (!a || !a.decision) { el.innerHTML = ""; return; }
+  const esc = (v) => escapeHtml(String(v == null ? "" : v));
+  const list = (items) => (items || []).filter(Boolean).map(x => `<li>${esc(x)}</li>`).join("");
+  const money = a.money || {};
+  const scenario = money.explicit_scenario || null;
+  const evidence = a.evidence || {};
+  const neg = a.negotiation || {};
+  const response = a.supplier_response || null;
+  const confidence = String(a.confidence || "unknown").toUpperCase();
+  const moneyAvailable = money.available;
+  const headline = moneyAvailable ? `${esc(money.headline || "Economics available")}` : "No safe deterministic exposure calculation";
+  const scenarioBlock = scenario ? `
+    <div class="ve-answer-section"><h4>EXPLICIT ALTERNATIVE SCENARIO</h4>
+      <div class="ve-answer-money">
+        <div><small>${esc(_pctLabel(scenario.from_percent))}</small><b>${esc(_moneyLabel(scenario.annual_impact_from_usd))}/yr</b></div>
+        <div><small>${esc(_pctLabel(scenario.to_percent))}</small><b>${esc(_moneyLabel(scenario.annual_impact_to_usd))}/yr</b></div>
+        <div><small>ANNUAL DIFFERENCE</small><b>${esc(_moneyLabel(scenario.annual_difference_usd))}/yr</b></div>
+        <div><small>MONTHLY DIFFERENCE</small><b>${esc(_moneyLabel(scenario.monthly_difference_usd))}/mo</b></div>
+      </div>
+    </div>` : "";
+  const giveGet = (neg.give_get || []).slice(0,4).map(x => {
+    if (typeof x === "string") return `<li>${esc(x)}</li>`;
+    return `<li><b>${esc(x.dimension || x.label || "Trade")}</b>: ${esc(x.trading_rule || x.trade_rule || x.target || "Trade conditionally")}</li>`;
+  }).join("");
+  el.innerHTML = `
+    <section class="ve-answer">
+      <div class="ve-answer-head">
+        <div><div class="ve-answer-eyebrow">VENDOREDGE COMMERCIAL ANSWER · R38</div><div class="ve-answer-title">${esc(a.decision)}</div></div>
+        <div class="ve-answer-badge">CONFIDENCE · ${esc(confidence)}</div>
+      </div>
+      <div class="ve-answer-body">
+        <div class="ve-answer-grid">
+          <div class="ve-answer-metric"><label>MONEY</label><strong>${headline}</strong></div>
+          <div class="ve-answer-metric"><label>NEXT MOVE</label><strong>${esc((a.what_to_do || [])[0] || "Review the validated decision.")}</strong></div>
+          <div class="ve-answer-metric"><label>EVIDENCE</label><strong>${esc((evidence.verified || []).length)} verified · ${esc((evidence.unknown || []).length)} material unknown</strong></div>
+        </div>
+        ${moneyAvailable ? `<div class="ve-answer-section"><h4>COMMERCIAL EXPOSURE</h4><div class="ve-answer-money"><div><small>ANNUAL SPEND</small><b>${esc(_moneyLabel(money.annual_spend_usd))}</b></div><div><small>REQUESTED CHANGE</small><b>${esc(_pctLabel(money.requested_change_percent))}</b></div><div><small>ANNUAL IMPACT</small><b>${esc(_moneyLabel(money.annual_impact_usd))}</b></div></div></div>` : ""}
+        ${scenarioBlock}
+        ${a.why && a.why.length ? `<div class="ve-answer-section"><h4>WHY</h4><ul class="ve-answer-list">${list(a.why)}</ul></div>` : ""}
+        ${evidence.supplier_claims && evidence.supplier_claims.length ? `<div class="ve-answer-section"><h4>SUPPLIER CLAIMS · NOT VERIFIED</h4><ul class="ve-answer-list">${list(evidence.supplier_claims)}</ul></div>` : ""}
+        ${a.critical_unknowns && a.critical_unknowns.length ? `<div class="ve-answer-section"><h4>DECISION-CRITICAL UNKNOWNS</h4><ul class="ve-answer-list">${list(a.critical_unknowns)}</ul></div>` : ""}
+        ${a.what_to_do && a.what_to_do.length ? `<div class="ve-answer-section"><h4>DO THIS NEXT</h4><div class="ve-answer-actions">${a.what_to_do.slice(0,3).map(x => `<div class="ve-answer-action">${esc(x)}</div>`).join("")}</div></div>` : ""}
+        ${(neg.objective || neg.opening || neg.target || neg.walk_away || giveGet) ? `<div class="ve-answer-section"><h4>NEGOTIATION</h4>${neg.objective ? `<div class="ve-answer-callout"><b>OBJECTIVE:</b> ${esc(neg.objective)}</div>` : ""}${neg.opening ? `<div class="ve-answer-callout" style="margin-top:6px"><b>OPEN WITH:</b> ${esc(neg.opening)}</div>` : ""}${neg.target ? `<div class="ve-answer-callout" style="margin-top:6px"><b>TARGET:</b> ${esc(neg.target)}</div>` : ""}${neg.walk_away ? `<div class="ve-answer-callout" style="margin-top:6px"><b>BOUNDARY:</b> ${esc(neg.walk_away)}</div>` : ""}${giveGet ? `<ul class="ve-answer-list" style="margin-top:6px">${giveGet}</ul>` : ""}</div>` : ""}
+        ${a.counter_case ? `<div class="ve-answer-section"><h4>STRONGEST COUNTER-CASE</h4><div class="ve-answer-callout">${esc(a.counter_case)}</div></div>` : ""}
+        ${a.strategy_integrity === "REVIEW_REQUIRED" ? `<div class="ve-answer-callout" style="margin-top:10px;border-color:#e4c46b;background:#fffaf0"><b>NEGOTIATION NUMBERS HELD BACK</b><div style="margin-top:4px">VendorEdge detected strategy numbers that are not safely supported by the case evidence, so they are not surfaced here.</div></div>` : ""}
+        ${a.decision_changers && a.decision_changers.length ? `<div class="ve-answer-section"><h4>WHAT WOULD CHANGE THIS</h4><ul class="ve-answer-list">${list(a.decision_changers)}</ul></div>` : ""}
+        ${response ? `<details class="ve-answer-section"><summary style="cursor:pointer;font-size:10px;font-weight:850;letter-spacing:.09em;color:#69707b">DRAFT SUPPLIER RESPONSE · EDIT BEFORE SENDING</summary><div class="ve-answer-callout" style="margin-top:7px"><b>SUBJECT:</b> ${esc(response.subject)}<div class="ve-answer-email" style="margin-top:8px">${esc(response.body)}</div></div></details>` : ""}
+        ${evidence.calculated && evidence.calculated.length ? `<div class="ve-answer-section"><h4>CALCULATED</h4><ul class="ve-answer-list">${list(evidence.calculated)}</ul></div>` : ""}
+        <div class="buyer-muted" style="margin-top:10px">${esc(a.method || "")}</div>
+      </div>
+    </section>`;
+}
+
+function _moneyLabel(v) { return v == null ? "—" : "$" + Number(v).toLocaleString(undefined, {maximumFractionDigits:0}); }
+function _pctLabel(v) { return v == null ? "—" : Number(v).toString().replace(/\.0$/, "") + "%"; }
+
 function renderCommercialReasoningLoop(pos) {
   const el = document.getElementById("pos-reasoning-loop");
   if (!el) return;
@@ -1790,32 +1970,33 @@ function renderCommercialReasoningLoop(pos) {
     REQUIRES_REVIEW: ["REQUIRES REVIEW", "An independent challenge is material enough to resolve before consequential action."]
   };
   const [stability, stabilityNote] = stabilityMap[r.stability] || stabilityMap.CONDITIONAL;
-  const trace = (r.reasoning_trace || []).slice(0,5);
-  const changers = (r.decision_changers || []).filter(Boolean).slice(0,3);
-  const evidence = (r.strongest_evidence || []).filter(Boolean).slice(0,3);
-  const tension = (r.commercial_tension || []).filter(Boolean).slice(0,2);
+  const trace = (r.reasoning_trace || []).slice(0,4);
   const counter = r.strongest_counterargument || "No independent counterargument was generated for this case.";
-  const badgeClass = r.stability === "REQUIRES_REVIEW" ? "buyer-status" : "buyer-status";
-  el.innerHTML = `<section class="buyer-hero" style="margin-top:10px">
-    <div class="buyer-hero-top">
-      <div><div class="buyer-eyebrow">COMMERCIAL REASONING LOOP</div><h2>Why VendorEdge landed here</h2></div>
-      <div class="${badgeClass}">${escapeHtml(stability)}</div>
+  el.innerHTML = `<details class="buyer-hero" style="margin-top:10px">
+    <summary style="cursor:pointer;list-style:none">
+      <div class="buyer-hero-top">
+        <div><div class="buyer-eyebrow">COMMERCIAL REASONING LOOP</div><h2>Why VendorEdge landed here</h2></div>
+        <div class="buyer-status">${escapeHtml(stability)}</div>
+      </div>
+    </summary>
+    <div style="padding:0 14px 14px">
+      <p class="buyer-mode-note">${escapeHtml(stabilityNote)}</p>
+      <div class="buyer-reasoning-trace">
+        ${trace.map(x => `<div class="buyer-reasoning-step"><span>${escapeHtml(String(x.step))}</span><div><label>${escapeHtml(x.label || "STEP")}</label><strong>${escapeHtml(x.finding || "")}</strong></div></div>`).join("")}
+      </div>
+      <div class="buyer-callout" style="margin-top:10px"><span>STRONGEST COUNTER-ARGUMENT</span><b>${escapeHtml(counter)}</b><div class="buyer-muted" style="margin-top:5px">${escapeHtml(r.counterargument_source === "independent_challenger" ? "Independent challenger view — not evidence and not a replacement recommendation." : "No independent challenger view is recorded.")}</div></div>
+      <div class="buyer-muted" style="margin-top:8px">Decision-changing conditions, evidence and commercial actions are intentionally shown once in the Commercial Answer above; this section only explains the reasoning trace and counter-case.</div>
     </div>
-    <p class="buyer-mode-note">${escapeHtml(stabilityNote)}</p>
-    <div class="buyer-reasoning-trace">
-      ${trace.map(x => `<div class="buyer-reasoning-step"><span>${escapeHtml(String(x.step))}</span><div><label>${escapeHtml(x.label || "STEP")}</label><strong>${escapeHtml(x.finding || "")}</strong></div></div>`).join("")}
-    </div>
-    ${counter ? `<div class="buyer-callout" style="margin-top:10px"><span>STRONGEST COUNTER-ARGUMENT</span><b>${escapeHtml(counter)}</b><div class="buyer-muted" style="margin-top:5px">${escapeHtml(r.counterargument_source === "independent_challenger" ? "Independent challenger view — not evidence and not a replacement recommendation." : "No independent challenger view is recorded.")}</div></div>` : ""}
-    ${tension.length ? `<div class="buyer-subhead">Commercial tension</div><ul class="buyer-list">${tension.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}
-    ${evidence.length ? `<div class="buyer-subhead">Strongest evidence</div><ul class="buyer-list">${evidence.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}
-    ${changers.length ? `<div class="buyer-subhead">What could change the decision</div><ul class="buyer-list">${changers.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}
-    <div class="buyer-muted" style="margin-top:8px">VendorEdge separates the primary decision from its challenge. The loop exposes the reasoning chain; it does not manufacture new facts or thresholds.</div>
-  </section>`;
+  </details>`;
 }
 
 function renderDecisionCockpit(pos) {
   const el = document.getElementById("pos-decision-cockpit");
   if (!el) return;
+  // R38 Commercial Answer is now the single owner of the buyer-facing decision.
+  // Keep the legacy cockpit only for persisted/legacy positions without the
+  // consolidated answer, preventing duplicate recommendation/money/next-move blocks.
+  if (pos.commercial_answer && pos.commercial_answer.decision) { el.innerHTML = ""; return; }
   const c = pos.decision_cockpit || {};
   const u = c.decision_under_uncertainty || pos.decision_under_uncertainty || {};
   const econ = c.economics || {};
@@ -1843,7 +2024,14 @@ function renderDecisionCockpit(pos) {
   const talkTrack = (playbook.talk_track || []).filter(x => x && x.say).slice(0, 2);
   const evidence = (audit.material_evidence || []).filter(Boolean).slice(0, 4);
 
-  const li = (items) => items.length ? `<ul class="buyer-list">${items.map(x => `<li>${escapeHtml(String(x))}</li>`).join("")}</ul>` : `<div class="buyer-muted">Nothing material to add.</div>`;
+  const li = (items) => items.length ? `<ul class="buyer-list">${items.map(x => {
+    if (x && typeof x === "object") {
+      const label = x.label || x.evidence || x.dimension || x.stakeholder || "Evidence";
+      const detail = x.evidence || x.view || x.target_outcome || x.value || x.description || "";
+      return `<li><b>${escapeHtml(String(label))}</b>${detail && String(detail) !== String(label) ? ` — ${escapeHtml(String(detail))}` : ""}</li>`;
+    }
+    return `<li>${escapeHtml(String(x))}</li>`;
+  }).join("")}</ul>` : `<div class="buyer-muted">Nothing material to add.</div>`;
   const detail = (title, subtitle, body) => `<details class="buyer-detail"><summary><span><b>${escapeHtml(title)}</b><small>${escapeHtml(subtitle)}</small></span></summary><div class="buyer-detail-body">${body}</div></details>`;
 
   const question = u.question ? `<div class="buyer-question"><div class="buyer-label">ONE ANSWER I NEED</div><div class="buyer-question-text">${escapeHtml(u.question)}</div><div class="buyer-muted">${escapeHtml(u.question_why || "This is the missing fact most likely to change the decision.")}</div></div>` : "";
@@ -2024,7 +2212,7 @@ async function processOneFile(file, results) {
 }
 
 function show(id) {
-  ["ask-screen", "loading", "evidence-screen", "cases-screen", "position-screen", "pilot-limit-screen"].forEach(s =>
+  ["home-screen", "ask-screen", "loading", "evidence-screen", "cases-screen", "position-screen", "pilot-limit-screen"].forEach(s =>
     document.getElementById(s).classList.toggle("hidden", s !== id));
 }
 
@@ -2034,13 +2222,124 @@ function showPilotLimitScreen() {
   show("pilot-limit-screen");
 }
 
-function goToNewCase() {
+function startPrompt(kind) {
   selectedIngestionArtifactIds = [];
-  document.getElementById("question").value = "";
+  const q = document.getElementById("question");
+  if (q) q.value = "";
   updateCharCount();
   show("ask-screen");
-  renderNudgeBanner();
+  const prompts = {
+    "Supplier request": "A supplier has asked us for a commercial change. Help me understand what is happening, what matters, what I should verify, and what I should do next.\n\nSupplier request / evidence:\n",
+    "Something I noticed": "I noticed a commercial pattern or change in our business. Help me determine whether it matters, what evidence I should check, what could explain it, and what I should do next.\n\nWhat I noticed:\n",
+    "Category / strategy question": "I am reviewing a category or commercial strategy. Help me identify the most important patterns, risks, opportunities and decisions I should investigate next.\n\nCategory / situation:\n"
+  };
+  if (q) {
+    q.value = prompts[kind] || "";
+    q.focus();
+    q.setSelectionRange(q.value.length, q.value.length);
+  }
 }
+
+function goToNewCase() { startPrompt("Supplier request"); }
+
+async function goToWorkspace() {
+  if (!(await waitForWorkspaceReady())) {
+    showError("Your private workspace is not ready yet. Please try again in a moment.");
+    return;
+  }
+  await loadCommercialWorkspace();
+}
+
+function _homeEscape(value) { return escapeHtml(value == null ? "" : String(value)); }
+
+function _homeStatusLabel(status) {
+  const map = {
+    awaiting_user_input: "Waiting for a few missing details",
+    provider_unavailable: "Needs a retry",
+    reasoning: "Analysis in progress",
+    classifying: "Being classified",
+    completed: "Completed"
+  };
+  return map[status] || String(status || "Open").replace(/_/g, " ");
+}
+
+function _homeContentLabel(value) {
+  return String(value || "commercial case").replace(/_/g, " ");
+}
+
+function renderCommercialWorkspace(cases) {
+  const all = Array.isArray(cases) ? cases : [];
+  const open = all.filter(c => c.status !== "completed" && c.status !== "cancelled");
+  const attention = open.filter(c => ["awaiting_user_input","provider_unavailable","reasoning","classifying"].includes(c.status));
+  const recent = all.slice(0, 5);
+  const year = new Date().getFullYear();
+  const thisYear = all.filter(c => c.created_at && new Date(c.created_at).getFullYear() === year);
+  const completed = thisYear.filter(c => c.status === "completed");
+  const awaitingOutcome = completed.filter(c => !c.has_outcome_feedback).length;
+
+  const attentionEl = document.getElementById("home-attention");
+  if (attentionEl) {
+    attentionEl.innerHTML = attention.length ? attention.slice(0,5).map(c => `
+      <div class="ve-home-row"><button onclick="openCase('${_homeEscape(String(c.id))}')">
+        <b>${_homeEscape(c.raw_question || "Commercial case")}</b>
+        <small>${_homeEscape(_homeStatusLabel(c.status))} · ${_homeEscape(_homeContentLabel(c.classified_content_type || "commercial"))}</small>
+      </button></div>`).join("") : '<div class="ve-home-empty">Nothing is currently waiting on you. Start with a supplier request, an observation, or a category question.</div>';
+  }
+
+  const statsEl = document.getElementById("home-stats");
+  if (statsEl) {
+    statsEl.innerHTML = `<div class="ve-home-stat-grid">
+      <div class="ve-home-stat"><small>CASES THIS YEAR</small><strong>${thisYear.length}</strong></div>
+      <div class="ve-home-stat"><small>DECISIONS THIS YEAR</small><strong>${completed.length}</strong></div>
+      <div class="ve-home-stat"><small>OPEN WORK</small><strong>${open.length}</strong></div>
+    </div>`;
+  }
+
+  const obsEl = document.getElementById("home-observations");
+  if (obsEl) {
+    const counts = {};
+    thisYear.forEach(c => { const k = c.classified_content_type; if (k) counts[k] = (counts[k] || 0) + 1; });
+    const repeated = Object.entries(counts).filter(([,n]) => n >= 2).sort((a,b) => b[1]-a[1]).slice(0,3);
+    obsEl.innerHTML = repeated.length
+      ? `<div class="ve-home-observation"><b>Observed activity</b><span>${repeated.map(([k,n]) => `${n} ${_homeEscape(_homeContentLabel(k))} case${n === 1 ? "" : "s"}`).join(" · ")} recorded this year. This is activity you captured, not a forecast.</span></div>`
+      : '<div class="ve-home-empty">No repeated case pattern is large enough to call out yet.</div>';
+  }
+
+  const recentEl = document.getElementById("home-recent-cases");
+  if (recentEl) {
+    recentEl.innerHTML = recent.length ? recent.map(c => `
+      <div class="ve-home-row"><button onclick="openCase('${_homeEscape(String(c.id))}')">
+        <b>${_homeEscape(c.raw_question || "Commercial case")}</b>
+        <small>${_homeEscape(new Date(c.created_at).toLocaleDateString())} · ${_homeEscape(_homeStatusLabel(c.status))}</small>
+      </button></div>`).join("") : '<div class="ve-home-empty">No commercial decisions yet.</div>';
+  }
+  // Deliberately don't surface completed cases as "needing attention" merely because
+  // they lack an outcome: recording outcomes is useful, but this home is not a closure nudge.
+  if (awaitingOutcome > 0 && !document.getElementById("home-outcome-note")) {
+    const note = document.createElement("div");
+    note.id = "home-outcome-note";
+    note.className = "ve-home-empty";
+    note.style.marginTop = "8px";
+    note.textContent = `${awaitingOutcome} completed case${awaitingOutcome === 1 ? "" : "s"} has no recorded outcome yet. Record outcomes when you know them to strengthen Commercial Memory.`;
+    const attentionPanel = document.getElementById("home-attention");
+    if (attentionPanel) attentionPanel.appendChild(note);
+  }
+}
+
+async function loadCommercialWorkspace() {
+  show("loading");
+  document.getElementById("loading").innerText = "Loading your commercial workspace...";
+  try {
+    const res = await authenticatedFetch(`${API}/commercial-decisions`, {headers: HEADERS});
+    const cases = await res.json();
+    if (!res.ok) throw new Error(cases.detail || `Could not load workspace (status ${res.status}).`);
+    renderCommercialWorkspace(cases);
+    show("home-screen");
+  } catch (e) {
+    showError("Could not load your commercial workspace. Details: " + e.message);
+  }
+}
+
 
 async function goToCases() {
   if (!(await waitForWorkspaceReady())) {
@@ -2433,8 +2732,10 @@ function renderDecisionAudit(pos) {
   const statusLabel = {PROVEN:"Evidence grounded", INFERRED:"Inference present", UNKNOWN:"Evidence gaps", CONTRADICTED:"Evidence conflict"}[status] || status;
   const statusStyle = {PROVEN:"#2f7d4f", INFERRED:"#7a5c00", UNKNOWN:"#8a6500", CONTRADICTED:"#a33"}[status] || "#666";
   const evidenceRows = (a.material_evidence || []).map(x => `<div style="padding:6px 0;border-top:1px solid #eee"><b>${escapeHtml(x.label)}</b> <span style="font-size:10px;color:${statusStyle};font-weight:700">${escapeHtml(x.status)}</span><div style="font-size:12px;color:#555">${escapeHtml(x.evidence)}</div></div>`).join("");
-  const uncertaintyRows = (a.uncertainties || []).map(x => `<li>${escapeHtml(x)}</li>`).join("");
-  const reversalRows = (a.reversal_conditions || []).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const answerUnknowns = new Set(((pos.commercial_answer || {}).critical_unknowns || []).map(x => String(x).trim().toLowerCase()));
+  const answerChangers = new Set(((pos.commercial_answer || {}).decision_changers || []).map(x => String(x).trim().toLowerCase()));
+  const uncertaintyRows = (a.uncertainties || []).filter(x => !answerUnknowns.has(String(x).trim().toLowerCase())).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const reversalRows = (a.reversal_conditions || []).filter(x => !answerChangers.has(String(x).trim().toLowerCase())).map(x => `<li>${escapeHtml(x)}</li>`).join("");
   const stakeholderRows = (a.stakeholder_tradeoffs || []).map(x => `<div style="padding:5px 0;border-top:1px solid #eee"><b>${escapeHtml(x.stakeholder)}</b> <span style="font-size:10px;color:#777">${escapeHtml(x.type)}</span><div style="font-size:12px">${escapeHtml(x.view)}</div></div>`).join("");
   el.innerHTML = `
     <details style="margin:14px 0;border:1px solid #ddd;border-radius:9px;overflow:hidden">
@@ -2515,7 +2816,7 @@ function renderControlTower(pos) {
   const conflicts = (a.stakeholder_conflicts || []).map(x=>`<li>${escapeHtml(x)}</li>`).join("");
   const actions = (a.action_items || []).map(x=>`<div style="padding:7px 0;border-top:1px solid #eee"><span style="font-size:10px;font-weight:700;color:${x.priority === "CRITICAL" ? "#a23b3b" : "#8a6500"}">${escapeHtml(x.priority)}</span><div>${escapeHtml(x.action)}</div></div>`).join("");
   const meta = `Confidence: ${escapeHtml(a.confidence)} · Evidence: ${escapeHtml(a.evidence_integrity)} · Alternatives: ${Number(a.alternative_count || 0)} · Stress test: ${escapeHtml(a.stress_status || "not tested")}`;
-  el.innerHTML = `<details open style="margin:14px 0;border:1px solid #d7d7dc;border-radius:10px;overflow:hidden;background:#fff"><summary style="cursor:pointer;padding:11px 13px;background:#f7f7f9;font-size:13px;font-weight:800">Commercial Decision Control Tower — <span style="color:${styles[a.readiness] || "#777"}">${escapeHtml(labels[a.readiness] || a.readiness || "Review")}</span></summary><div style="padding:12px 13px;font-size:12px"><div style="font-size:11px;color:#555;margin-bottom:10px">${escapeHtml(a.readiness_reason || "")}</div><div style="font-weight:800;margin-bottom:4px">Recommended action</div><div style="padding:9px 10px;border-radius:7px;background:#f5f5f7;margin-bottom:10px">${escapeHtml(a.recommended_action || "")}</div>${actions ? `<div style="font-weight:800;margin-top:8px">Do these first</div>${actions}` : ""}${critical ? `<div style="font-weight:800;margin-top:12px">Critical before action</div><ul style="margin:4px 0 0 18px">${critical}</ul>` : ""}${important ? `<div style="font-weight:800;margin-top:12px">Important, not blocking</div><ul style="margin:4px 0 0 18px">${important}</ul>` : ""}${changers ? `<div style="font-weight:800;margin-top:12px">What could change the decision</div><ul style="margin:4px 0 0 18px">${changers}</ul>` : ""}${conflicts ? `<div style="font-weight:800;margin-top:12px">Stakeholder conflicts</div><ul style="margin:4px 0 0 18px">${conflicts}</ul>` : ""}<div style="font-size:10px;color:#777;margin-top:11px">${meta}</div><div style="font-size:10px;color:#888;margin-top:5px">${escapeHtml(a.method || "")}</div></div></details>`;
+  el.innerHTML = `<details style="margin:14px 0;border:1px solid #d7d7dc;border-radius:10px;overflow:hidden;background:#fff"><summary style="cursor:pointer;padding:11px 13px;background:#f7f7f9;font-size:13px;font-weight:800">Commercial Decision Control Tower — <span style="color:${styles[a.readiness] || "#777"}">${escapeHtml(labels[a.readiness] || a.readiness || "Review")}</span></summary><div style="padding:12px 13px;font-size:12px"><div style="font-size:11px;color:#555;margin-bottom:10px">${escapeHtml(a.readiness_reason || "")}</div><div style="font-weight:800;margin-bottom:4px">Recommended action</div><div style="padding:9px 10px;border-radius:7px;background:#f5f5f7;margin-bottom:10px">${escapeHtml(a.recommended_action || "")}</div>${actions ? `<div style="font-weight:800;margin-top:8px">Do these first</div>${actions}` : ""}${critical ? `<div style="font-weight:800;margin-top:12px">Critical before action</div><ul style="margin:4px 0 0 18px">${critical}</ul>` : ""}${important ? `<div style="font-weight:800;margin-top:12px">Important, not blocking</div><ul style="margin:4px 0 0 18px">${important}</ul>` : ""}${changers ? `<div style="font-weight:800;margin-top:12px">What could change the decision</div><ul style="margin:4px 0 0 18px">${changers}</ul>` : ""}${conflicts ? `<div style="font-weight:800;margin-top:12px">Stakeholder conflicts</div><ul style="margin:4px 0 0 18px">${conflicts}</ul>` : ""}<div style="font-size:10px;color:#777;margin-top:11px">${meta}</div><div style="font-size:10px;color:#888;margin-top:5px">${escapeHtml(a.method || "")}</div></div></details>`;
 }
 
 function buildDecisionBriefText(pos) {
@@ -2807,7 +3108,7 @@ function organizeDecisionPage() {
     ["execution", "Execution", "The practical actions required to move from decision to result.",
       ["pos-agentic-workflow", "pos-control-tower", "pos-decision-pack"]],
     ["history", "History & learning", "Prior decisions and outcomes — shown only when they add something new to this case.",
-      ["pos-supplier-memory", "pos-procurement-memory", "pos-outcome-intelligence", "pos-commercial-dna"]],
+      ["pos-commercial-memory", "pos-outcome-intelligence"]],
     ["trust", "Evidence trail & trust checks", "Why VendorEdge trusts the inputs and where the evidence has limits.",
       ["pos-trust-engine", "pos-trust-certification"]]
   ];
@@ -2843,6 +3144,7 @@ function renderPosition(pos) {
   pos.commercial_insights = Array.isArray(pos.commercial_insights) ? pos.commercial_insights : [];
   pos.assumptions = Array.isArray(pos.assumptions) ? pos.assumptions : [];
 
+  renderCommercialAnswer(pos);
   renderTrustEngine(pos);
   renderMarketVerification(pos);
   renderTrustCertification(pos);
@@ -2850,6 +3152,7 @@ function renderPosition(pos) {
   renderCommercialTruthModel(pos);
   renderDecisionFlipMap(pos);
   renderCommercialWarRoom(pos);
+  renderCommercialMemory(pos);
   renderProcurementMemory(pos);
   renderOutcomeIntelligence(pos);
   renderCommercialDNA(pos);
@@ -3150,7 +3453,7 @@ async function tryResumeLastCase() {
     if (bootstrap) bootstrap.remove();
     setWorkspaceBootstrapMode("ready");
     const resumed = await tryResumeLastCase();
-    if (!resumed) renderNudgeBanner();
+    if (!resumed) await loadCommercialWorkspace();
     return;
   }
 

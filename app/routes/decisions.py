@@ -35,6 +35,7 @@ from app.auth import create_session_token
 from app.pipeline.classifier import classify
 from app.pipeline.evidence import check_missing_evidence
 from app.pipeline.reasoner import generate_commercial_position
+from app.pipeline.commercial_answer import build_commercial_answer
 from app.pipeline.financial import compute_financial_impact
 from app.pipeline.market_verification import verify_market_claim
 from app.pipeline.normalize import normalize_evidence
@@ -73,6 +74,7 @@ from app.pipeline.model_orchestration import build_model_orchestration, run_chal
 from app.pipeline.commercial_reasoning import build_commercial_reasoning_loop
 from app.pipeline.agentic_workflow import build_agentic_workflow
 from app.pipeline.supplier_memory import build_supplier_memory
+from app.pipeline.commercial_memory import build_commercial_memory
 from app.pipeline.decision_formats import render_decision
 from app.pipeline.customer_actions import build_action_plan
 from app.pipeline.commercial_triage import build_generic_commercial_position
@@ -927,6 +929,10 @@ def _run_generic_reasoning_safe(org_id, decision_id, attempt_id: str, raw_questi
     try:
         with attempt_fencing.HeartbeatTicker(org_id, decision_id, attempt_id, "general_commercial_triage"):
             position = build_generic_commercial_position(raw_question, category)
+        try:
+            position.commercial_answer = build_commercial_answer(None, position, raw_question)
+        except Exception as answer_error:
+            print(f"Commercial Answer for generic triage skipped (non-blocking): {type(answer_error).__name__}: {answer_error}")
         write_succeeded = attempt_fencing.write_final_result(
             org_id, decision_id, attempt_id, position.model_dump_json(),
             _merge_final_provenance(org_id, decision_id, {"generic_triage": {"source": "user_supplied", "stage_captured": "generic_integrity_contract"}})
@@ -2062,6 +2068,14 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
     except Exception as e:
         print(f"Model orchestration skipped (non-blocking): {type(e).__name__}: {e}")
 
+    # R38: single buyer-facing Commercial Answer. Built after the full
+    # deterministic/validated decision stack so it can compress the result
+    # without inventing any new fact, threshold, or calculation.
+    try:
+        position.commercial_answer = build_commercial_answer(normalized, position, raw_question)
+    except Exception as e:
+        print(f"Commercial Answer skipped (non-blocking): {type(e).__name__}: {e}")
+
     # R37: Commercial Reasoning Loop. This is intentionally after the
     # independent challenger and final deterministic layers, so the buyer sees
     # one reconciled chain instead of a pile of disconnected intelligence cards.
@@ -2099,6 +2113,31 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
                     for r in smcur.fetchall():
                         supplier_memory_rows.append(dict(r))
         position.supplier_memory = build_supplier_memory(normalized, position, supplier_memory_rows)
+        # R39: broader read-only memory scan for proactive/current-year pattern context.
+        commercial_memory_rows = []
+        with get_org_scoped_connection(org_id) as cmconn:
+            with cmconn.cursor() as cmcur:
+                cmcur.execute(
+                    """SELECT cd.id, cd.created_at, cd.classified_content_type, cd.raw_question,
+                              cd.user_supplied_inputs, cd.commercial_position,
+                              df.outcome_description, df.validation_verdict, df.decision_alignment, df.unexpected_insight
+                       FROM commercial_decisions cd
+                       LEFT JOIN LATERAL (
+                           SELECT outcome_description, validation_verdict, decision_alignment, unexpected_insight
+                           FROM decision_feedback
+                           WHERE commercial_decision_id = cd.id
+                           ORDER BY outcome_recorded_at DESC
+                           LIMIT 1
+                       ) df ON true
+                       WHERE cd.status = 'completed' AND cd.id != %s
+                       ORDER BY cd.created_at DESC
+                       LIMIT 200""",
+                    (str(decision_id),),
+                )
+                commercial_memory_rows = [dict(r) for r in cmcur.fetchall()]
+        position.commercial_memory = build_commercial_memory(
+            normalized, position.supplier_memory, normalized.history.org_history, commercial_memory_rows
+        )
     except Exception as e:
         print(f"Supplier memory skipped (non-blocking): {type(e).__name__}: {e}")
 
@@ -2511,5 +2550,17 @@ def _fetch_decision(org_id, decision_id) -> CommercialDecisionResponse:
                 )
             except Exception as e:
                 print(f"Commercial DNA skipped (non-blocking): {type(e).__name__}: {e}")
+
+            # R39: unified memory at read time. Prefer persisted supplier memory and
+            # reconstruct a compact broader history only for completed-case presentation.
+            try:
+                row_dict["commercial_memory"] = row_dict.get("commercial_memory") or {
+                    "available": False,
+                    "version": "R39.0",
+                    "title": "Commercial Memory",
+                    "method": "Read-time memory is assembled from tenant-scoped history."
+                }
+            except Exception:
+                row_dict["commercial_memory"] = None
 
             return CommercialDecisionResponse(**row_dict)

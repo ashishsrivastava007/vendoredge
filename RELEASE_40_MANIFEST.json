@@ -1,0 +1,19 @@
+{
+  "release": "R40.0",
+  "name": "Commercial Workbench",
+  "purpose": "Daily/proactive buyer-first front door for reactive supplier requests, buyer observations, and category/strategy questions.",
+  "changes": [
+    "Authenticated landing page is a Commercial Workbench.",
+    "Three real entry modes: supplier request, something I noticed, category/strategy question.",
+    "Actionable open-work panel derived from recorded status only.",
+    "Current-year activity summary explicitly labelled as observed activity, not forecast.",
+    "Recent decisions remain one click away.",
+    "No specialist reasoning or recommendation mutation in the workbench layer."
+  ],
+  "validation": {
+    "focused": "PASS",
+    "python_compile": "PASS",
+    "javascript_syntax": "PASS",
+    "zip_integrity": "PASS"
+  }
+}

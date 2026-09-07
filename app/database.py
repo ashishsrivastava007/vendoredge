@@ -24,6 +24,34 @@ def _get_dsn() -> str:
     return dsn
 
 
+def validate_database_configuration(*, require_migration_url: bool = False) -> None:
+    """Fail-fast validation for database configuration and connectivity.
+
+    This is intentionally used during application startup, before FastAPI starts
+    accepting user traffic. Required environment variables are validated without
+    logging their values, then each configured DSN is opened and closed once.
+    """
+    app_dsn = _get_dsn()
+    migration_dsn = os.environ.get("MIGRATION_DATABASE_URL")
+    if require_migration_url and not migration_dsn:
+        raise RuntimeError("MIGRATION_DATABASE_URL not set. Add it to the Render environment.")
+
+    for label, dsn in (("DATABASE_URL", app_dsn), ("MIGRATION_DATABASE_URL", migration_dsn)):
+        if not dsn:
+            continue
+        try:
+            import psycopg2
+            conn = psycopg2.connect(dsn, connect_timeout=10)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+                    cur.fetchone()
+            finally:
+                conn.close()
+        except Exception as exc:
+            raise RuntimeError(f"{label} is configured but the database connection check failed.") from exc
+
+
 def _pool_bounds() -> tuple[int, int]:
     minimum = max(1, int(os.environ.get("VENDOREDGE_DB_POOL_MIN", "1")))
     maximum = max(minimum, int(os.environ.get("VENDOREDGE_DB_POOL_MAX", "10")))

@@ -204,3 +204,7 @@ R39 adds a single buyer-facing Commercial Memory layer that unifies supplier pre
 
 ## R40 — Commercial Workbench
 R40 changes the authenticated landing page from a request form into a daily Commercial Workbench. Buyers can start from a supplier request, something they noticed proactively, or a category/strategy question. The workbench surfaces actionable in-progress work, recorded current-year activity, and recent decisions without inventing urgency or predictions.
+### R40.1 — Model Output Resilience
+
+Adds a deterministic `CommercialPosition` output safety boundary so an LLM returning one item above an explicit list cap cannot turn a valid commercial answer into a user-facing schema 500. Applies to both generic triage and the primary reasoning path.
+

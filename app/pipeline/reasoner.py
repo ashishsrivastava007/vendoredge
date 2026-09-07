@@ -491,6 +491,7 @@ def generate_commercial_position(
         raise ValueError(f"Reasoner returned non-JSON output: {text!r}") from e
 
     _normalize_confidence_weights(raw)
+    raw = normalize_bounded_position_lists(raw)
 
     # This is the real enforcement mechanism — not the prompt asking nicely,
     # but a schema that structurally rejects a bare confidence score or a
@@ -527,6 +528,7 @@ def generate_commercial_position(
         except json.JSONDecodeError as e:
             raise ValueError(f"Reasoner returned non-JSON output on retry: {text!r}") from e
         _normalize_confidence_weights(raw)
+        raw = normalize_bounded_position_lists(raw)
         try:
             return CommercialPosition.model_validate(raw)
         except ValidationError as second_error:

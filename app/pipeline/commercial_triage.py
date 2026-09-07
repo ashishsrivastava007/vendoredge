@@ -17,6 +17,7 @@ from app.models import CommercialPosition, ConfidenceFactor
 from app.pipeline.evidence_firewall import EVIDENCE_FIREWALL_SYSTEM_RULES
 from app.pipeline.classifier import _extract_text, _extract_json_object, _looks_like_json
 from app.pipeline.generic_integrity import apply_generic_integrity_contract
+from app.pipeline.position_contract import normalize_bounded_position_lists
 
 PROVIDER_OPERATION_TIMEOUT_SECONDS = 20 * 60
 
@@ -168,6 +169,15 @@ this category.
         raw = json.loads(raw_json_text)
     except json.JSONDecodeError as exc:
         raise ValueError(f"Generic commercial triage returned non-JSON output: {raw_json_text!r}") from exc
+    # Defensive model-output normalization: prompt caps are guidance, not a
+    # transport guarantee. A model can occasionally return one item over a
+    # bounded list (e.g. 4 commercial insights against a max of 3). Never let
+    # that turn into a user-facing 500. Retry once on schema validation below
+    # would still be fragile if the model repeats the same shape, so this final
+    # deterministic preflight trims only fields whose schema has an explicit
+    # max_length. The schema remains the source of truth; no new commercial
+    # content is invented.
+    raw = normalize_bounded_position_lists(raw)
     try:
         position = CommercialPosition.model_validate(raw)
     except ValidationError as exc:

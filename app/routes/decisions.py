@@ -788,9 +788,13 @@ def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTas
         # and never becomes user-facing evidence.
         with get_org_scoped_connection(x_org_id) as conn:
             with conn.cursor() as cur:
+                routing_metadata = {
+                    "__decision_category__": category,
+                    "__workflow_mode__": "general_commercial_triage",
+                }
                 cur.execute(
                     "UPDATE commercial_decisions SET user_supplied_inputs = %s, numeric_facts = %s WHERE id = %s",
-                    (json.dumps({"__decision_category__": category}), json.dumps({"__decision_category__": category}), str(decision_id)),
+                    (json.dumps(routing_metadata), json.dumps(routing_metadata), str(decision_id)),
                 )
 
         attempt_id = attempt_fencing.start_new_attempt(x_org_id, decision_id, from_status="classifying")
@@ -893,6 +897,34 @@ def list_decisions(request: Request, x_org_id: str = Header(...), x_user_id: str
             )
             rows = cur.fetchall()
             return [CommercialDecisionResponse(**row) for row in rows]
+def _is_specialist_content_type(content_type: str | None) -> bool:
+    """Return True only for content types supported by the specialist evidence pipeline."""
+    return content_type in {"price_increase", "quote_comparison"}
+
+
+def _is_general_case(row: dict) -> bool:
+    """Identify general/proactive cases without relying on a nullable classifier field alone."""
+    mode = ((row.get("user_supplied_inputs") or {}).get("__workflow_mode__")
+            if isinstance(row.get("user_supplied_inputs"), dict) else None)
+    return mode == "general_commercial_triage" or not _is_specialist_content_type(row.get("classified_content_type"))
+
+
+def _generic_category_from_row(row: dict) -> str:
+    stored = row.get("user_supplied_inputs") or {}
+    return stored.get("__decision_category__", "other") if isinstance(stored, dict) else "other"
+
+
+def _queue_generic_retry(org_id: str, decision_id, row: dict, background_tasks: BackgroundTasks) -> CommercialDecisionResponse:
+    """Requeue general triage through the canonical DB-leased worker path."""
+    # Reuse _run_queued_job rather than launching the generic engine directly.
+    # The worker owns the job lease, attempt identity, completion write and retry
+    # lifecycle; bypassing it would leave a queued job behind after a successful
+    # direct background execution and could cause duplicate reasoning later.
+    job_queue.requeue(org_id, decision_id, job_kind="generic_triage")
+    background_tasks.add_task(_run_queued_job, org_id, decision_id)
+    return _fetch_decision(org_id, decision_id)
+
+
 def _restart_reasoning_from_stored_evidence(org_id: str, decision_id, attempt_id: str, row: dict, background_tasks: BackgroundTasks) -> CommercialDecisionResponse:
     """
     Shared recovery logic for both the stale-reasoning and
@@ -902,6 +934,12 @@ def _restart_reasoning_from_stored_evidence(org_id: str, decision_id, attempt_id
     recovery attempt), then returns an immediate acknowledgment exactly
     like the normal path.
     """
+    if _is_general_case(row):
+        # General/proactive cases have no specialist NormalizedEvidence contract.
+        # Never route them through normalize_evidence(); that was the R40 regression
+        # that produced content_type=None -> Pydantic 500 on /respond.
+        return _queue_generic_retry(org_id, decision_id, row, background_tasks)
+
     stored_evidence = row["user_supplied_inputs"] or {}
     restored_suppliers = stored_evidence.get("__supplier_specific_evidence__")
     restored_stakeholders = stored_evidence.get("__stakeholder_views__")
@@ -977,6 +1015,15 @@ def _run_queued_job(org_id: str, decision_id) -> None:
             category = (row["user_supplied_inputs"] or {}).get("__decision_category__", "other")
             _run_generic_reasoning_safe(org_id, decision_id, attempt_id, row["raw_question"], category)
         else:
+            if _is_general_case(row):
+                # Defensive routing invariant: only specialist content types may
+                # enter normalize_evidence(). A malformed/legacy row must remain
+                # recoverable through general triage instead of producing a 500.
+                _run_generic_reasoning_safe(
+                    org_id, decision_id, attempt_id, row["raw_question"], _generic_category_from_row(row)
+                )
+                job_queue.complete(org_id, decision_id)
+                return
             stored = row["user_supplied_inputs"] or {}
             suppliers = stored.get("__supplier_specific_evidence__")
             stakeholders = stored.get("__stakeholder_views__")
@@ -1030,6 +1077,19 @@ def respond(decision_id: UUID, body: RespondRequest, background_tasks: Backgroun
                 raise HTTPException(status_code=404, detail="Decision not found")
 
     current_status = row["status"]
+    specialist_case = not _is_general_case(row)
+
+    # General/proactive cases use the general triage engine. They must never be
+    # re-entered into the specialist normalize_evidence() contract.
+    if not specialist_case and current_status in ("reasoning", "provider_unavailable"):
+        if current_status == "reasoning":
+            stale, _ = attempt_fencing.is_stale(x_org_id, decision_id)
+            if not stale:
+                return _fetch_decision(x_org_id, decision_id)
+        attempt_id = attempt_fencing.try_reclaim(x_org_id, decision_id) if current_status == "reasoning" else attempt_fencing.try_reclaim(x_org_id, decision_id)
+        if attempt_id is None:
+            return _fetch_decision(x_org_id, decision_id)
+        return _queue_generic_retry(x_org_id, decision_id, row, background_tasks)
 
     # Idempotent, not an error: if this case already completed (perhaps
     # the user's first submission succeeded and this is a duplicate
@@ -1070,7 +1130,21 @@ def respond(decision_id: UUID, body: RespondRequest, background_tasks: Backgroun
             return _fetch_decision(x_org_id, decision_id)
         return _restart_reasoning_from_stored_evidence(x_org_id, decision_id, attempt_id, row, background_tasks)
 
-    # current_status == "awaiting_user_input" -- the normal path.
+    # current_status == "awaiting_user_input" -- specialist evidence continuation.
+    # General/proactive triage does not use specialist missing-input contracts.
+    if not specialist_case:
+        followup = str(body.user_supplied_inputs.get("followup", "") or "").strip()
+        merged_question = row["raw_question"]
+        if followup:
+            merged_question = merged_question + "\n\nUSER FOLLOW-UP / NEW INFORMATION:\n" + followup
+        with get_org_scoped_connection(x_org_id) as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE commercial_decisions SET raw_question = %s WHERE id = %s AND status = 'awaiting_user_input'", (merged_question, str(decision_id)))
+        attempt_id = attempt_fencing.start_new_attempt(x_org_id, decision_id, from_status="awaiting_user_input")
+        if attempt_id is None:
+            return _fetch_decision(x_org_id, decision_id)
+        return _queue_generic_retry(x_org_id, decision_id, {**row, "raw_question": merged_question}, background_tasks)
+
     pending_conflicts = (row["user_supplied_inputs"] or {}).get("__continuation_conflicts__")
     if pending_conflicts:
         confirmation = str(body.user_supplied_inputs.get("continuation_evidence_confirmation", "")).strip().lower()
@@ -1208,6 +1282,27 @@ def continue_case(decision_id: UUID, body: ContinueCaseRequest, background_tasks
                 existing_continuation = True
 
     if existing_continuation:
+        return _fetch_decision(x_org_id, new_decision_id)
+
+    # General/proactive cases do not have the specialist evidence schema.
+    # Preserve the complete prior question as context, append the new event,
+    # and route the continuation back through general commercial triage. This
+    # prevents a generic case from ever entering normalize_evidence(), whose
+    # content_type contract is intentionally limited to specialist types.
+    if _is_general_case(parent):
+        combined_question = (
+            f"ORIGINAL COMMERCIAL QUESTION / OBSERVATION:\n{parent['raw_question']}\n\n"
+            f"WHAT HAPPENED SINCE:\n{body.what_happened}"
+        )
+        with get_org_scoped_connection(x_org_id) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE commercial_decisions SET raw_question = %s WHERE id = %s",
+                    (combined_question, str(new_decision_id)),
+                )
+        category = _generic_category_from_row(parent)
+        job_queue.enqueue(x_org_id, new_decision_id, "generic_triage")
+        background_tasks.add_task(_run_generic_reasoning_safe, x_org_id, new_decision_id, new_attempt_id, combined_question, category)
         return _fetch_decision(x_org_id, new_decision_id)
 
     # A continuation is new evidence, not merely prose appended to an old

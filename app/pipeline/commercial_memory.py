@@ -47,6 +47,8 @@ def _case_summary(row: dict[str, Any]) -> dict[str, Any]:
         "date": row.get("created_at").isoformat() if hasattr(row.get("created_at"), "isoformat") else row.get("created_at"),
         "year": _year(row.get("created_at")),
         "content_type": _clean(row.get("classified_content_type")) or None,
+        "decision_category": _clean(inputs.get("__decision_category__")) or None,
+        "workflow_mode": _clean(inputs.get("__workflow_mode__")) or None,
         "question": _clean(row.get("raw_question"))[:280] or None,
         "supplier_name": _clean(inputs.get("supplier_name")) or None,
         "recommendation": _clean(position.get("recommendation"))[:260] or None,
@@ -110,12 +112,18 @@ def build_commercial_memory(
 
     year_cases = [r for r in broad if r.get("year") == current_year]
     year_same_type = [r for r in year_cases if r.get("content_type") == current_type]
-    type_counts = Counter(r.get("content_type") for r in year_cases if r.get("content_type"))
+    activity_keys: list[str] = []
+    for r in year_cases:
+        if r.get("content_type"):
+            activity_keys.append(r["content_type"])
+        elif r.get("decision_category"):
+            activity_keys.append(f"{r['decision_category']}_general")
+    type_counts = Counter(activity_keys)
 
     repeated_signals: list[dict[str, Any]] = []
-    for content_type, count in type_counts.most_common(5):
+    for activity_key, count in type_counts.most_common(5):
         if count >= 2:
-            label = content_type.replace("_", " ")
+            label = activity_key.replace("_general", "").replace("_", " ")
             repeated_signals.append({
                 "signal": "REPEATED_ACTIVITY",
                 "subject": label,

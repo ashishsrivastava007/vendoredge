@@ -208,3 +208,7 @@ R40 changes the authenticated landing page from a request form into a daily Comm
 
 Adds a deterministic `CommercialPosition` output safety boundary so an LLM returning one item above an explicit list cap cannot turn a valid commercial answer into a user-facing schema 500. Applies to both generic triage and the primary reasoning path.
 
+
+## R40.2 — Proactive Case Contract & Recovery Boundary
+
+R40.2 closes the R40 proactive/general-commercial lifecycle gap. Workbench cases that do not map to specialist `price_increase` or `quote_comparison` evidence are explicitly routed as `general_commercial_triage` and are prevented from entering the specialist NormalizedEvidence contract during retry, recovery, response, queued dispatch, or continuation. General case category/mode are retained for observed commercial activity memory.

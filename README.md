@@ -212,3 +212,8 @@ Adds a deterministic `CommercialPosition` output safety boundary so an LLM retur
 ## R40.2 — Proactive Case Contract & Recovery Boundary
 
 R40.2 closes the R40 proactive/general-commercial lifecycle gap. Workbench cases that do not map to specialist `price_increase` or `quote_comparison` evidence are explicitly routed as `general_commercial_triage` and are prevented from entering the specialist NormalizedEvidence contract during retry, recovery, response, queued dispatch, or continuation. General case category/mode are retained for observed commercial activity memory.
+
+
+## R40.3 — Workbench Empty-State & Activity Integrity
+
+Brand-new workspaces do not show misleading 0/0/0 activity cards; they show useful, truthful next actions across supplier requests, observations, and category strategy questions. Real activity metrics appear once cases exist.

@@ -19,6 +19,7 @@ from app.model_config import REASONING_MODEL
 PROVIDER_OPERATION_TIMEOUT_SECONDS = 20 * 60
 from app.models import CommercialPosition
 from app.pipeline.normalized_evidence import NormalizedEvidence
+from app.pipeline.position_contract import normalize_bounded_position_lists
 from app.pipeline.evidence_firewall import EVIDENCE_FIREWALL_SYSTEM_RULES, wrap_untrusted_evidence
 from app.pipeline.classifier import _extract_text, _extract_json_object, _looks_like_json
 from app.pipeline.methodology_consistency import (

@@ -1,0 +1,18 @@
+{
+  "release": "R40.4",
+  "name": "Reasoning Runtime Import Hotfix",
+  "version": "R40.4",
+  "mission": "Remove the live Step D NameError that prevents commercial reasoning from completing.",
+  "root_defect": "app/pipeline/reasoner.py called normalize_bounded_position_lists() without importing it.",
+  "deterministic": true,
+  "llm_calls_added": 0,
+  "recommendation_mutation": false,
+  "validation": {
+    "compileall": "passed",
+    "r40_2_static_audit": 8,
+    "case_mode_boundary": 2,
+    "runtime_import_regression": 1,
+    "full_suite": "not executable locally: anthropic and psycopg2 unavailable; network disabled",
+    "production_smoke": "required after deployment"
+  }
+}

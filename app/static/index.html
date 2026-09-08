@@ -55,6 +55,15 @@
   .ve-home-stat { background:#f7f7f9; border-radius:10px; padding:9px; }
   .ve-home-stat small { display:block; color:#80858e; font-size:8.5px; font-weight:850; letter-spacing:.08em; }
   .ve-home-stat strong { display:block; margin-top:3px; font-size:18px; }
+  .ve-home-start { border:1px solid #e4e5e9; border-radius:12px; background:#fafbfc; padding:12px; }
+  .ve-home-start b { display:block; font-size:12px; color:#222731; }
+  .ve-home-start p { margin:5px 0 10px; color:#737883; font-size:10.5px; line-height:1.45; }
+  .ve-home-start-actions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
+  .ve-home-start-actions button { border:1px solid #e1e3e8; border-radius:9px; background:#fff; padding:9px 10px; text-align:left; cursor:pointer; }
+  .ve-home-start-actions button:hover { border-color:#b8b2ee; }
+  .ve-home-start-actions strong { display:block; font-size:10.5px; }
+  .ve-home-start-actions span { display:block; margin-top:3px; color:#7f848d; font-size:9px; line-height:1.35; }
+  .ve-home-no-data { color:#888d96; font-size:10.5px; line-height:1.45; }
   .ve-home-row { padding:9px 0; border-top:1px solid #eee; }
   .ve-home-row:first-child { border-top:0; padding-top:0; }
   .ve-home-row button { background:none; border:0; padding:0; text-align:left; width:100%; }
@@ -64,7 +73,7 @@
   .ve-home-observation b { font-size:11.5px; }
   .ve-home-observation span { display:block; margin-top:4px; color:#767b85; font-size:10px; line-height:1.4; }
   .ve-home-empty { color:#888d96; font-size:11px; line-height:1.45; }
-  @media (max-width:760px) { .ve-home-actions,.ve-home-grid,.ve-home-stat-grid { grid-template-columns:1fr; } .ve-home-title{font-size:25px;} }
+  @media (max-width:760px) { .ve-home-actions,.ve-home-grid,.ve-home-stat-grid,.ve-home-start-actions { grid-template-columns:1fr; } .ve-home-title{font-size:25px;} }
 
   /* R27 Buyer Experience: the engine stays deep; the default UI stays shallow. */
   #pos-trust-certification, #pos-commercial-truth-model, #pos-decision-flip-map,
@@ -261,7 +270,7 @@
       <div id="home-attention"></div>
     </section>
     <section class="ve-home-panel">
-      <h3>Your recent commercial activity</h3>
+      <h3>Your commercial activity</h3>
       <div id="home-stats"></div>
       <div id="home-observations" style="margin-top:10px"></div>
     </section>
@@ -2288,11 +2297,23 @@ function renderCommercialWorkspace(cases) {
 
   const statsEl = document.getElementById("home-stats");
   if (statsEl) {
-    statsEl.innerHTML = `<div class="ve-home-stat-grid">
-      <div class="ve-home-stat"><small>CASES THIS YEAR</small><strong>${thisYear.length}</strong></div>
-      <div class="ve-home-stat"><small>DECISIONS THIS YEAR</small><strong>${completed.length}</strong></div>
-      <div class="ve-home-stat"><small>OPEN WORK</small><strong>${open.length}</strong></div>
-    </div>`;
+    if (!all.length) {
+      statsEl.innerHTML = `<div class="ve-home-start">
+        <b>Start with a real commercial question</b>
+        <p>You don't need to wait for a supplier. Bring a request, a pattern you've noticed, or a category decision you're preparing for.</p>
+        <div class="ve-home-start-actions">
+          <button onclick="startPrompt('Supplier request')"><strong>Supplier request</strong><span>Challenge an increase, MOQ, surcharge or renewal.</span></button>
+          <button onclick="startPrompt('Something I noticed')"><strong>Something I noticed</strong><span>Pressure-test a spend, pricing, concentration or performance pattern.</span></button>
+          <button onclick="startPrompt('Category / strategy question')"><strong>Category strategy</strong><span>Find what to investigate before the next planning cycle.</span></button>
+        </div>
+      </div>`;
+    } else {
+      statsEl.innerHTML = `<div class="ve-home-stat-grid">
+        <div class="ve-home-stat"><small>CASES THIS YEAR</small><strong>${thisYear.length}</strong></div>
+        <div class="ve-home-stat"><small>DECISIONS THIS YEAR</small><strong>${completed.length}</strong></div>
+        <div class="ve-home-stat"><small>OPEN WORK</small><strong>${open.length}</strong></div>
+      </div>`;
+    }
   }
 
   const obsEl = document.getElementById("home-observations");
@@ -2300,9 +2321,11 @@ function renderCommercialWorkspace(cases) {
     const counts = {};
     thisYear.forEach(c => { const k = c.classified_content_type; if (k) counts[k] = (counts[k] || 0) + 1; });
     const repeated = Object.entries(counts).filter(([,n]) => n >= 2).sort((a,b) => b[1]-a[1]).slice(0,3);
-    obsEl.innerHTML = repeated.length
-      ? `<div class="ve-home-observation"><b>Observed activity</b><span>${repeated.map(([k,n]) => `${n} ${_homeEscape(_homeContentLabel(k))} case${n === 1 ? "" : "s"}`).join(" · ")} recorded this year. This is activity you captured, not a forecast.</span></div>`
-      : '<div class="ve-home-empty">No repeated case pattern is large enough to call out yet.</div>';
+    obsEl.innerHTML = !all.length
+      ? '<div class="ve-home-no-data">Your real activity will appear here after your first case.</div>'
+      : repeated.length
+        ? `<div class="ve-home-observation"><b>Observed activity</b><span>${repeated.map(([k,n]) => `${n} ${_homeEscape(_homeContentLabel(k))} case${n === 1 ? "" : "s"}`).join(" · ")} recorded this year. This is activity you captured, not a forecast.</span></div>`
+        : '<div class="ve-home-empty">No repeated case pattern is large enough to call out yet.</div>';
   }
 
   const recentEl = document.getElementById("home-recent-cases");
@@ -2311,7 +2334,7 @@ function renderCommercialWorkspace(cases) {
       <div class="ve-home-row"><button onclick="openCase('${_homeEscape(String(c.id))}')">
         <b>${_homeEscape(c.raw_question || "Commercial case")}</b>
         <small>${_homeEscape(new Date(c.created_at).toLocaleDateString())} · ${_homeEscape(_homeStatusLabel(c.status))}</small>
-      </button></div>`).join("") : '<div class="ve-home-empty">No commercial decisions yet.</div>';
+      </button></div>`).join("") : `<div class="ve-home-empty">No commercial work recorded yet. Your first result will appear here.</div>`;
   }
   // Deliberately don't surface completed cases as "needing attention" merely because
   // they lack an outcome: recording outcomes is useful, but this home is not a closure nudge.

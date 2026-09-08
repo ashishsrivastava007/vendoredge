@@ -8,6 +8,7 @@ from typing import Any, Literal, Optional
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 from app import caps
+from app.pipeline.scenario_engine import ScenarioComparison
 
 ContentType = Literal["price_increase", "quote_comparison"]
 DecisionType = Literal["optimization", "constraint_satisfaction"]
@@ -151,10 +152,36 @@ class FinancialImpact(BaseModel):
     available, this object is calculated by code and attached to the
     response regardless of what the model's own text says, so it can never
     be silently skipped.
+
+    Currency redesign: the fields ending in "_usd" below are legacy and
+    are ONLY ever populated when `currency` is genuinely "USD" -- they are
+    never repurposed to silently hold a EUR or GBP amount under a name
+    that promises USD. The canonical, currency-correct amounts are the
+    fields without a "_usd" suffix, always populated in whatever currency
+    `currency` states, using the Money/scenario_engine machinery. This
+    exists because the previous design refused to calculate at all for a
+    consistently non-USD case (see normalize.py's currency_calculation_safe
+    fix) -- once that gate was corrected, a EUR case needed somewhere
+    honest to put a EUR number, rather than either crashing a "_usd" field
+    open or leaving buyers with nothing.
     """
-    annual_spend_usd: float
+    currency: str = "USD"
+    annual_spend: Optional[float] = None
+    potential_annual_impact: Optional[float] = None
+    switching_cost: Optional[float] = None
+    net_exposure: Optional[float] = None
+    annual_duty_cost: Optional[float] = None
+    annual_freight_cost: Optional[float] = None
+    # Populated only when the evidence genuinely contained a second,
+    # comparable scenario (e.g. a supplier's conditional offer) -- the
+    # scenario engine's own structured comparison, carried through
+    # end-to-end rather than left for prose to reconstruct.
+    scenario_comparison: Optional["ScenarioComparison"] = None
     requested_change_percent: float
-    potential_annual_impact_usd: float
+    # --- legacy USD-only fields, kept for backward compatibility only ---
+    # None whenever currency != "USD"; never a EUR/GBP value under a USD name.
+    annual_spend_usd: Optional[float] = None
+    potential_annual_impact_usd: Optional[float] = None
     switching_cost_usd: Optional[float] = None
     net_exposure_usd: Optional[float] = None
     # Cross-border commercial mechanics addition -- only ever populated

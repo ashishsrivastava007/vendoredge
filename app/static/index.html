@@ -1332,7 +1332,7 @@ function renderCommercialTruthModel(pos) {
         <div style="font-size:12px;color:#555;margin-bottom:9px">Only the commercial facts that materially support the decision are shown here. Source and attribution remain available in the evidence trail.</div>
         <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px">
           <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777;font-weight:800">SUPPLIERS</div><div style="font-size:14px;font-weight:900;margin-top:2px">${parties.supplier_count || 0}</div></div>
-          <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777;font-weight:800">ANNUAL SPEND</div><div style="font-size:12px;font-weight:900;margin-top:2px">${econ.quote_annual_spend != null ? Number(econ.quote_annual_spend).toLocaleString(undefined,{maximumFractionDigits:0}) + " " + escapeHtml(String(econ.quote_currency || "")) : (econ.annual_spend_usd != null ? "$" + Number(econ.annual_spend_usd).toLocaleString(undefined,{maximumFractionDigits:0}) : "Unknown")}</div></div>
+          <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777;font-weight:800">ANNUAL SPEND</div><div style="font-size:12px;font-weight:900;margin-top:2px">${econ.quote_annual_spend != null ? Number(econ.quote_annual_spend).toLocaleString(undefined,{maximumFractionDigits:0}) + " " + escapeHtml(String(econ.quote_currency || "")) : ((econ.annual_spend ?? econ.annual_spend_usd) != null ? formatMoney(econ.annual_spend ?? econ.annual_spend_usd, econ.currency) : "Unknown")}</div></div>
           <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777;font-weight:800">DIMENSIONS</div><div style="font-size:14px;font-weight:900;margin-top:2px">${dims.length}</div></div>
           <div style="background:#f7f7f9;border-radius:8px;padding:8px"><div style="font-size:9px;color:#777;font-weight:800">DEPENDENCIES</div><div style="font-size:14px;font-weight:900;margin-top:2px">${deps.length}</div></div>
         </div>
@@ -1892,7 +1892,7 @@ function renderCommercialDecisionEngine(pos) {
   };
   const badge = labels[mode] || labels.REVIEW;
   const list = (items) => (items || []).filter(Boolean).slice(0,4).map(x => `<li>${escapeHtml(String(x))}</li>`).join("");
-  const money = econ.available ? (econ.headline || (econ.potential_annual_impact_usd != null ? `$${Number(econ.potential_annual_impact_usd).toLocaleString()} potential annual impact` : "Economics available")) : "Not safely quantified";
+  const money = econ.available ? (econ.headline || (econ.annual_impact != null ? `${formatMoney(econ.annual_impact, econ.currency)} potential annual impact` : "Economics available")) : "Not safely quantified";
   el.innerHTML = `<section class="buyer-hero" style="margin-top:10px">
     <div class="buyer-hero-top"><div><div class="buyer-eyebrow">COMMERCIAL DECISION ENGINE</div><h2>${escapeHtml(d.recommendation || pos.recommendation || "Review the evidence")}</h2></div><div class="buyer-status">${escapeHtml(badge[0])}</div></div>
     <p class="buyer-mode-note">${escapeHtml(badge[1])}</p>
@@ -1926,10 +1926,10 @@ function renderCommercialAnswer(pos) {
   const scenarioBlock = scenario ? `
     <div class="ve-answer-section"><h4>EXPLICIT ALTERNATIVE SCENARIO</h4>
       <div class="ve-answer-money">
-        <div><small>${esc(_pctLabel(scenario.from_percent))}</small><b>${esc(_moneyLabel(scenario.annual_impact_from_usd))}/yr</b></div>
-        <div><small>${esc(_pctLabel(scenario.to_percent))}</small><b>${esc(_moneyLabel(scenario.annual_impact_to_usd))}/yr</b></div>
-        <div><small>ANNUAL DIFFERENCE</small><b>${esc(_moneyLabel(scenario.annual_difference_usd))}/yr</b></div>
-        <div><small>MONTHLY DIFFERENCE</small><b>${esc(_moneyLabel(scenario.monthly_difference_usd))}/mo</b></div>
+        <div><small>${esc(_pctLabel(scenario.from_percent))}</small><b>${esc(_moneyLabel(scenario.annual_impact_from ?? scenario.annual_impact_from_usd, scenario.currency))}/yr</b></div>
+        <div><small>${esc(_pctLabel(scenario.to_percent))}</small><b>${esc(_moneyLabel(scenario.annual_impact_to ?? scenario.annual_impact_to_usd, scenario.currency))}/yr</b></div>
+        <div><small>ANNUAL DIFFERENCE</small><b>${esc(_moneyLabel(scenario.annual_difference ?? scenario.annual_difference_usd, scenario.currency))}/yr</b></div>
+        <div><small>MONTHLY DIFFERENCE</small><b>${esc(_moneyLabel(scenario.monthly_difference ?? scenario.monthly_difference_usd, scenario.currency))}/mo</b></div>
       </div>
     </div>` : "";
   const giveGet = (neg.give_get || []).slice(0,4).map(x => {
@@ -1948,7 +1948,7 @@ function renderCommercialAnswer(pos) {
           <div class="ve-answer-metric"><label>NEXT MOVE</label><strong>${esc((a.what_to_do || [])[0] || "Review the validated decision.")}</strong></div>
           <div class="ve-answer-metric"><label>EVIDENCE</label><strong>${esc((evidence.verified || []).length)} verified · ${esc((evidence.unknown || []).length)} material unknown</strong></div>
         </div>
-        ${moneyAvailable ? `<div class="ve-answer-section"><h4>COMMERCIAL EXPOSURE</h4><div class="ve-answer-money"><div><small>ANNUAL SPEND</small><b>${esc(_moneyLabel(money.annual_spend_usd))}</b></div><div><small>REQUESTED CHANGE</small><b>${esc(_pctLabel(money.requested_change_percent))}</b></div><div><small>ANNUAL IMPACT</small><b>${esc(_moneyLabel(money.annual_impact_usd))}</b></div></div></div>` : ""}
+        ${moneyAvailable ? `<div class="ve-answer-section"><h4>COMMERCIAL EXPOSURE</h4><div class="ve-answer-money"><div><small>ANNUAL SPEND</small><b>${esc(_moneyLabel(money.annual_spend ?? money.annual_spend_usd, money.currency))}</b></div><div><small>REQUESTED CHANGE</small><b>${esc(_pctLabel(money.requested_change_percent))}</b></div><div><small>ANNUAL IMPACT</small><b>${esc(_moneyLabel(money.annual_impact ?? money.annual_impact_usd, money.currency))}</b></div></div></div>` : ""}
         ${scenarioBlock}
         ${a.why && a.why.length ? `<div class="ve-answer-section"><h4>WHY</h4><ul class="ve-answer-list">${list(a.why)}</ul></div>` : ""}
         ${evidence.supplier_claims && evidence.supplier_claims.length ? `<div class="ve-answer-section"><h4>SUPPLIER CLAIMS · NOT VERIFIED</h4><ul class="ve-answer-list">${list(evidence.supplier_claims)}</ul></div>` : ""}
@@ -1965,7 +1965,7 @@ function renderCommercialAnswer(pos) {
     </section>`;
 }
 
-function _moneyLabel(v) { return v == null ? "—" : "$" + Number(v).toLocaleString(undefined, {maximumFractionDigits:0}); }
+function _moneyLabel(v, currency) { return v == null ? "—" : formatMoney(v, currency); }
 function _pctLabel(v) { return v == null ? "—" : Number(v).toString().replace(/\.0$/, "") + "%"; }
 
 function renderCommercialReasoningLoop(pos) {
@@ -2127,10 +2127,11 @@ function renderDecisionPassport(pos) {
 function renderDecisionSnapshot(pos) {
   const el = document.getElementById("pos-snapshot");
   if (!el) return;
-  const fmt = (n) => "$" + Number(n).toLocaleString(undefined, {maximumFractionDigits: 0});
+  const fi = pos.financial_impact;
+  const fmt = (n, cur) => formatMoney(n, cur || (fi && fi.currency) || "USD");
   const financialLine = pos.decision_passport?.economics?.available
     ? pos.decision_passport.economics.headline
-    : (pos.financial_impact ? fmt(pos.financial_impact.potential_annual_impact_usd) + "/yr" : "Not safely quantified");
+    : (fi ? fmt(fi.potential_annual_impact ?? fi.potential_annual_impact_usd) + "/yr" : "Not safely quantified");
   const limitingFactor = (pos.confidence.factors.find(f => f.weight === "decreases confidence") || {}).factor;
   const topRisk = limitingFactor || "None flagged";
   const nextAction = pos.opening_position || pos.walk_away_threshold || "See full reasoning below";
@@ -2681,6 +2682,22 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// Mirrors app/pipeline/money.py's symbol table exactly, so backend and
+// frontend never disagree about how a currency renders. Falls back to
+// the plain ISO code (never to "$") for anything not in this list --
+// an unrecognized currency must never silently look like USD.
+const CURRENCY_SYMBOLS = {
+  USD: "$", EUR: "\u20ac", GBP: "\u00a3", JPY: "\u00a5", CHF: "CHF ",
+  SEK: "SEK ", NOK: "NOK ", DKK: "DKK ", CAD: "CA$", AUD: "A$",
+  CNY: "\u00a5", INR: "\u20b9",
+};
+function formatMoney(amount, currency) {
+  if (amount == null) return null;
+  const cur = (currency || "USD").toUpperCase();
+  const symbol = CURRENCY_SYMBOLS[cur] || (cur + " ");
+  return symbol + Number(amount).toLocaleString(undefined, { maximumFractionDigits: 0 });
+}
+
 function renderEvidenceForm() {
   const foundContainer = document.getElementById("evidence-found-checklist");
   const foundKeys = Object.keys(currentEvidence || {});
@@ -2781,8 +2798,9 @@ function renderSensitivity(pos) {
   const a = pos.sensitivity_analysis;
   if (!a || !a.available || !(a.scenarios || []).length) { el.innerHTML = ""; return; }
   const rows = a.scenarios.map(x => {
-    const spend = x.annual_spend_usd != null ? "$" + Number(x.annual_spend_usd).toLocaleString(undefined,{maximumFractionDigits:0}) : null;
-    const impact = x.annual_impact_usd != null ? "$" + Number(x.annual_impact_usd).toLocaleString(undefined,{maximumFractionDigits:0}) : null;
+    const cur = x.currency || a.currency;
+    const spend = (x.annual_spend ?? x.annual_spend_usd) != null ? formatMoney(x.annual_spend ?? x.annual_spend_usd, cur) : null;
+    const impact = (x.annual_impact ?? x.annual_impact_usd) != null ? formatMoney(x.annual_impact ?? x.annual_impact_usd, cur) : null;
     return `<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid #eee"><span>${escapeHtml(x.scenario)}</span><b>${escapeHtml(spend || impact || "—")}</b></div>`;
   }).join("");
   const note = a.mode === "price_change_sensitivity"
@@ -2799,7 +2817,8 @@ function renderStressTest(pos) {
   const labels = {SURVIVES_AVAILABLE_TESTS:"Survives available tests", SENSITIVE:"Recommendation is sensitive", NOT_TESTABLE:"Not safely testable"};
   const styles = {SURVIVES_AVAILABLE_TESTS:"#2f7d4f", SENSITIVE:"#8a6500", NOT_TESTABLE:"#777"};
   const rows = (a.tests || []).map(x => {
-    const value = x.annual_impact_usd != null ? "$" + Number(x.annual_impact_usd).toLocaleString(undefined,{maximumFractionDigits:0}) : (x.annual_spend_usd != null ? "$" + Number(x.annual_spend_usd).toLocaleString(undefined,{maximumFractionDigits:0}) : "—");
+    const cur = x.currency || a.currency;
+    const value = (x.annual_impact ?? x.annual_impact_usd) != null ? formatMoney(x.annual_impact ?? x.annual_impact_usd, cur) : ((x.annual_spend ?? x.annual_spend_usd) != null ? formatMoney(x.annual_spend ?? x.annual_spend_usd, cur) : "—");
     return `<div style="padding:7px 0;border-top:1px solid #eee"><div style="display:flex;justify-content:space-between;gap:10px"><b>${escapeHtml(x.name)}</b><span>${escapeHtml(value)}</span></div><div style="font-size:11px;color:#666;margin-top:3px">${escapeHtml(x.scenario || "")}</div></div>`;
   }).join("");
   const warnings = (a.warnings || []).map(x => `<li>${escapeHtml(x)}</li>`).join("");
@@ -2860,8 +2879,9 @@ function buildDecisionBriefText(pos) {
 
   if (pos.financial_impact) {
     const f = pos.financial_impact;
-    add("FINANCIAL IMPACT", `Potential annual impact: $${Number(f.potential_annual_impact_usd || 0).toLocaleString()}
-Annual spend: $${Number(f.annual_spend_usd || 0).toLocaleString()}
+    const _cur = f.currency || "USD";
+    add("FINANCIAL IMPACT", `Potential annual impact: ${formatMoney(f.potential_annual_impact ?? f.potential_annual_impact_usd ?? 0, _cur)}
+Annual spend: ${formatMoney(f.annual_spend ?? f.annual_spend_usd ?? 0, _cur)}
 Requested change: ${f.requested_change_percent}%`);
   } else {
     add("FINANCIAL IMPACT", "Not safely calculable from the supplied evidence.");
@@ -3247,15 +3267,16 @@ function renderPosition(pos) {
   const fiEl = document.getElementById("pos-financial-impact");
   if (fiEl && pos.financial_impact) {
     const fi = pos.financial_impact;
-    const fmt = (n) => "$" + Number(n).toLocaleString(undefined, {maximumFractionDigits: 0});
+    const cur = fi.currency || "USD";
+    const fmt = (n) => formatMoney(n, cur);
     fiEl.innerHTML = `
       <div style="background:#f0f4f8; border-radius:8px; padding:12px 14px; margin:10px 0; font-size:13px">
         <div style="font-weight:600; margin-bottom:6px">Commercial Exposure</div>
-        <div>Annual spend: <b>${fmt(fi.annual_spend_usd)}</b></div>
+        <div>Annual spend: <b>${fmt(fi.annual_spend ?? fi.annual_spend_usd)}</b></div>
         <div>Requested change: <b>${fi.requested_change_percent}%</b></div>
-        <div>Potential annual impact: <b>${fmt(fi.potential_annual_impact_usd)}</b></div>
-        ${fi.switching_cost_usd != null ? `<div>Estimated switching cost: <b>${fmt(fi.switching_cost_usd)}</b></div>` : ""}
-        ${fi.net_exposure_usd != null ? `<div>Net exposure: <b>${fmt(fi.net_exposure_usd)}</b></div>` : ""}
+        <div>Potential annual impact: <b>${fmt(fi.potential_annual_impact ?? fi.potential_annual_impact_usd)}</b></div>
+        ${(fi.switching_cost ?? fi.switching_cost_usd) != null ? `<div>Estimated switching cost: <b>${fmt(fi.switching_cost ?? fi.switching_cost_usd)}</b></div>` : ""}
+        ${(fi.net_exposure ?? fi.net_exposure_usd) != null ? `<div>Net exposure: <b>${fmt(fi.net_exposure ?? fi.net_exposure_usd)}</b></div>` : ""}
       </div>`;
   } else if (fiEl) {
     fiEl.innerHTML = "";

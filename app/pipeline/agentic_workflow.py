@@ -13,8 +13,19 @@ def _text(v: Any) -> str:
     return str(v or "").strip()
 
 
-def build_agentic_workflow(position: CommercialPosition) -> dict[str, Any]:
-    """Build an execution-ready work queue from the existing decision spine."""
+def build_agentic_workflow(position: CommercialPosition, supplier_name: str | None = None) -> dict[str, Any]:
+    """Build an execution-ready work queue from the existing decision spine.
+
+    supplier_name is sourced from the case's normalized evidence
+    (normalized.common.supplier_name), not from `position` -- the
+    supplier's identity is an INPUT fact captured at evidence-extraction
+    time, not something the model's reasoning output ever carries.
+    CommercialPosition genuinely has no supplier_name field; it never
+    has. Kept optional (default None, falls back to the existing
+    generic "the supplier" wording below) so this remains safe to call
+    without evidence in hand, e.g. from a context where only the
+    position is available.
+    """
     actions: list[dict[str, Any]] = []
     evidence_status = position.decision_audit.evidence_integrity_status if position.decision_audit else "UNKNOWN"
     blocked = bool(position.control_tower and position.control_tower.critical_before_action)
@@ -59,7 +70,7 @@ def build_agentic_workflow(position: CommercialPosition) -> dict[str, Any]:
             "title": "Draft supplier response",
             "status": "approval_required",
             "approval_required": True,
-            "prepared_output": _draft_supplier_message(position, objective, opening),
+            "prepared_output": _draft_supplier_message(position, objective, opening, supplier_name),
             "side_effect": "draft only; sending requires an external integration and human approval",
         })
 
@@ -97,10 +108,8 @@ def build_agentic_workflow(position: CommercialPosition) -> dict[str, Any]:
     }
 
 
-def _draft_supplier_message(position: CommercialPosition, objective: str, opening: str) -> str:
-    supplier = "the supplier"
-    if position.supplier_name:
-        supplier = position.supplier_name
+def _draft_supplier_message(position: CommercialPosition, objective: str, opening: str, supplier_name: str | None = None) -> str:
+    supplier = supplier_name.strip() if supplier_name and supplier_name.strip() else "the supplier"
     lines = [f"Subject: Commercial discussion — {supplier}", "", "Dear Supplier,", ""]
     if opening:
         lines.append(f"We would like to discuss the requested commercial change. Our current position is: {opening}.")

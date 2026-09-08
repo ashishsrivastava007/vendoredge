@@ -62,10 +62,30 @@ def challenge_trigger(normalized: NormalizedEvidence, position: CommercialPositi
         reasons.append("multiple stakeholder views are explicitly captured")
     if position.confidence.level == "low":
         reasons.append("primary confidence is low")
-    if position.financial_impact and position.financial_impact.potential_annual_impact_usd >= CHALLENGE_FINANCIAL_EXPOSURE_USD:
+    # Currency-safe threshold comparison. Per explicit instruction: never
+    # compare a financial figure against a currency-specific threshold
+    # constant unless the figure is genuinely in that same currency, and
+    # never invent an FX rate to force a comparison. When the case's
+    # currency is not USD (the thresholds' own basis), this does not
+    # silently skip the check with no signal at all -- it surfaces an
+    # explicit, named "unresolved" reason, which itself counts toward
+    # triggering a human/challenger review. An exposure VendorEdge cannot
+    # safely evaluate against its own threshold is exactly the kind of
+    # gap a second opinion should see, not one that should pass through
+    # unexamined.
+    fi = position.financial_impact
+    _currency = (fi.currency if fi else None) or "USD"
+    _impact = fi.potential_annual_impact if fi and fi.potential_annual_impact is not None else (fi.potential_annual_impact_usd if fi else None)
+    if _impact is not None and _currency.upper() != "USD":
+        reasons.append(
+            f"financial exposure threshold check is unresolved: the case is denominated in "
+            f"{_currency.upper()}, the challenge thresholds are USD-denominated, and no FX rate "
+            f"was supplied -- this cannot be safely compared, and that gap itself warrants review"
+        )
+    elif _impact is not None and _impact >= CHALLENGE_FINANCIAL_EXPOSURE_USD:
         reasons.append("financial exposure exceeds the challenge threshold")
-    if (normalized.content_type == "price_increase" and position.financial_impact
-            and position.financial_impact.potential_annual_impact_usd >= PRICE_INCREASE_CHALLENGE_EXPOSURE_USD):
+    if (normalized.content_type == "price_increase" and _impact is not None
+            and _currency.upper() == "USD" and _impact >= PRICE_INCREASE_CHALLENGE_EXPOSURE_USD):
         reasons.append("material price-increase exposure warrants an independent commercial challenge")
     if position.walk_away_threshold and position.disconfirming_condition:
         reasons.append("the case contains both a commercial boundary and a reversal condition")

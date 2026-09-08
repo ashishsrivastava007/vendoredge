@@ -290,14 +290,23 @@ def test_attack_8_incomplete_tco_claimed_without_coverage():
 # ============================================================
 def test_attack_9_mixed_currency_now_fixed():
     """
-    ATTACK: a case states a price in EUR with no real dollar sign
-    anywhere, testing whether the guaranteed calculation would silently
-    treat the foreign-currency number as USD.
+    ATTACK: a case genuinely mixes currencies -- the LLM's own extracted
+    currency actually disagreeing with what the raw text independently
+    shows -- testing whether the guaranteed calculation would silently
+    treat one foreign-currency number as another.
 
     HISTORY: this was a confirmed, honestly-reported gap in the original
     red-team pass. Fixed during Production Hardening via
     derived.currency_calculation_safe -- computed once in
-    normalize_evidence(), enforced in compute_financial_impact(). Full
+    normalize_evidence(), enforced in compute_financial_impact().
+
+    UPDATED as part of the currency-scenario-engine fix: the original
+    version of this test used a case that is entirely, cleanly EUR --
+    which turned out to be exactly the wrong thing to refuse (see
+    test_currency_safety.py's full explanation). That was a real, if
+    well-intentioned, over-broad definition of "mismatch". The genuine
+    danger this test now reproduces is an actual conflict: the extracted
+    currency disagreeing with an independent scan of the raw text. Full
     diagnosis, fix, and deliberate-break proof in test_currency_safety.py;
     this test re-asserts the fix through the real, live pipeline path
     (not a hand-constructed object) as part of the consolidated red-team
@@ -305,15 +314,17 @@ def test_attack_9_mixed_currency_now_fixed():
     """
     from app.pipeline.normalize import normalize_evidence
     from app.pipeline.financial import compute_financial_impact
-    ne, _ = normalize_evidence(
-        "Supplier price is €1,000,000 annually, 10% increase requested.",
+    ne, conflicts = normalize_evidence(
+        "Supplier invoices in £500,000 annually, requesting a 10% increase.",
         "price_increase", {"supplier_currency": "EUR"},
-        {"annual_spend_usd": 1_000_000.0, "requested_change_percent": 10.0},
+        {"annual_spend_usd": 500_000.0, "requested_change_percent": 10.0},
     )
+    assert "supplier_currency" in conflicts
     result = compute_financial_impact(ne)
     assert result is None, "PASS/FAIL: FAIL if the fix has regressed"
-    # RESULT: PASS -- the guardrail now structurally refuses to calculate
-    # on ambiguous currency, closing the gap honestly reported earlier.
+    # RESULT: PASS -- the guardrail structurally refuses to calculate on
+    # a genuine currency conflict, closing the gap honestly reported
+    # earlier, while no longer refusing a clean, single-currency case.
 
 
 # ============================================================

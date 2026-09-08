@@ -12,6 +12,7 @@ from typing import Any
 
 from app.pipeline.normalized_evidence import NormalizedEvidence, PriceIncreaseEvidence
 from app.pipeline.claim_integrity import check_unsupported_strategy_numbers
+from app.pipeline.money import currency_symbol
 
 
 _RATE_SCENARIO_RE = re.compile(
@@ -20,10 +21,10 @@ _RATE_SCENARIO_RE = re.compile(
 )
 
 
-def _money(value: float | int | None) -> str | None:
+def _money(value: float | int | None, currency: str | None = "USD") -> str | None:
     if value is None:
         return None
-    return f"${float(value):,.0f}"
+    return f"{currency_symbol(currency)}{float(value):,.0f}"
 
 
 def _pct(value: float | int | None) -> str | None:
@@ -146,15 +147,25 @@ def build_commercial_answer(
 ) -> dict[str, Any]:
     """Build the single buyer-facing answer packet."""
     fi = getattr(position, "financial_impact", None)
-    annual_spend = getattr(fi, "annual_spend_usd", None) if fi else (normalized.derived.resolved_annual_spend_usd if normalized else None)
+    # Currency-neutral fields first (correct for any currency, including
+    # USD); legacy "_usd" fields only as a fallback for anything that
+    # somehow still only has the old shape populated.
+    annual_spend = getattr(fi, "annual_spend", None) if fi else None
+    if annual_spend is None:
+        annual_spend = getattr(fi, "annual_spend_usd", None) if fi else (normalized.derived.resolved_annual_spend_usd if normalized else None)
     requested_pct = getattr(fi, "requested_change_percent", None) if fi else (getattr(normalized.case, "requested_increase_percent", None) if normalized else None)
+    currency = (getattr(fi, "currency", None) if fi else None) or (normalized.derived.spend_currency if normalized else None) or "USD"
 
     money: dict[str, Any] = {
         "available": False,
+        "currency": currency,
         "annual_spend_usd": annual_spend,
+        "annual_spend": annual_spend,
         "requested_change_percent": requested_pct,
         "annual_impact_usd": None,
+        "annual_impact": None,
         "monthly_impact_usd": None,
+        "monthly_impact": None,
         "explicit_scenario": None,
         "notes": [],
     }
@@ -163,16 +174,49 @@ def build_commercial_answer(
         money.update({
             "available": True,
             "annual_impact_usd": annual_impact,
+            "annual_impact": annual_impact,
             "monthly_impact_usd": round(annual_impact / 12, 2),
-            "headline": f"{_money(annual_impact)}/year potential impact",
-            "basis": f"{_money(annual_spend)} annual spend × {_pct(requested_pct)} requested change.",
+            "monthly_impact": round(annual_impact / 12, 2),
+            "headline": f"{_money(annual_impact, currency)}/year potential impact",
+            "basis": f"{_money(annual_spend, currency)} annual spend × {_pct(requested_pct)} requested change.",
         })
-        scenario = _explicit_percent_scenario(raw_question, float(annual_spend))
-        if scenario and abs(scenario["from_percent"] - float(requested_pct)) < 0.0001:
-            money["explicit_scenario"] = scenario
+        # Real, structured scenario comparison, carried through from the
+        # deterministic scenario engine -- not a regex re-scan of the raw
+        # text. Falls back to the old regex-based extraction only when no
+        # structured second scenario was genuinely extracted, so a case
+        # relying purely on the old free-text pattern still works exactly
+        # as before.
+        sc = getattr(fi, "scenario_comparison", None)
+        if sc is not None:
+            money["explicit_scenario"] = {
+                "currency": currency,
+                "from_percent": sc.scenario_a.change_value,
+                "to_percent": sc.scenario_b.change_value,
+                "annual_impact_from_usd": sc.scenario_a.delta.amount,
+                "annual_impact_from": sc.scenario_a.delta.amount,
+                "monthly_impact_from_usd": round(sc.scenario_a.delta.amount / 12, 2),
+                "monthly_impact_from": round(sc.scenario_a.delta.amount / 12, 2),
+                "annual_impact_to_usd": sc.scenario_b.delta.amount,
+                "annual_impact_to": sc.scenario_b.delta.amount,
+                "monthly_impact_to_usd": round(sc.scenario_b.delta.amount / 12, 2),
+                "monthly_impact_to": round(sc.scenario_b.delta.amount / 12, 2),
+                "annual_difference_usd": sc.delta_amount.amount,
+                "annual_difference": sc.delta_amount.amount,
+                "monthly_difference_usd": round(sc.delta_amount.amount / 12, 2),
+                "monthly_difference": round(sc.delta_amount.amount / 12, 2),
+                "basis": f"Named alternative scenario ({sc.scenario_b.name}) from case evidence; arithmetic is deterministic.",
+            }
             money["notes"].append(
-                f"The case explicitly states a {scenario['to_percent']:g}% alternative; the difference versus {scenario['from_percent']:g}% is {_money(scenario['annual_difference_usd'])}/year."
+                f"The case states a named alternative scenario ({sc.scenario_b.name}, {sc.scenario_b.change_value:g}%); "
+                f"the difference versus {sc.scenario_a.change_value:g}% is {_money(sc.delta_amount.amount, currency)}/year."
             )
+        else:
+            scenario = _explicit_percent_scenario(raw_question, float(annual_spend))
+            if scenario and abs(scenario["from_percent"] - float(requested_pct)) < 0.0001:
+                money["explicit_scenario"] = scenario
+                money["notes"].append(
+                    f"The case explicitly states a {scenario['to_percent']:g}% alternative; the difference versus {scenario['from_percent']:g}% is {_money(scenario['annual_difference_usd'], currency)}/year."
+                )
 
     supplier_name = _supplier_name(normalized) if normalized else None
     leverage: list[dict[str, str]] = []
@@ -210,7 +254,7 @@ def build_commercial_answer(
     if supplier_name:
         verified.append(f"Supplier: {supplier_name}.")
     if annual_spend is not None:
-        verified.append(f"Annual spend stated/resolved as {_money(annual_spend)}.")
+        verified.append(f"Annual spend stated/resolved as {_money(annual_spend, currency)}.")
     if requested_pct is not None:
         verified.append(f"Requested increase: {_pct(requested_pct)}.")
     if normalized and normalized.common.incoterm:
@@ -218,11 +262,11 @@ def build_commercial_answer(
     if normalized and getattr(normalized.case, "suppliers_stated_justification", None):
         supplier_claims.append(str(normalized.case.suppliers_stated_justification).strip())
     if normalized and normalized.derived.resolved_annual_spend_usd is not None and normalized.case.requested_increase_percent is not None:
-        calculated.append(f"Annual price impact: {_money(money['annual_impact_usd'])}.")
-        calculated.append(f"Monthly price impact: {_money(money['monthly_impact_usd'])}.")
+        calculated.append(f"Annual price impact: {_money(money['annual_impact_usd'], currency)}.")
+        calculated.append(f"Monthly price impact: {_money(money['monthly_impact_usd'], currency)}.")
         if money.get("explicit_scenario"):
             calculated.append(
-                f"Explicit alternative-rate difference: {_money(money['explicit_scenario']['annual_difference_usd'])}/year."
+                f"Explicit alternative-rate difference: {_money(money['explicit_scenario']['annual_difference_usd'], currency)}/year."
             )
 
     negotiation = getattr(position, "negotiation_intelligence", None)

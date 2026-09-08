@@ -32,10 +32,16 @@ def test_scenario_c_duty_reaches_normalized_evidence_and_tco_relevance():
 
 
 def test_scenario_d_currency_reaches_normalized_evidence():
+    """Verifies extraction reaches the object -- currency_mismatch is
+    deliberately NOT asserted here anymore: it now correctly means a
+    genuine LLM-vs-fallback conflict (see test_currency_safety.py), not
+    merely "a currency was mentioned", so a single, cleanly stated
+    currency like this one is expected to show no mismatch at all."""
     raw = "The supplier is billed in EUR, requesting a 6% increase."
     ne, conflicts = normalize_evidence(raw, "price_increase", {}, {})
     assert ne.common.supplier_currency == "EUR"
-    assert ne.derived.currency_mismatch is True
+    assert ne.derived.currency_mismatch is False
+    assert ne.derived.currency_calculation_safe is True
 
 
 def test_scenario_e_volume_participates_in_spend_derivation():

@@ -20,6 +20,7 @@ function.
 """
 from app.models import CommercialPosition
 from app.pipeline.normalized_evidence import NormalizedEvidence
+from app.pipeline.money import currency_symbol
 
 _NOT_CALCULABLE_PHRASES = [
     "not calculable", "cannot be calculated", "unable to calculate",
@@ -45,9 +46,12 @@ def check_financial_contradiction(position: CommercialPosition) -> list[str]:
         ])).lower()
         for phrase in _NOT_CALCULABLE_PHRASES:
             if phrase in text_to_check:
+                _fi = position.financial_impact
+                _sym = currency_symbol(_fi.currency or "USD")
+                _impact = _fi.potential_annual_impact if _fi.potential_annual_impact is not None else _fi.potential_annual_impact_usd
                 contradictions.append(
                     f"financial_impact is present (a real, guaranteed figure of "
-                    f"${position.financial_impact.potential_annual_impact_usd:,.0f} was computed), "
+                    f"{_sym}{_impact:,.0f} was computed), "
                     f"but the response's own text contains the phrase '{phrase}', directly "
                     f"contradicting the guaranteed calculation."
                 )

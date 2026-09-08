@@ -8,10 +8,11 @@ from __future__ import annotations
 from typing import Optional
 
 from app.pipeline.normalized_evidence import NormalizedEvidence
+from app.pipeline.money import currency_symbol
 
 
-def _money(v: float) -> str:
-    return f"${v:,.0f}"
+def _money(v: float, currency: str = "USD") -> str:
+    return f"{currency_symbol(currency)}{v:,.0f}"
 
 
 def _pct(v: float) -> str:
@@ -26,20 +27,26 @@ def build_sensitivity_analysis(normalized: NormalizedEvidence) -> dict:
             return {"available": False, "reason": "Insufficient safe numeric evidence for deterministic sensitivity analysis.", "scenarios": []}
         spend = float(spend)
         requested = float(requested)
+        currency = normalized.derived.spend_currency or "USD"
         points = sorted(set([0.0, 5.0, 10.0, requested, 15.0]))
         scenarios = []
         for pct in points:
             impact = round(spend * pct / 100, 2)
             scenarios.append({
                 "scenario": f"Price change of {_pct(pct)}",
+                "currency": currency,
                 "annual_impact_usd": impact,
+                "annual_impact": impact,
                 "vs_current_usd": impact,
+                "vs_current": impact,
                 "basis": "Deterministic annual spend × price change; no other variables changed.",
             })
         return {
             "available": True,
             "mode": "price_change_sensitivity",
+            "currency": currency,
             "baseline_annual_spend_usd": spend,
+            "baseline_annual_spend": spend,
             "current_requested_change_percent": requested,
             "scenarios": scenarios,
             "decision_boundary": {

@@ -190,6 +190,14 @@ class PriceIncreaseEvidence(BaseModel):
     annual_spend_usd: Optional[float] = None
     switching_cost_usd: Optional[float] = None
     freight_cost_or_estimate: Optional[str] = None
+    # Added for the scenario engine: a case can genuinely present two
+    # numbers to compare, not one -- e.g. Supplier A's "we'll drop 11%
+    # to 7% if you commit to a 3-year term." Optional and additive; a
+    # case with only one percentage (the overwhelmingly common shape)
+    # is entirely unaffected -- this stays None and financial.py falls
+    # back to its existing single-scenario calculation exactly as before.
+    alternative_scenario_percent: Optional[float] = None
+    alternative_scenario_label: Optional[str] = None
 
 
 class QuoteComparisonEvidence(BaseModel):
@@ -242,16 +250,24 @@ class DerivedEvidence(BaseModel):
     freight_relevant: bool = False
     duty_relevant: bool = False
     currency_mismatch: bool = False
-    # Production Hardening fix for the confirmed red-team finding: when
-    # currency_mismatch is True (a non-USD currency was genuinely
-    # detected) AND the raw text contains no literal "$" sign anywhere,
-    # any number in a "_usd"-suffixed field is suspect -- it may have
-    # been lifted directly from a foreign-currency figure without
-    # conversion. Computed once, here, so financial.py never has to
-    # re-derive this itself; it just refuses to calculate when this is
-    # False. Deliberately narrow: if a real "$" appears anywhere in the
-    # text (the user genuinely gave a dollar figure alongside foreign
-    # context), this stays True and the calculation proceeds normally.
+    # The currency the resolved annual spend figure is genuinely
+    # denominated in -- distinct from common.supplier_currency, which
+    # describes what currency the SUPPLIER bills/quotes in and can
+    # legitimately differ from the spend total's own currency (e.g. "the
+    # supplier bills in EUR but our tracked annual spend is a genuinely
+    # stated USD figure"). Computed once, with a clear priority, so
+    # financial.py and every other consumer never has to re-derive it or
+    # guess: a genuine dollar figure present alongside the resolved spend
+    # number takes priority (matches the extraction contract's own
+    # "annual_spend_usd" naming intent); otherwise the case's single
+    # stated currency; otherwise the existing conventional USD default.
+    spend_currency: str = "USD"
+    # Whether currency_mismatch (genuine LLM-vs-fallback extraction
+    # conflict, not merely "a currency was mentioned") makes the resolved
+    # spend figure unsafe to calculate against at all. A single, clearly
+    # stated currency -- of any kind -- is safe; this only goes False on
+    # a real, detected disagreement about what currency is actually in
+    # play, which spend_currency above cannot resolve on its own.
     currency_calculation_safe: bool = True
     # Parsed once, here, from case.freight_cost_or_estimate (free text the
     # user typed into the evidence-gate, e.g. "€35/unit") -- closes the

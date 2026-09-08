@@ -9,16 +9,19 @@ from __future__ import annotations
 
 from app.models import CommercialPosition
 from app.pipeline.normalized_evidence import NormalizedEvidence
+from app.pipeline.money import currency_symbol
 
 
 def _direct_economics(normalized: NormalizedEvidence, position: CommercialPosition) -> dict:
     """Single-source commercial economics. Quote comparisons never calculate here."""
     if position.financial_impact is not None:
         f = position.financial_impact
+        _sym = currency_symbol(f.currency or "USD")
+        _impact = f.potential_annual_impact if f.potential_annual_impact is not None else f.potential_annual_impact_usd
         return {
             "available": True,
             "type": "price_change",
-            "headline": f"{f.potential_annual_impact_usd:,.0f} USD/year potential impact",
+            "headline": f"{_sym}{_impact:,.0f}/year potential impact",
             "basis": "Deterministic annual spend × stated price change.",
         }
     if normalized.content_type == "quote_comparison":

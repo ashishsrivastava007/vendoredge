@@ -411,7 +411,8 @@ def normalize_evidence(
         # genuinely empty, never overwriting a real answer already present.
         current_price_text = llm_extracted_evidence.get("current_price_or_terms")
         if not current_price_text and spend is not None:
-            current_price_text = f"${spend:,.0f} annual spend"
+            from app.pipeline.money import currency_symbol
+            current_price_text = f"{currency_symbol(currency or 'USD')}{spend:,.0f} annual spend"
         requested_percent_text_source = llm_extracted_evidence.get("requested_increase_percent")
 
         case_evidence = PriceIncreaseEvidence(
@@ -422,6 +423,8 @@ def normalize_evidence(
             annual_spend_usd=spend,
             switching_cost_usd=llm_numeric_facts.get("switching_cost_usd"),
             freight_cost_or_estimate=_coerce_text(llm_extracted_evidence.get("freight_cost_or_estimate"), "freight_cost_or_estimate", normalization_warnings, numeric_scalar_ok=True),
+            alternative_scenario_percent=llm_numeric_facts.get("alternative_scenario_percent"),
+            alternative_scenario_label=_coerce_text(llm_extracted_evidence.get("alternative_scenario_label"), "alternative_scenario_label", normalization_warnings, numeric_scalar_ok=True),
         )
     else:
         for f in ("number_of_suppliers_being_compared", "price_per_supplier", "payment_terms_per_supplier",
@@ -460,12 +463,42 @@ def normalize_evidence(
     )
     freight_relevant = single_value_freight_relevant or per_supplier_freight_relevant
     duty_relevant = bool(region or currency or incoterm)
-    currency_mismatch = currency is not None
-    # Production Hardening fix: only unsafe when a real currency mismatch
-    # exists AND no literal dollar sign appears anywhere in the raw text.
-    # A genuine "$460,000" alongside foreign-currency context is safe --
-    # the user explicitly gave a real dollar figure, not an ambiguous one.
-    currency_calculation_safe = not (currency_mismatch and "$" not in raw_question)
+    # Fixed: the original check treated ANY explicitly stated currency as
+    # grounds for refusing calculation outright (`currency_mismatch =
+    # currency is not None`), unless the raw text also happened to
+    # contain a literal "$" somewhere. That meant a case entirely and
+    # consistently denominated in EUR -- the exact shape of the
+    # Industrial Valves & Actuators golden case -- was refused
+    # calculation, not merely mislabeled once computed. The classifier's
+    # own extraction contract already promises "currency must be the
+    # stated currency; do not convert" -- there was never a need for a
+    # second, cruder heuristic layered on top of an extraction that
+    # already does this correctly. The real, principled risk this check
+    # should guard against is genuine ambiguity: the LLM's extracted
+    # currency actually disagreeing with an independent regex scan of the
+    # raw text, which is exactly what "supplier_currency" in `conflicts`
+    # already captures a few lines above, via the same _resolve_field
+    # conflict-detection every other field in this function already uses.
+    # A single, clearly-stated currency -- of any kind, not just USD --
+    # is safe. No currency stated at all falls back to the existing
+    # conventional USD assumption, unchanged from before this fix.
+    currency_mismatch = "supplier_currency" in conflicts
+    currency_calculation_safe = not currency_mismatch
+    # Priority for what currency the resolved SPEND figure itself is in
+    # (distinct from supplier_currency, which is about the supplier's own
+    # billing/quoting currency and can legitimately differ -- see
+    # DerivedEvidence.spend_currency's docstring for the full reasoning):
+    # a genuine dollar figure in the raw text, alongside a resolved spend
+    # number, means the spend itself is stated in USD regardless of what
+    # currency the supplier separately bills in. Otherwise, a single
+    # clearly stated case currency applies to the spend figure too.
+    # Otherwise, the existing conventional USD default, unchanged.
+    if resolved_spend is not None and "$" in raw_question:
+        spend_currency = "USD"
+    elif currency:
+        spend_currency = currency
+    else:
+        spend_currency = "USD"
 
     # ---- derived: parsed freight cost (existing numeric_parsing.py, moved here) ----
     freight_per_unit = None
@@ -484,6 +517,7 @@ def normalize_evidence(
         duty_relevant=duty_relevant,
         currency_mismatch=currency_mismatch,
         currency_calculation_safe=currency_calculation_safe,
+        spend_currency=spend_currency,
         freight_cost_per_unit_usd=freight_per_unit,
     )
 

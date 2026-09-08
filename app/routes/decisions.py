@@ -2244,7 +2244,7 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
     # response scenarios, escalation triggers and a meeting checklist.
     try:
         position.negotiation_intelligence = build_negotiation_intelligence(position)
-        position.agentic_workflow = build_agentic_workflow(position)
+        position.agentic_workflow = build_agentic_workflow(position, normalized.common.supplier_name if normalized else None)
     except Exception as e:
         print(f"Negotiation intelligence skipped (non-blocking): {type(e).__name__}: {e}")
 

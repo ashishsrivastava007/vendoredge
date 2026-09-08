@@ -45,6 +45,7 @@ def build_stress_test(normalized: NormalizedEvidence, position: CommercialPositi
             }
         spend = float(spend)
         requested = float(requested)
+        currency = normalized.derived.spend_currency or "USD"
 
         # Scenario shocks are explicitly hypothetical. They do not assert that
         # these outcomes will occur.
@@ -54,7 +55,9 @@ def build_stress_test(normalized: NormalizedEvidence, position: CommercialPositi
                 "name": label,
                 "type": "price_shock",
                 "scenario": f"If the supplier price changed by {pct:g}% while all other stated inputs stayed unchanged",
+                "currency": currency,
                 "annual_impact_usd": impact,
+                "annual_impact": impact,
                 "result": "higher_cost" if pct > 0 else "baseline",
             })
 
@@ -133,6 +136,7 @@ def build_stress_test(normalized: NormalizedEvidence, position: CommercialPositi
     return {
         "available": bool(tests),
         "status": status,
+        "currency": (normalized.derived.spend_currency or "USD") if normalized.content_type == "price_increase" else "USD",
         "summary": {
             "SURVIVES_AVAILABLE_TESTS": "The recommendation has no unresolved structural warning in the scenarios that can be tested from stated evidence.",
             "SENSITIVE": "The recommendation has one or more explicit evidence constraints that could materially change the decision.",

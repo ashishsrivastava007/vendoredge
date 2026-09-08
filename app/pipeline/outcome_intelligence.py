@@ -62,7 +62,24 @@ def build_outcome_intelligence(
     """Build the deterministic closed-loop outcome view."""
     f = feedback or {}
     financial = getattr(position, "financial_impact", None)
+    # Variance/comparison against `actual` is deliberately gated on the
+    # legacy USD-only field, not the new currency-aware one -- and this
+    # is correct, not a compatibility shortcut. `actual` is always
+    # collected through FeedbackRequest.actual_financial_impact_usd, a
+    # separate, pre-existing user-input contract that only ever asks for
+    # a USD-denominated figure (see app/models.py). Comparing a
+    # currency-aware `expected` (which could genuinely be EUR/GBP)
+    # against an always-USD `actual` would be exactly the silent
+    # cross-currency comparison this hardening pass exists to prevent.
+    # Redesigning the feedback form itself to also collect a currency is
+    # a real, separate, larger product change -- out of scope here.
     expected = _num(getattr(financial, "potential_annual_impact_usd", None)) if financial else None
+    # Currency-aware value, for DISPLAY only -- so a genuinely EUR/GBP
+    # case doesn't silently show "no expectation" just because it can't
+    # be safely compared against a USD-only actual. Never used in the
+    # variance/comparison math below.
+    expected_display = _num(getattr(financial, "potential_annual_impact", None)) if financial else None
+    expected_display_currency = (getattr(financial, "currency", None) or "USD") if financial else "USD"
     actual = _num(f.get("actual_financial_impact_usd"))
     variance = None
     variance_pct = None
@@ -171,6 +188,8 @@ def build_outcome_intelligence(
         "decision_alignment": alignment or None,
         "validation_verdict": verdict or None,
         "expected_financial_impact_usd": expected,
+        "expected_financial_impact_display": expected_display,
+        "expected_financial_impact_currency": expected_display_currency,
         "actual_financial_impact_usd": actual,
         "financial_variance_usd": variance,
         "financial_variance_percent": variance_pct,
@@ -189,7 +208,10 @@ def build_outcome_intelligence(
         "structured_outcome_count": len(structured),
         "attribution_note": (
             "A realized result is not attributed wholly to VendorEdge when the recommendation was modified or rejected. "
-            "Financial variance is calculated only from structured values recorded on the same USD annual-impact basis."
+            "Financial variance is calculated only when the original expected impact was genuinely USD-denominated, "
+            "since actual outcomes are always recorded in USD; a non-USD case's expected impact is shown for reference "
+            "(expected_financial_impact_display) but is never compared against actual, to avoid a silent cross-currency "
+            "comparison."
         ),
         "honesty_note": "Outcome intelligence measures what happened after the decision. It does not rewrite the original recommendation or prove causality from one case.",
         "method": "Deterministic closed-loop outcome analysis; no LLM call, no free-text financial parsing and no recommendation mutation.",

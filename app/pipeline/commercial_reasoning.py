@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 from app.models import CommercialPosition
 from app.pipeline.normalized_evidence import NormalizedEvidence
+from app.pipeline.money import currency_symbol
 
 
 def _uniq(items: list[str], limit: int = 6) -> list[str]:
@@ -44,10 +45,14 @@ def build_commercial_reasoning_loop(
 
     economic_fact = None
     if econ:
-        economic_fact = (
-            f"{econ.annual_spend_usd:,.0f} annual spend × {econ.requested_change_percent:g}% "
-            f"requested change = {econ.potential_annual_impact_usd:,.0f} potential annual impact."
-        )
+        _sym = currency_symbol(getattr(econ, "currency", None) or "USD")
+        _spend = econ.annual_spend if econ.annual_spend is not None else econ.annual_spend_usd
+        _impact = econ.potential_annual_impact if econ.potential_annual_impact is not None else econ.potential_annual_impact_usd
+        if _spend is not None and _impact is not None:
+            economic_fact = (
+                f"{_sym}{_spend:,.0f} annual spend × {econ.requested_change_percent:g}% "
+                f"requested change = {_sym}{_impact:,.0f} potential annual impact."
+            )
 
     why = _uniq(list(position.commercial_insights or []), 3)
     changers = _uniq(

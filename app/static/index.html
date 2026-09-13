@@ -43,7 +43,7 @@
   .ve-home-kicker { font-size:9px; font-weight:900; letter-spacing:.16em; color:#7b8089; }
   .ve-home-title { margin:6px 0 7px; font-size:30px; line-height:1.15; letter-spacing:-.035em; font-weight:750; }
   .ve-home-sub { margin:0; max-width:760px; color:#666b75; font-size:13px; line-height:1.55; }
-  .ve-home-actions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-top:16px; }
+  .ve-home-actions { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-top:16px; }
   .ve-home-action { text-align:left; border:1px solid #e1e3e8; border-radius:13px; background:#fafbfc; padding:13px 14px; cursor:pointer; }
   .ve-home-action:hover { border-color:#b8b2ee; background:#fff; }
   .ve-home-action b { display:block; font-size:12.5px; }
@@ -58,7 +58,7 @@
   .ve-home-start { border:1px solid #e4e5e9; border-radius:12px; background:#fafbfc; padding:12px; }
   .ve-home-start b { display:block; font-size:12px; color:#222731; }
   .ve-home-start p { margin:5px 0 10px; color:#737883; font-size:10.5px; line-height:1.45; }
-  .ve-home-start-actions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
+  .ve-home-start-actions { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:7px; }
   .ve-home-start-actions button { border:1px solid #e1e3e8; border-radius:9px; background:#fff; padding:9px 10px; text-align:left; cursor:pointer; }
   .ve-home-start-actions button:hover { border-color:#b8b2ee; }
   .ve-home-start-actions strong { display:block; font-size:10.5px; }
@@ -257,11 +257,12 @@
   <div class="ve-home-hero">
     <div class="ve-home-kicker">COMMERCIAL WORKBENCH</div>
     <div class="ve-home-title">What needs your commercial attention?</div>
-    <p class="ve-home-sub">Use VendorEdge when a supplier asks for something, when you notice a pattern yourself, or when you want to pressure-test a category decision before it becomes a problem.</p>
+    <p class="ve-home-sub">Use VendorEdge when a supplier asks for something, when you notice a pattern yourself, when you want to pressure-test a category decision before it becomes a problem, or when something just isn't working and you need to get to the bottom of it.</p>
     <div class="ve-home-actions">
       <button class="ve-home-action" onclick="startPrompt('Supplier request')"><b>Supplier request</b><span>Price increase, MOQ change, surcharge, payment terms, renewal, allocation.</span></button>
       <button class="ve-home-action" onclick="startPrompt('Something I noticed')"><b>Something I noticed</b><span>A pattern in spend, supplier share, pricing, risk, demand or performance.</span></button>
       <button class="ve-home-action" onclick="startPrompt('Category / strategy question')"><b>Category / strategy question</b><span>Ask what to investigate, prepare or change before the next negotiation or planning cycle.</span></button>
+      <button class="ve-home-action" onclick="startPrompt('A problem I need to solve')"><b>A problem I need to solve</b><span>Something is not working, a process is too slow, an asset is becoming obsolete, or you need to find the root cause.</span></button>
     </div>
   </div>
   <div class="ve-home-grid">
@@ -2277,7 +2278,8 @@ function startPrompt(kind) {
   const prompts = {
     "Supplier request": "A supplier has asked us for a commercial change. Help me understand what is happening, what matters, what I should verify, and what I should do next.\n\nSupplier request / evidence:\n",
     "Something I noticed": "I noticed a commercial pattern or change in our business. Help me determine whether it matters, what evidence I should check, what could explain it, and what I should do next.\n\nWhat I noticed:\n",
-    "Category / strategy question": "I am reviewing a category or commercial strategy. Help me identify the most important patterns, risks, opportunities and decisions I should investigate next.\n\nCategory / situation:\n"
+    "Category / strategy question": "I am reviewing a category or commercial strategy. Help me identify the most important patterns, risks, opportunities and decisions I should investigate next.\n\nCategory / situation:\n",
+    "A problem I need to solve": "I have a problem that needs solving. Help me understand what's actually happening, what's causing it, and what I should do about it -- including whether the evidence is even strong enough yet to act on.\n\nThe problem:\n"
   };
   if (q) {
     q.value = prompts[kind] || "";
@@ -2342,6 +2344,7 @@ function renderCommercialWorkspace(cases) {
           <button onclick="startPrompt('Supplier request')"><strong>Supplier request</strong><span>Challenge an increase, MOQ, surcharge or renewal.</span></button>
           <button onclick="startPrompt('Something I noticed')"><strong>Something I noticed</strong><span>Pressure-test a spend, pricing, concentration or performance pattern.</span></button>
           <button onclick="startPrompt('Category / strategy question')"><strong>Category strategy</strong><span>Find what to investigate before the next planning cycle.</span></button>
+          <button onclick="startPrompt('A problem I need to solve')"><strong>A problem to solve</strong><span>Track down a root cause or fix something that's not working.</span></button>
         </div>
       </div>`;
     } else {

@@ -1,0 +1,46 @@
+{
+  "release_identifier": "VendorEdge_R43_FRONTDOOR_TILE_RELEASE",
+  "based_on": "VendorEdge_R42_FINAL_AUDIT_RELEASE",
+  "build_date": "2026-09-13",
+  "commit_identifier": "not available (no git repository in this environment)",
+  "test_result": {
+    "total": 638,
+    "passed": 638,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "changes_since_r42": [
+    "Frontend: added a fourth front-door tile, 'A problem I need to solve', to both the main Commercial Workbench hero grid and the 'Your Commercial Activity' panel in app/static/index.html. Routes to content_type=problem_solving via free-text classification -- deliberately does not force a case_mode, so VendorEdge's classifier decides from what the user actually typed. No A3/Lean/Six Sigma/methodology terminology exposed in any tile copy.",
+    "Frontend: widened both tile grids (.ve-home-actions, .ve-home-start-actions) from 3 to 4 columns for visual consistency; existing narrow-viewport breakpoint already collapses all tile grids to a single column.",
+    "Backend fix (app/pipeline/reasoner.py): found and fixed a genuine cross-contamination bug while wiring the new tile -- the three existing case_mode branches (supplier_request/commercial_signal/category_strategy) each unconditionally injected their own reasoning frame into the prompt regardless of content_type, since they were written before problem_solving existed. A problem-solving case reaching reasoner.py with an inferred or accidentally-selected case_mode (the default inference fallback resolves unmatched text to 'supplier_request') would get a misleading 'you are reasoning through a supplier request' frame layered onto the correct problem-solving one. Fixed with a content_type guard on all three branches. Confirmed by direct measurement before the fix (2,171 characters of misleading injected text) and by a full real-HTTP simulation of the new tile's exact user flow after the fix."
+  ],
+  "capabilities_included": [
+    "Commercial Intelligence Kernel -- single evidence/truth layer shared by every reasoning profile",
+    "Supplier Request, Commercial Signal, Category Strategy reasoning profiles",
+    "Market Intelligence and ESG/Sustainability foundations",
+    "Category archetype detection",
+    "Dependency-aware category roadmap with real prerequisite chains and decision gates",
+    "Unknown -> Investigation conversion for material market/ESG evidence gaps",
+    "Complex Problem Solving vertical slice: Problem -> Evidence -> Root Cause -> Countermeasure -> Action -> Outcome, Maersk principle enforced structurally, validated against supplier/commercial, procurement/process, and asset/obsolescence proof cases",
+    "Provider-independent LLM client abstraction across all five model-calling files",
+    "Safe buyer-facing transport -- diagnostics excluded from the default API response",
+    "Four-tile front door (Supplier request / Something I noticed / Category strategy / A problem I need to solve) with preserved free-text classification"
+  ],
+  "known_limitations": [
+    "market_verification.py's use of Anthropic's server-side web_search tool remains a genuine, undisguised exception to provider independence -- unchanged from R42.",
+    "The case_mode inference fallback (used only when no tile/explicit mode is supplied) still resolves unmatched free text to 'supplier_request' as its default label. This is now harmless for problem_solving cases specifically (the new guard suppresses the resulting prompt injection), but the label itself shown in case_mode/case_mode_source may still read 'supplier_request (inferred)' for a problem-solving case with no matching keywords -- cosmetic, not a reasoning-quality issue, not fixed this round as it was outside the scope of what was asked.",
+    "No live external market or ESG data source anywhere in this build.",
+    "Complex Problem Solving does not cover Gemba, advanced charting, recurrence learning, or proactive monitoring -- unchanged from R42, explicitly out of scope.",
+    "supplier_request_answer and commercial_signal_answer do not carry the same explicit 'diagnostics' separation as category_strategy_answer and problem_solving_answer.",
+    "The cross-dimension trade-off detector (category strategy roadmap) uses generic capitalized-word matching -- known, previously-recorded precision limitation, unchanged.",
+    "No live Claude/Anthropic API access exists anywhere in this build or the environment that produced it. Every test, including all HTTP-path tests, is deterministic and mock-based."
+  ],
+  "configuration_requirements": {
+    "required_environment_variables": ["DATABASE_URL", "VENDOREDGE_AUTH_SECRET", "ANTHROPIC_API_KEY"],
+    "optional_environment_variables": ["VENDOREDGE_CLASSIFIER_MODEL", "VENDOREDGE_REASONING_MODEL", "VENDOREDGE_MARKET_MODEL", "VENDOREDGE_MODEL", "VENDOREDGE_LLM_PROVIDER", "VENDOREDGE_CHALLENGER_PROVIDER", "ALLOW_LEGACY_WORKSPACE_LINKS", "VALIDATION_ENABLED"],
+    "database": "PostgreSQL 16, schema at db/schema.sql -- additive/idempotent migrations only, safe against any prior database in this lineage."
+  },
+  "migration_requirements": "Run db/schema.sql. No new migrations in this release beyond what R42 already introduced (the classified_content_type CHECK constraint widening).",
+  "packaging_notes": "No secrets, real API keys, __pycache__, .pytest_cache, or local caches included. Working tree unchanged between the final regression run (638 passed) and this ZIP's creation."
+}

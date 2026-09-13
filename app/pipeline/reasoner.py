@@ -419,7 +419,21 @@ def generate_commercial_position(
     # neither is needed for the kernel's own contradiction/unknown facts,
     # which come from normalized evidence alone) -- this is a snapshot
     # for prompt purposes only, never the position this call returns.
-    if case_mode == "supplier_request":
+    #
+    # Cross-contamination guard: case_mode (supplier_request/commercial_
+    # signal/category_strategy) and content_type (price_increase/quote_
+    # comparison/problem_solving) are orthogonal dimensions, but these
+    # three case_mode branches were written when content_type was
+    # always price_increase-shaped -- each unconditionally injects its
+    # own reasoning frame ("You are reasoning through a supplier
+    # request...") regardless of what the case is actually about. A
+    # problem_solving case reaching here with an inferred or
+    # accidentally-selected supplier_request/commercial_signal/
+    # category_strategy case_mode would get that misleading frame
+    # layered on top of the correct problem-solving one. Skipped
+    # entirely for problem_solving -- its own dedicated prompt addition
+    # is appended separately below, unconditionally.
+    if case_mode == "supplier_request" and normalized.content_type != "problem_solving":
         try:
             from app.pipeline.kernel import build_kernel
             from app.pipeline.decision_audit import build_decision_audit
@@ -432,7 +446,7 @@ def generate_commercial_position(
             user_message += build_market_prompt_addition(pre_kernel)
         except Exception as e:
             print(f"Supplier-request kernel context skipped (non-blocking): {type(e).__name__}: {e}")
-    elif case_mode == "commercial_signal":
+    elif case_mode == "commercial_signal" and normalized.content_type != "problem_solving":
         try:
             from app.pipeline.kernel import build_kernel
             from app.pipeline.decision_audit import build_decision_audit
@@ -447,7 +461,7 @@ def generate_commercial_position(
             user_message += build_market_prompt_addition(pre_kernel)
         except Exception as e:
             print(f"Commercial-signal kernel context skipped (non-blocking): {type(e).__name__}: {e}")
-    elif case_mode == "category_strategy":
+    elif case_mode == "category_strategy" and normalized.content_type != "problem_solving":
         try:
             from app.pipeline.kernel import build_kernel
             from app.pipeline.decision_audit import build_decision_audit

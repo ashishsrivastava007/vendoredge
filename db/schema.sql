@@ -92,9 +92,23 @@ CREATE TABLE IF NOT EXISTS commercial_decisions (
     created_by_user_id UUID NOT NULL REFERENCES users(id),
     raw_question TEXT NOT NULL,
     classified_content_type VARCHAR(30)
-        CHECK (classified_content_type IN ('price_increase', 'quote_comparison')),
+        CHECK (classified_content_type IN ('price_increase', 'quote_comparison', 'problem_solving')),
     classified_decision_type VARCHAR(25)
         CHECK (classified_decision_type IN ('optimization', 'constraint_satisfaction')),
+    -- Phase 1 / R41 foundation: mode is a genuinely independent
+    -- dimension from content_type. content_type answers "what kind of
+    -- commercial analysis is this" (price_increase, quote_comparison);
+    -- mode answers "which reasoning lens did the buyer select"
+    -- (supplier_request, commercial_signal, category_strategy).
+    -- Nullable for backward compatibility -- every case created before
+    -- this migration, and every API caller that doesn't yet send mode,
+    -- has NULL here, not an invented value. case_mode_source
+    -- distinguishes a buyer's real selection from a fallback inference,
+    -- so the system never claims an inferred mode was explicitly chosen.
+    case_mode VARCHAR(30)
+        CHECK (case_mode IN ('supplier_request', 'commercial_signal', 'category_strategy')),
+    case_mode_source VARCHAR(20)
+        CHECK (case_mode_source IN ('explicit', 'inferred')),
     status VARCHAR(30) NOT NULL DEFAULT 'created'
         CHECK (status IN ('created', 'classifying', 'awaiting_user_input',
                            'reasoning', 'completed', 'provider_unavailable')),
@@ -169,6 +183,14 @@ ALTER TABLE commercial_decisions ADD COLUMN IF NOT EXISTS reasoning_started_at T
 ALTER TABLE commercial_decisions ADD COLUMN IF NOT EXISTS current_attempt_id UUID;
 ALTER TABLE commercial_decisions ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMPTZ;
 ALTER TABLE commercial_decisions ADD COLUMN IF NOT EXISTS current_stage TEXT;
+-- Phase 1 / R41 foundation: same production-safe migration pattern as
+-- every column above -- safe to re-run against an already-deployed
+-- database; a genuinely fresh database gets these from the CREATE
+-- TABLE statement above and this is then a no-op.
+ALTER TABLE commercial_decisions ADD COLUMN IF NOT EXISTS case_mode VARCHAR(30)
+    CHECK (case_mode IN ('supplier_request', 'commercial_signal', 'category_strategy'));
+ALTER TABLE commercial_decisions ADD COLUMN IF NOT EXISTS case_mode_source VARCHAR(20)
+    CHECK (case_mode_source IN ('explicit', 'inferred'));
 CREATE INDEX IF NOT EXISTS idx_cd_parent ON commercial_decisions(parent_decision_id);
 
 CREATE OR REPLACE FUNCTION fn_prevent_completed_position_tampering()
@@ -497,3 +519,23 @@ DROP POLICY IF EXISTS org_isolation_supplier_response_replies ON supplier_respon
 CREATE POLICY org_isolation_supplier_response_replies ON supplier_response_replies
     USING (organisation_id = current_setting('app.current_org_id', true)::UUID)
     WITH CHECK (organisation_id = current_setting('app.current_org_id', true)::UUID);
+
+-- Phase 7 migration: classified_content_type's CHECK constraint only
+-- permitted 'price_increase'/'quote_comparison', found by running the
+-- actual create-decision HTTP path for a problem_solving case, not by
+-- inspection -- every in-process test passed because none exercised
+-- the real insert path the same way. Safe, idempotent: drops the old
+-- constraint by its known name if present, then adds the corrected
+-- one. Never fails on a fresh database (DROP ... IF EXISTS) or on a
+-- database that already has the new constraint from a prior run of
+-- this same file (the DO block only adds it back if genuinely absent).
+ALTER TABLE commercial_decisions DROP CONSTRAINT IF EXISTS commercial_decisions_classified_content_type_check;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'commercial_decisions_classified_content_type_check'
+    ) THEN
+        ALTER TABLE commercial_decisions ADD CONSTRAINT commercial_decisions_classified_content_type_check
+            CHECK (classified_content_type IN ('price_increase', 'quote_comparison', 'problem_solving'));
+    END IF;
+END $$;

@@ -7,7 +7,10 @@ NORMALIZED = Path(__file__).parents[1] / "app" / "pipeline" / "normalized_eviden
 def test_specialist_normalization_boundary_is_explicit():
     text = ROUTES.read_text()
     assert "def _is_specialist_content_type" in text
-    assert 'return content_type in {"price_increase", "quote_comparison"}' in text
+    # Deliberately extended in Phase 7 to add "problem_solving" as a
+    # genuine third specialist content type -- same rationale as the
+    # normalized_evidence.py guardrail above.
+    assert 'return content_type in {"price_increase", "quote_comparison", "problem_solving"}' in text
     assert "Never route them through normalize_evidence()" in text
 
 
@@ -42,4 +45,9 @@ def test_respond_and_continue_paths_do_not_force_generic_cases_into_specialist_n
 
 def test_specialist_normalized_evidence_contract_remains_narrow():
     text = NORMALIZED.read_text()
-    assert 'content_type: Literal["price_increase", "quote_comparison"]' in text
+    # Deliberately extended in Phase 7 to add "problem_solving" as a
+    # genuine third content_type, not scope creep -- the guardrail this
+    # test protects (content_type doesn't silently grow to cover
+    # unrelated capabilities) still holds; the set itself is now three
+    # explicit, deliberate values instead of two.
+    assert 'content_type: Literal["price_increase", "quote_comparison", "problem_solving"]' in text

@@ -97,7 +97,6 @@ def build_agentic_workflow(position: CommercialPosition, supplier_name: str | No
 
     return {
         "available": True,
-        "version": "R36.1",
         "mode": "BOUNDED_AGENTIC_WORKFLOW",
         "actions": actions[:6],
         "agent_does": ["organizes work", "prepares negotiation package", "drafts supplier response", "surfaces blockers"],

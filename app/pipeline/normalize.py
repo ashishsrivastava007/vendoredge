@@ -12,6 +12,8 @@ reinterpretation of its own.
 from app.pipeline.normalized_evidence import (
     NormalizedEvidence, CommonEvidence, PriceIncreaseEvidence, QuoteComparisonEvidence,
     DerivedEvidence, HistoryContext, FieldProvenance, SupplierEvidence, StakeholderView,
+    MarketDriverClaim, ESGClaim, ProblemSolvingEvidence, RootCauseCandidateEvidence,
+    CountermeasureProposalEvidence, AlternativeLeverEvidence,
 )
 from app.pipeline.region_fallback import detect_supplier_region_fallback
 from app.pipeline.incoterm_fallback import detect_incoterm_fallback, normalize_incoterm
@@ -141,6 +143,89 @@ def _resolve_field(raw_question, llm_value, fallback_value, field_name, provenan
     return llm_value, True
 
 
+def _safe_market_driver_claims(raw: list[dict] | None) -> list[MarketDriverClaim]:
+    """Phase 5B / R41: builds MarketDriverClaim entries defensively --
+    an LLM occasionally producing a value outside attributed_to's
+    allowed set must never crash the whole extraction; that one
+    malformed claim is skipped, everything else in the case still
+    normalizes correctly."""
+    if not raw:
+        return []
+    out = []
+    for c in raw:
+        if not isinstance(c, dict) or not c.get("driver"):
+            continue
+        try:
+            out.append(MarketDriverClaim(**c))
+        except Exception:
+            continue
+    return out
+
+
+def _safe_esg_claims(raw: list[dict] | None) -> list[ESGClaim]:
+    """Same defensive discipline as _safe_market_driver_claims: a
+    malformed ESG claim (e.g. an invalid dimension value) is skipped,
+    never crashes the whole extraction. Requires both dimension and
+    topic -- an ESG claim with neither carries no usable information."""
+    if not raw:
+        return []
+    out = []
+    for c in raw:
+        if not isinstance(c, dict) or not c.get("dimension") or not c.get("topic"):
+            continue
+        try:
+            out.append(ESGClaim(**c))
+        except Exception:
+            continue
+    return out
+
+
+def _safe_root_cause_candidates(raw: list[dict] | None) -> list[RootCauseCandidateEvidence]:
+    """Same defensive discipline as _safe_market_driver_claims: a
+    malformed candidate (e.g. an invalid category value) is skipped,
+    never crashes the whole extraction. Requires a label -- a
+    candidate with no label carries no usable information."""
+    if not raw:
+        return []
+    out = []
+    for c in raw:
+        if not isinstance(c, dict) or not c.get("label"):
+            continue
+        try:
+            out.append(RootCauseCandidateEvidence(**c))
+        except Exception:
+            continue
+    return out
+
+
+def _safe_countermeasure_proposals(raw: list[dict] | None) -> list[CountermeasureProposalEvidence]:
+    """Same defensive discipline. Requires a proposal string -- a
+    countermeasure with no proposal text carries no usable information.
+    alternatives_considered entries that don't match
+    AlternativeLeverEvidence's shape are skipped individually rather
+    than invalidating the whole proposal."""
+    if not raw:
+        return []
+    out = []
+    for c in raw:
+        if not isinstance(c, dict) or not c.get("proposal"):
+            continue
+        alternatives_raw = c.get("alternatives_considered") or []
+        safe_alternatives = []
+        for a in alternatives_raw:
+            if not isinstance(a, dict) or not a.get("description"):
+                continue
+            try:
+                safe_alternatives.append(AlternativeLeverEvidence(**a))
+            except Exception:
+                continue
+        try:
+            out.append(CountermeasureProposalEvidence(**{**c, "alternatives_considered": safe_alternatives}))
+        except Exception:
+            continue
+    return out
+
+
 def normalize_evidence(
     raw_question: str,
     content_type: str,
@@ -149,6 +234,10 @@ def normalize_evidence(
     history: HistoryContext | None = None,
     supplier_specific_evidence: list[dict] | None = None,
     stakeholder_views: list[dict] | None = None,
+    stated_price_history: list | None = None,
+    unresolved_value_conflicts: list[dict] | None = None,
+    market_driver_claims: list[dict] | None = None,
+    esg_claims: list[dict] | None = None,
 ) -> tuple[NormalizedEvidence, list[str]]:
     """
     THE single evidence-normalization boundary. Returns the
@@ -253,8 +342,14 @@ def normalize_evidence(
                 defect_rate_percent=_coerce_number(entry.get("defect_rate_percent"), f"supplier:{name}:defect_rate_percent", normalization_warnings, allow_percent_suffix=True),
                 payment_terms=_coerce_text(entry.get("payment_terms"), f"supplier:{name}:payment_terms", normalization_warnings, numeric_scalar_ok=True),
                 capacity_percent=_coerce_number(entry.get("capacity_percent"), f"supplier:{name}:capacity_percent", normalization_warnings, allow_percent_suffix=True),
+                capacity_status=_safe_enum(entry.get("capacity_status"), {"validated", "unvalidated", "unknown"}, "unknown", f"supplier:{name}:capacity_status", normalization_warnings),
                 qualification_status=_safe_enum(entry.get("qualification_status"), {"not_started", "in_progress", "complete", "unknown"}, "unknown", f"supplier:{name}:qualification_status", normalization_warnings),
                 qualification_percent=_coerce_number(entry.get("qualification_percent"), f"supplier:{name}:qualification_percent", normalization_warnings, allow_percent_suffix=True),
+                qualification_time_estimate=_coerce_text(entry.get("qualification_time_estimate"), f"supplier:{name}:qualification_time_estimate", normalization_warnings, numeric_scalar_ok=True),
+                current_annual_spend_usd=_coerce_number(entry.get("current_annual_spend_usd"), f"supplier:{name}:current_annual_spend_usd", normalization_warnings, allow_percent_suffix=False),
+                prior_annual_spend_usd=_coerce_number(entry.get("prior_annual_spend_usd"), f"supplier:{name}:prior_annual_spend_usd", normalization_warnings, allow_percent_suffix=False),
+                current_annual_volume_units=_coerce_number(entry.get("current_annual_volume_units"), f"supplier:{name}:current_annual_volume_units", normalization_warnings, allow_percent_suffix=False),
+                prior_annual_volume_units=_coerce_number(entry.get("prior_annual_volume_units"), f"supplier:{name}:prior_annual_volume_units", normalization_warnings, allow_percent_suffix=False),
                 is_incumbent=entry.get("is_incumbent") if isinstance(entry.get("is_incumbent"), bool) else False,
                 freight_cost_or_estimate=_coerce_text(resolved_freight, f"supplier:{name}:freight_cost_or_estimate", normalization_warnings, numeric_scalar_ok=True),
                 production_history_status=_safe_enum(entry.get("production_history_status"), {"established", "limited", "none", "unknown"}, "unknown", f"supplier:{name}:production_history_status", normalization_warnings),
@@ -425,8 +520,18 @@ def normalize_evidence(
             freight_cost_or_estimate=_coerce_text(llm_extracted_evidence.get("freight_cost_or_estimate"), "freight_cost_or_estimate", normalization_warnings, numeric_scalar_ok=True),
             alternative_scenario_percent=llm_numeric_facts.get("alternative_scenario_percent"),
             alternative_scenario_label=_coerce_text(llm_extracted_evidence.get("alternative_scenario_label"), "alternative_scenario_label", normalization_warnings, numeric_scalar_ok=True),
+            category_annual_spend_usd=llm_numeric_facts.get("category_annual_spend_usd"),
+            stated_price_history=[str(x).strip() for x in stated_price_history if str(x).strip()] if stated_price_history else [],
+            category_prior_annual_spend_usd=llm_numeric_facts.get("category_prior_annual_spend_usd"),
+            category_annual_volume_units=llm_numeric_facts.get("category_annual_volume_units"),
+            category_prior_annual_volume_units=llm_numeric_facts.get("category_prior_annual_volume_units"),
+            prior_annual_spend_usd=llm_numeric_facts.get("prior_annual_spend_usd"),
+            prior_annual_volume_units=llm_numeric_facts.get("prior_annual_volume_units"),
+            unresolved_value_conflicts=[c for c in unresolved_value_conflicts if isinstance(c, dict) and c.get("field")] if unresolved_value_conflicts else [],
+            market_driver_claims=_safe_market_driver_claims(market_driver_claims),
+            esg_claims=_safe_esg_claims(esg_claims),
         )
-    else:
+    elif content_type == "quote_comparison":
         for f in ("number_of_suppliers_being_compared", "price_per_supplier", "payment_terms_per_supplier",
                    "lead_time_per_supplier", "quality_or_defect_history_per_supplier",
                    "is_this_a_new_or_incumbent_relationship"):
@@ -438,6 +543,27 @@ def normalize_evidence(
             lead_time_per_supplier=_coerce_text(llm_extracted_evidence.get("lead_time_per_supplier"), "lead_time_per_supplier", normalization_warnings, numeric_scalar_ok=True),
             quality_or_defect_history_per_supplier=_coerce_text(llm_extracted_evidence.get("quality_or_defect_history_per_supplier"), "quality_or_defect_history_per_supplier", normalization_warnings, numeric_scalar_ok=True),
             is_this_a_new_or_incumbent_relationship=_coerce_text(llm_extracted_evidence.get("is_this_a_new_or_incumbent_relationship"), "is_this_a_new_or_incumbent_relationship", normalization_warnings, numeric_scalar_ok=True),
+        )
+    else:
+        # content_type == "problem_solving". Deliberately simple
+        # compared to price_increase's text-fallback/conflict-detection
+        # machinery -- this evidence is mostly free text and structured
+        # lists, not numbers a regex fallback would ever need to
+        # extract from raw prose. root_cause_candidates and
+        # countermeasure_proposals are built defensively (malformed
+        # entries skipped, never crash the whole normalization), the
+        # same discipline as _safe_market_driver_claims/_safe_esg_claims.
+        case_evidence = ProblemSolvingEvidence(
+            problem_statement=_coerce_text(llm_extracted_evidence.get("problem_statement"), "problem_statement", normalization_warnings, numeric_scalar_ok=True),
+            current_condition=_coerce_text(llm_extracted_evidence.get("current_condition"), "current_condition", normalization_warnings, numeric_scalar_ok=True),
+            desired_condition=_coerce_text(llm_extracted_evidence.get("desired_condition"), "desired_condition", normalization_warnings, numeric_scalar_ok=True),
+            stated_impact=_coerce_text(llm_extracted_evidence.get("stated_impact"), "stated_impact", normalization_warnings, numeric_scalar_ok=True),
+            root_cause_candidates=_safe_root_cause_candidates(llm_extracted_evidence.get("root_cause_candidates")),
+            countermeasure_proposals=_safe_countermeasure_proposals(llm_extracted_evidence.get("countermeasure_proposals")),
+            expected_outcome=_coerce_text(llm_extracted_evidence.get("expected_outcome"), "expected_outcome", normalization_warnings, numeric_scalar_ok=True),
+            target_outcome=_coerce_text(llm_extracted_evidence.get("target_outcome"), "target_outcome", normalization_warnings, numeric_scalar_ok=True),
+            actual_outcome=_coerce_text(llm_extracted_evidence.get("actual_outcome"), "actual_outcome", normalization_warnings, numeric_scalar_ok=True),
+            outcome_sustained=llm_extracted_evidence.get("outcome_sustained") if isinstance(llm_extracted_evidence.get("outcome_sustained"), bool) else None,
         )
 
     # ---- derived: annual spend resolution (exactly the approved priority) ----

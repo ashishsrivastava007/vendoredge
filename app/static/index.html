@@ -855,6 +855,10 @@ async function inviteTeammate() {
 
 let currentDecisionId = null;
 let selectedIngestionArtifactIds = [];
+// Phase 1 / R41 foundation: the actual mode the buyer selected, sent as
+// real structured data with the request -- not inferred from which
+// prefix text happens to still be in the textarea.
+let selectedCaseMode = null;
 let currentMissingFields = [];
 let currentHasFeedback = false;
 let currentRawQuestion = "";
@@ -1240,6 +1244,7 @@ function renderNegotiationIntelligence(pos) {
     </tr>`).join("");
   const scenarios = (n.response_scenarios || []).slice(0,5).map(x => `<div style="padding:7px 0;border-top:1px solid #eee"><b>${escapeHtml(String(x.trigger||""))}</b><div style="margin-top:3px">${escapeHtml(String(x.buyer_move||""))}</div><div style="font-size:9.5px;color:#9a5b00;margin-top:2px">Scenario — not a supplier prediction</div></div>`).join("");
   const escalations = (n.escalation_triggers || []).slice(0,5).map(x => `<li style="margin:5px 0"><b>${escapeHtml(String(x.trigger||""))}</b> — ${escapeHtml(String(x.action||""))}</li>`).join("");
+  const evidenceGapCount = Number(n.evidence_gap_count || 0);
   const checklist = (n.preparation_checklist || []).slice(0,5).map(x => `<li style="margin:5px 0">${escapeHtml(String(x))}</li>`).join("");
   el.innerHTML = `
     <div style="border:1px solid #ddd;border-radius:12px;margin:10px 0;padding:12px 14px;background:#fff">
@@ -1247,9 +1252,10 @@ function renderNegotiationIntelligence(pos) {
         <div><div style="font-size:9px;letter-spacing:.15em;font-weight:900;opacity:.65">NEGOTIATION INTELLIGENCE</div><div style="font-size:17px;font-weight:900;margin-top:3px">Prepare → trade → respond → escalate</div><div style="font-size:10.5px;opacity:.7;margin-top:4px">Evidence-backed operating guidance. Supplier reactions are never presented as predictions.</div></div>
         <span style="font-size:9px;font-weight:900;padding:5px 7px;border:1px solid #ddd;border-radius:999px">${escapeHtml(badge)}</span>
       </div>
-      ${rows ? `<details open style="margin-top:11px"><summary style="cursor:pointer;font-size:11px;font-weight:900">GIVE / GET MATRIX</summary><div style="overflow:auto;margin-top:6px"><table style="width:100%;border-collapse:collapse;font-size:11px"><tr style="color:#888"><td style="padding:4px 9px">Dimension</td><td style="padding:4px 9px">Target</td><td style="padding:4px 9px">Boundary</td><td style="padding:4px 9px">Trading rule</td></tr>${rows}</table></div></details>` : ""}
+      ${rows ? `<details open style="margin-top:11px"><summary style="cursor:pointer;font-size:11px;font-weight:900">GIVE / GET MATRIX</summary>${n.trading_principle ? `<div style="font-size:11px;color:#666;margin-top:5px">${escapeHtml(n.trading_principle)}</div>` : ""}<div style="overflow:auto;margin-top:6px"><table style="width:100%;border-collapse:collapse;font-size:11px"><tr style="color:#888"><td style="padding:4px 9px">Dimension</td><td style="padding:4px 9px">Target</td><td style="padding:4px 9px">Boundary</td><td style="padding:4px 9px">Trading rule</td></tr>${rows}</table></div></details>` : ""}
       ${scenarios ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">RESPONSE PLAYBOOK</summary><div style="margin-top:5px">${scenarios}</div></details>` : ""}
       ${escalations ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">ESCALATION TRIGGERS</summary><ul style="font-size:11px;padding-left:18px;margin:6px 0">${escalations}</ul></details>` : ""}
+      ${evidenceGapCount > 0 ? `<div style="margin-top:10px;font-size:11px;color:#8a6500"><b>${evidenceGapCount} open evidence gap${evidenceGapCount === 1 ? "" : "s"}</b> affecting readiness — see the evidence section above for details.</div>` : ""}
       ${checklist ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">BEFORE YOU NEGOTIATE</summary><ul style="font-size:11px;padding-left:18px;margin:6px 0">${checklist}</ul></details>` : ""}
     </div>`;
 }
@@ -1932,6 +1938,30 @@ function renderCommercialAnswer(pos) {
         <div><small>MONTHLY DIFFERENCE</small><b>${esc(_moneyLabel(scenario.monthly_difference ?? scenario.monthly_difference_usd, scenario.currency))}/mo</b></div>
       </div>
     </div>` : "";
+  // Item 2 fix: category/supplier trend calculations are already
+  // computed, correct, and present in the API response -- this only
+  // formats and displays them, never recalculates. Compact by design,
+  // matching the primary-answer hierarchy: money, then this brief
+  // supporting context, then why/next-move -- not a full data dump.
+  const _trendLabel = { annual_spend: "Spend", annual_volume: "Volume", avg_unit_price: "Average price", spend_share_percent: "Share" };
+  const _trendRow = (t) => {
+    const label = _trendLabel[t.metric] || t.metric;
+    if (t.metric === "spend_share_percent") {
+      const v = t.absolute_change;
+      return v == null ? null : `<div><small>${esc(label)}</small><b>${v >= 0 ? "+" : ""}${esc(v.toFixed(1))}pp</b></div>`;
+    }
+    const v = t.percent_change;
+    return v == null ? null : `<div><small>${esc(label)}</small><b>${v >= 0 ? "+" : ""}${esc(v.toFixed(1))}%</b></div>`;
+  };
+  const categoryRows = (a.category_trends || []).map(_trendRow).filter(Boolean).join("");
+  const supplierRows = (a.supplier_trends || []).map(_trendRow).filter(Boolean).join("");
+  const trendsBlock = (categoryRows || supplierRows) ? `
+    <div class="ve-answer-section"><h4>CATEGORY &amp; SUPPLIER CONTEXT</h4>
+      <div style="display:flex;gap:18px;flex-wrap:wrap">
+        ${categoryRows ? `<div><div style="font-size:9px;color:#888;font-weight:800;margin-bottom:3px">CATEGORY</div><div class="ve-answer-money">${categoryRows}</div></div>` : ""}
+        ${supplierRows ? `<div><div style="font-size:9px;color:#888;font-weight:800;margin-bottom:3px">SUPPLIER</div><div class="ve-answer-money">${supplierRows}</div></div>` : ""}
+      </div>
+    </div>` : "";
   const giveGet = (neg.give_get || []).slice(0,4).map(x => {
     if (typeof x === "string") return `<li>${esc(x)}</li>`;
     return `<li><b>${esc(x.dimension || x.label || "Trade")}</b>: ${esc(x.trading_rule || x.trade_rule || x.target || "Trade conditionally")}</li>`;
@@ -1950,9 +1980,9 @@ function renderCommercialAnswer(pos) {
         </div>
         ${moneyAvailable ? `<div class="ve-answer-section"><h4>COMMERCIAL EXPOSURE</h4><div class="ve-answer-money"><div><small>ANNUAL SPEND</small><b>${esc(_moneyLabel(money.annual_spend ?? money.annual_spend_usd, money.currency))}</b></div><div><small>REQUESTED CHANGE</small><b>${esc(_pctLabel(money.requested_change_percent))}</b></div><div><small>ANNUAL IMPACT</small><b>${esc(_moneyLabel(money.annual_impact ?? money.annual_impact_usd, money.currency))}</b></div></div></div>` : ""}
         ${scenarioBlock}
+        ${trendsBlock}
         ${a.why && a.why.length ? `<div class="ve-answer-section"><h4>WHY</h4><ul class="ve-answer-list">${list(a.why)}</ul></div>` : ""}
         ${evidence.supplier_claims && evidence.supplier_claims.length ? `<div class="ve-answer-section"><h4>SUPPLIER CLAIMS · NOT VERIFIED</h4><ul class="ve-answer-list">${list(evidence.supplier_claims)}</ul></div>` : ""}
-        ${a.critical_unknowns && a.critical_unknowns.length ? `<div class="ve-answer-section"><h4>DECISION-CRITICAL UNKNOWNS</h4><ul class="ve-answer-list">${list(a.critical_unknowns)}</ul></div>` : ""}
         ${a.what_to_do && a.what_to_do.length ? `<div class="ve-answer-section"><h4>DO THIS NEXT</h4><div class="ve-answer-actions">${a.what_to_do.slice(0,3).map(x => `<div class="ve-answer-action">${esc(x)}</div>`).join("")}</div></div>` : ""}
         ${(neg.objective || neg.opening || neg.target || neg.walk_away || giveGet) ? `<div class="ve-answer-section"><h4>NEGOTIATION</h4>${neg.objective ? `<div class="ve-answer-callout"><b>OBJECTIVE:</b> ${esc(neg.objective)}</div>` : ""}${neg.opening ? `<div class="ve-answer-callout" style="margin-top:6px"><b>OPEN WITH:</b> ${esc(neg.opening)}</div>` : ""}${neg.target ? `<div class="ve-answer-callout" style="margin-top:6px"><b>TARGET:</b> ${esc(neg.target)}</div>` : ""}${neg.walk_away ? `<div class="ve-answer-callout" style="margin-top:6px"><b>BOUNDARY:</b> ${esc(neg.walk_away)}</div>` : ""}${giveGet ? `<ul class="ve-answer-list" style="margin-top:6px">${giveGet}</ul>` : ""}</div>` : ""}
         ${a.counter_case ? `<div class="ve-answer-section"><h4>STRONGEST COUNTER-CASE</h4><div class="ve-answer-callout">${esc(a.counter_case)}</div></div>` : ""}
@@ -2234,6 +2264,12 @@ function showPilotLimitScreen() {
 
 function startPrompt(kind) {
   selectedIngestionArtifactIds = [];
+  const modeMap = {
+    "Supplier request": "supplier_request",
+    "Something I noticed": "commercial_signal",
+    "Category / strategy question": "category_strategy",
+  };
+  selectedCaseMode = modeMap[kind] || null;
   const q = document.getElementById("question");
   if (q) q.value = "";
   updateCharCount();
@@ -2561,7 +2597,7 @@ async function askQuestion() {
   try {
     const res = await authenticatedFetch(`${API}/commercial-decisions`, {
       method: "POST", headers: HEADERS,
-      body: JSON.stringify({ raw_question: question, client_decision_id: clientDecisionId, ingestion_artifact_ids: selectedIngestionArtifactIds }),
+      body: JSON.stringify({ raw_question: question, client_decision_id: clientDecisionId, ingestion_artifact_ids: selectedIngestionArtifactIds, mode: selectedCaseMode }),
     });
     const data = await res.json();
     if (res.status === 429) {
@@ -2772,9 +2808,8 @@ function renderDecisionAudit(pos) {
   const statusLabel = {PROVEN:"Evidence grounded", INFERRED:"Inference present", UNKNOWN:"Evidence gaps", CONTRADICTED:"Evidence conflict"}[status] || status;
   const statusStyle = {PROVEN:"#2f7d4f", INFERRED:"#7a5c00", UNKNOWN:"#8a6500", CONTRADICTED:"#a33"}[status] || "#666";
   const evidenceRows = (a.material_evidence || []).map(x => `<div style="padding:6px 0;border-top:1px solid #eee"><b>${escapeHtml(x.label)}</b> <span style="font-size:10px;color:${statusStyle};font-weight:700">${escapeHtml(x.status)}</span><div style="font-size:12px;color:#555">${escapeHtml(x.evidence)}</div></div>`).join("");
-  const answerUnknowns = new Set(((pos.commercial_answer || {}).critical_unknowns || []).map(x => String(x).trim().toLowerCase()));
   const answerChangers = new Set(((pos.commercial_answer || {}).decision_changers || []).map(x => String(x).trim().toLowerCase()));
-  const uncertaintyRows = (a.uncertainties || []).filter(x => !answerUnknowns.has(String(x).trim().toLowerCase())).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+  const uncertaintyRows = (a.uncertainties || []).filter(x => !answerChangers.has(String(x).trim().toLowerCase())).map(x => `<li>${escapeHtml(x)}</li>`).join("");
   const reversalRows = (a.reversal_conditions || []).filter(x => !answerChangers.has(String(x).trim().toLowerCase())).map(x => `<li>${escapeHtml(x)}</li>`).join("");
   const stakeholderRows = (a.stakeholder_tradeoffs || []).map(x => `<div style="padding:5px 0;border-top:1px solid #eee"><b>${escapeHtml(x.stakeholder)}</b> <span style="font-size:10px;color:#777">${escapeHtml(x.type)}</span><div style="font-size:12px">${escapeHtml(x.view)}</div></div>`).join("");
   el.innerHTML = `

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import os
-from anthropic import Anthropic
+from app.llm_client import get_llm_client, LLMProvider
 from pydantic import ValidationError
 
 from app.model_config import REASONING_MODEL
@@ -21,16 +21,16 @@ from app.pipeline.position_contract import normalize_bounded_position_lists
 
 PROVIDER_OPERATION_TIMEOUT_SECONDS = 20 * 60
 
-_client: Anthropic | None = None
+_client: LLMProvider | None = None
 
 
-def _get_client() -> Anthropic:
+def _get_client() -> LLMProvider:
     global _client
     if _client is None:
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             raise RuntimeError("ANTHROPIC_API_KEY not set.")
-        _client = Anthropic(api_key=api_key, timeout=PROVIDER_OPERATION_TIMEOUT_SECONDS)
+        _client = get_llm_client(api_key, PROVIDER_OPERATION_TIMEOUT_SECONDS)
     return _client
 
 

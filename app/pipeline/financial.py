@@ -64,6 +64,18 @@ def compute_financial_impact(normalized: NormalizedEvidence) -> FinancialImpact 
     if not normalized.derived.currency_calculation_safe:
         return None
 
+    # Item 1 fix: an unresolved value conflict specifically on the
+    # spend figure this calculation depends on must block the
+    # calculation entirely, not silently proceed with whichever value
+    # normalize.py happened to keep. Genuinely currency-agnostic --
+    # this only checks WHICH FIELD the conflict applies to, never any
+    # currency symbol or amount.
+    conflicted_fields = {
+        c.get("field") for c in (getattr(normalized.case, "unresolved_value_conflicts", None) or [])
+    }
+    if "annual_spend_usd" in conflicted_fields:
+        return None
+
     spend = normalized.derived.resolved_annual_spend_usd
     percent = normalized.case.requested_increase_percent
     if spend is None or percent is None:

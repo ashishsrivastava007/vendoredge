@@ -20,21 +20,33 @@ not discovered later.
 import json
 import os
 import re
-from anthropic import Anthropic
+from app.llm_client import get_llm_client, LLMProvider
 from app.model_config import MARKET_MODEL
 
 PROVIDER_OPERATION_TIMEOUT_SECONDS = 20 * 60
 
-_client: Anthropic | None = None
+# Honest limit on this file's abstraction, unlike the other three I/O
+# boundary files: this module calls .messages.create(..., tools=[{
+# "type": "web_search_20250305", ...}]) -- Anthropic's server-side web
+# search tool, a genuinely provider-specific capability with no
+# generic equivalent. Routing client construction through
+# get_llm_client() still makes sense (a future Anthropic-compatible
+# deployment benefits), but a non-Anthropic provider adapter would
+# either need to implement an equivalent server-side search tool under
+# the same "type" string (unlikely to exist) or this module would need
+# a different implementation path (e.g. calling VendorEdge's own web
+# search tool directly and injecting results into the prompt) for that
+# provider. This is real, not hidden by this abstraction.
+_client: LLMProvider | None = None
 
 
-def _get_client() -> Anthropic:
+def _get_client() -> LLMProvider:
     global _client
     if _client is None:
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             raise RuntimeError("ANTHROPIC_API_KEY not set.")
-        _client = Anthropic(api_key=api_key, timeout=PROVIDER_OPERATION_TIMEOUT_SECONDS)
+        _client = get_llm_client(api_key, PROVIDER_OPERATION_TIMEOUT_SECONDS)
     return _client
 
 

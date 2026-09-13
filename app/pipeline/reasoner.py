@@ -10,7 +10,7 @@ by the model no matter what it writes.
 """
 import json
 import os
-from anthropic import Anthropic
+from app.llm_client import get_llm_client, LLMProvider
 from pydantic import ValidationError
 
 from app import caps
@@ -26,16 +26,16 @@ from app.pipeline.methodology_consistency import (
     claims_tco_methodology, determine_relevant_tco_dimensions, check_tco_coverage,
 )
 
-_client: Anthropic | None = None
+_client: LLMProvider | None = None
 
 
-def _get_client() -> Anthropic:
+def _get_client() -> LLMProvider:
     global _client
     if _client is None:
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             raise RuntimeError("ANTHROPIC_API_KEY not set.")
-        _client = Anthropic(api_key=api_key, timeout=PROVIDER_OPERATION_TIMEOUT_SECONDS)
+        _client = get_llm_client(api_key, PROVIDER_OPERATION_TIMEOUT_SECONDS)
     return _client
 
 
@@ -273,6 +273,7 @@ def generate_commercial_position(
     methodology_correction: str | None = None,
     system_confidence_level: str = "medium",
     stakeholder_protocol: str | None = None,
+    case_mode: str | None = None,
 ) -> CommercialPosition:
     client = _get_client()
     content_type = normalized.content_type
@@ -408,6 +409,76 @@ def generate_commercial_position(
         + wrap_untrusted_evidence(case_payload, label="commercial_case_payload")
         + system_confidence_note
     )
+    # Phase 3 / R41: supplier_request reasoning profile. Adds the kernel
+    # -- the same structured truth financial.py/decision_audit.py already
+    # computed -- as an explicit context block, so the model reads facts
+    # from it rather than re-deriving them from the raw case text above.
+    # Built from a bare, disconfirming_condition-less position (safe:
+    # decision_audit.py's only two position-dependent fields are both
+    # model-generated and don't exist yet at this point in the pipeline;
+    # neither is needed for the kernel's own contradiction/unknown facts,
+    # which come from normalized evidence alone) -- this is a snapshot
+    # for prompt purposes only, never the position this call returns.
+    if case_mode == "supplier_request":
+        try:
+            from app.pipeline.kernel import build_kernel
+            from app.pipeline.decision_audit import build_decision_audit
+            from app.pipeline.supplier_request_profile import build_supplier_request_prompt_addition
+            from app.pipeline.market_intelligence import build_market_prompt_addition
+            _bare_position = CommercialPosition.model_construct(financial_impact=computed_financial_impact)
+            _bare_position.decision_audit = DecisionAudit(**build_decision_audit(normalized, _bare_position))
+            pre_kernel = build_kernel(normalized, _bare_position).model_dump()
+            user_message += build_supplier_request_prompt_addition(pre_kernel)
+            user_message += build_market_prompt_addition(pre_kernel)
+        except Exception as e:
+            print(f"Supplier-request kernel context skipped (non-blocking): {type(e).__name__}: {e}")
+    elif case_mode == "commercial_signal":
+        try:
+            from app.pipeline.kernel import build_kernel
+            from app.pipeline.decision_audit import build_decision_audit
+            from app.pipeline.question_coverage import build_coverage_requirements
+            from app.pipeline.commercial_signal_profile import build_commercial_signal_prompt_addition
+            from app.pipeline.market_intelligence import build_market_prompt_addition
+            _bare_position = CommercialPosition.model_construct(financial_impact=computed_financial_impact)
+            _bare_position.decision_audit = DecisionAudit(**build_decision_audit(normalized, _bare_position))
+            _pre_coverage = build_coverage_requirements(normalized)
+            pre_kernel = build_kernel(normalized, _bare_position, coverage_requirements=_pre_coverage).model_dump()
+            user_message += build_commercial_signal_prompt_addition(pre_kernel)
+            user_message += build_market_prompt_addition(pre_kernel)
+        except Exception as e:
+            print(f"Commercial-signal kernel context skipped (non-blocking): {type(e).__name__}: {e}")
+    elif case_mode == "category_strategy":
+        try:
+            from app.pipeline.kernel import build_kernel
+            from app.pipeline.decision_audit import build_decision_audit
+            from app.pipeline.question_coverage import build_coverage_requirements
+            from app.pipeline.category_strategy_profile import build_category_strategy_prompt_addition
+            from app.pipeline.market_intelligence import build_market_prompt_addition
+            _bare_position = CommercialPosition.model_construct(financial_impact=computed_financial_impact)
+            _bare_position.decision_audit = DecisionAudit(**build_decision_audit(normalized, _bare_position))
+            _pre_coverage = build_coverage_requirements(normalized)
+            pre_kernel = build_kernel(normalized, _bare_position, coverage_requirements=_pre_coverage).model_dump()
+            user_message += build_category_strategy_prompt_addition(pre_kernel)
+            user_message += build_market_prompt_addition(pre_kernel)
+        except Exception as e:
+            print(f"Category-strategy kernel context skipped (non-blocking): {type(e).__name__}: {e}")
+
+    # Phase 7: content_type-driven, not case_mode-driven -- a
+    # problem_solving case doesn't fit the negotiate/diagnose/plan lens
+    # split the other three modes represent, so this checks the
+    # evidence shape directly rather than joining the case_mode chain.
+    if normalized.content_type == "problem_solving":
+        try:
+            from app.pipeline.kernel import build_kernel
+            from app.pipeline.decision_audit import build_decision_audit
+            from app.pipeline.problem_solving_profile import build_problem_solving_prompt_addition
+            _bare_position = CommercialPosition.model_construct(financial_impact=computed_financial_impact)
+            _bare_position.decision_audit = DecisionAudit(**build_decision_audit(normalized, _bare_position))
+            pre_kernel = build_kernel(normalized, _bare_position).model_dump()
+            user_message += build_problem_solving_prompt_addition(pre_kernel)
+        except Exception as e:
+            print(f"Problem-solving kernel context skipped (non-blocking): {type(e).__name__}: {e}")
+
     def _attempt(max_tokens: int, correction: str = "", call_type: str = "reasoning"):
         message_content = user_message + correction
         response = client.messages.create(

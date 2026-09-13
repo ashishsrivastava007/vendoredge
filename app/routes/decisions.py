@@ -740,15 +740,40 @@ def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTas
     x_org_id, x_user_id = _require_identity(request)
     decision_id = body.client_decision_id or uuid4()
     existing = False
+    # Phase 1 / R41 foundation: resolve mode BEFORE the insert, so it is
+    # persisted atomically with case creation, never added later as an
+    # afterthought. An explicit selection from the buyer (body.mode) is
+    # always authoritative and is never overridden by inference -- "do
+    # not infer mode from placeholder text when the UI has explicitly
+    # supplied one" applies precisely here. Invalid mode values are
+    # already rejected automatically by FastAPI/Pydantic's Literal
+    # validation on CreateDecisionRequest, before this function runs at
+    # all -- there is no separate validation step to write.
+    if body.mode is not None:
+        resolved_mode, mode_source = body.mode, "explicit"
+    else:
+        # Simple, clearly-labelled fallback inference -- deliberately
+        # not an LLM call or anything mode-specific in its own right
+        # ("do not add any mode-specific reasoning yet"); this exists
+        # only so an older client or a direct API caller sending no
+        # mode at all still gets a real, honestly-labelled value rather
+        # than a silent None flowing through the rest of the system.
+        lowered = body.raw_question.lower()
+        if any(w in lowered for w in ("noticed", "pattern", "trend", "spend is rising", "seems to be")):
+            resolved_mode, mode_source = "commercial_signal", "inferred"
+        elif any(w in lowered for w in ("strategy", "category review", "sourcing plan", "roadmap")):
+            resolved_mode, mode_source = "category_strategy", "inferred"
+        else:
+            resolved_mode, mode_source = "supplier_request", "inferred"
     with get_org_scoped_connection(x_org_id) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO commercial_decisions
-                   (id, organisation_id, created_by_user_id, raw_question, ingestion_artifact_ids, status)
-                   VALUES (%s, %s, %s, %s, %s, 'classifying')
+                   (id, organisation_id, created_by_user_id, raw_question, ingestion_artifact_ids, status, case_mode, case_mode_source)
+                   VALUES (%s, %s, %s, %s, %s, 'classifying', %s, %s)
                    ON CONFLICT (id) DO NOTHING
                    RETURNING id""",
-                (str(decision_id), x_org_id, x_user_id, body.raw_question, json.dumps([str(x) for x in body.ingestion_artifact_ids])),
+                (str(decision_id), x_org_id, x_user_id, body.raw_question, json.dumps([str(x) for x in body.ingestion_artifact_ids]), resolved_mode, mode_source),
             )
             inserted = cur.fetchone()
             if not inserted:
@@ -819,6 +844,9 @@ def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTas
         body.raw_question, content_type, llm_extracted_evidence, llm_numeric_facts,
         supplier_specific_evidence=classification.get("supplier_specific_evidence"),
         stakeholder_views=classification.get("stakeholder_views"),
+        stated_price_history=classification.get("stated_price_history"),
+        unresolved_value_conflicts=classification.get("unresolved_value_conflicts"),
+        market_driver_claims=classification.get("market_driver_claims"),
     )
     for field in conflicts:
         _log_fallback_fired(field, content_type, is_conflict=True, organisation_id=x_org_id)
@@ -839,6 +867,12 @@ def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTas
         stored_evidence["__supplier_specific_evidence__"] = [s.model_dump() for s in normalized.suppliers]
     if normalized.stakeholder_views:
         stored_evidence["__stakeholder_views__"] = [v.model_dump() for v in normalized.stakeholder_views]
+    if normalized.case and getattr(normalized.case, "stated_price_history", None):
+        stored_evidence["__stated_price_history__"] = normalized.case.stated_price_history
+    if normalized.case and getattr(normalized.case, "unresolved_value_conflicts", None):
+        stored_evidence["__unresolved_value_conflicts__"] = normalized.case.unresolved_value_conflicts
+    if normalized.case and getattr(normalized.case, "market_driver_claims", None):
+        stored_evidence["__market_driver_claims__"] = [c.model_dump() for c in normalized.case.market_driver_claims]
 
     with get_org_scoped_connection(x_org_id) as conn:
         with conn.cursor() as cur:
@@ -856,7 +890,7 @@ def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTas
     # Step B — evidence check, deterministic, no LLM call. Reads
     # normalized.derived.freight_relevant directly -- computed once,
     # above -- rather than re-deriving it from raw Incoterm text.
-    missing = check_missing_evidence(normalized)
+    missing = check_missing_evidence(normalized, case_mode=resolved_mode)
     if missing:
         _set_awaiting_input(x_org_id, decision_id, missing)
         return _fetch_decision(x_org_id, decision_id)
@@ -888,6 +922,7 @@ def list_decisions(request: Request, x_org_id: str = Header(...), x_user_id: str
                 """SELECT cd.id, cd.status, cd.raw_question, cd.ingestion_artifact_ids, cd.classified_content_type,
                           cd.classified_decision_type, cd.missing_inputs_requested,
                           cd.commercial_position, cd.created_at, cd.completed_at,
+                          cd.case_mode, cd.case_mode_source,
                           EXISTS(
                               SELECT 1 FROM decision_feedback df
                               WHERE df.commercial_decision_id = cd.id
@@ -899,7 +934,7 @@ def list_decisions(request: Request, x_org_id: str = Header(...), x_user_id: str
             return [CommercialDecisionResponse(**row) for row in rows]
 def _is_specialist_content_type(content_type: str | None) -> bool:
     """Return True only for content types supported by the specialist evidence pipeline."""
-    return content_type in {"price_increase", "quote_comparison"}
+    return content_type in {"price_increase", "quote_comparison", "problem_solving"}
 
 
 def _is_general_case(row: dict) -> bool:
@@ -943,11 +978,17 @@ def _restart_reasoning_from_stored_evidence(org_id: str, decision_id, attempt_id
     stored_evidence = row["user_supplied_inputs"] or {}
     restored_suppliers = stored_evidence.get("__supplier_specific_evidence__")
     restored_stakeholders = stored_evidence.get("__stakeholder_views__")
-    normalize_input_evidence = {k: v for k, v in stored_evidence.items() if k not in {"__supplier_specific_evidence__", "__stakeholder_views__"}}
+    restored_price_history = stored_evidence.get("__stated_price_history__")
+    restored_conflicts = stored_evidence.get("__unresolved_value_conflicts__")
+    restored_market_claims = stored_evidence.get("__market_driver_claims__")
+    normalize_input_evidence = {k: v for k, v in stored_evidence.items() if k not in {"__supplier_specific_evidence__", "__stakeholder_views__", "__stated_price_history__", "__unresolved_value_conflicts__", "__market_driver_claims__"}}
     normalized, conflicts = normalize_evidence(
         row["raw_question"], row["classified_content_type"], normalize_input_evidence, normalize_input_evidence,
         supplier_specific_evidence=restored_suppliers,
         stakeholder_views=restored_stakeholders,
+        stated_price_history=restored_price_history,
+        unresolved_value_conflicts=restored_conflicts,
+        market_driver_claims=restored_market_claims,
     )
     for field in conflicts:
         _log_fallback_fired(field, row["classified_content_type"], is_conflict=True, organisation_id=org_id)
@@ -1007,7 +1048,7 @@ def _run_queued_job(org_id: str, decision_id) -> None:
     try:
         with get_org_scoped_connection(org_id) as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT raw_question, classified_content_type, user_supplied_inputs FROM commercial_decisions WHERE id = %s", (str(decision_id),))
+                cur.execute("SELECT raw_question, classified_content_type, user_supplied_inputs, case_mode, case_mode_source FROM commercial_decisions WHERE id = %s", (str(decision_id),))
                 row = cur.fetchone()
         if not row or job_queue.is_cancelled(org_id, decision_id):
             return
@@ -1027,11 +1068,17 @@ def _run_queued_job(org_id: str, decision_id) -> None:
             stored = row["user_supplied_inputs"] or {}
             suppliers = stored.get("__supplier_specific_evidence__")
             stakeholders = stored.get("__stakeholder_views__")
+            price_history = stored.get("__stated_price_history__")
+            value_conflicts = stored.get("__unresolved_value_conflicts__")
+            market_claims = stored.get("__market_driver_claims__")
             evidence = {k: v for k, v in stored.items() if not (k.startswith("__") and k.endswith("__"))}
             normalized, _ = normalize_evidence(row["raw_question"], row["classified_content_type"], evidence, evidence,
-                                               supplier_specific_evidence=suppliers, stakeholder_views=stakeholders)
+                                               supplier_specific_evidence=suppliers, stakeholder_views=stakeholders,
+                                               stated_price_history=price_history, unresolved_value_conflicts=value_conflicts,
+                                               market_driver_claims=market_claims)
             _run_reasoning(org_id, decision_id, attempt_id, normalized, row["raw_question"],
-                           continuation_context=stored.get("__continuation_context__"))
+                           continuation_context=stored.get("__continuation_context__"),
+                           case_mode=row["case_mode"], case_mode_source=row["case_mode_source"])
         job_queue.complete(org_id, decision_id)
     except Exception as exc:
         if job_queue.fail_or_retry(org_id, decision_id, type(exc).__name__, str(exc)) == "failed":
@@ -1068,7 +1115,7 @@ def respond(decision_id: UUID, body: RespondRequest, background_tasks: Backgroun
             cur.execute(
                 "SELECT status, raw_question, classified_content_type, "
                 "classified_decision_type, user_supplied_inputs, numeric_facts, "
-                "reasoning_started_at "
+                "reasoning_started_at, case_mode "
                 "FROM commercial_decisions WHERE id = %s",
                 (str(decision_id),),
             )
@@ -1171,16 +1218,22 @@ def respond(decision_id: UUID, body: RespondRequest, background_tasks: Backgroun
 
     restored_suppliers = merged_evidence.get("__supplier_specific_evidence__")
     restored_stakeholders = merged_evidence.get("__stakeholder_views__")
-    normalize_input_evidence = {k: v for k, v in merged_evidence.items() if k not in {"__supplier_specific_evidence__", "__stakeholder_views__"}}
+    restored_price_history = merged_evidence.get("__stated_price_history__")
+    restored_conflicts = merged_evidence.get("__unresolved_value_conflicts__")
+    restored_market_claims = merged_evidence.get("__market_driver_claims__")
+    normalize_input_evidence = {k: v for k, v in merged_evidence.items() if k not in {"__supplier_specific_evidence__", "__stakeholder_views__", "__stated_price_history__", "__unresolved_value_conflicts__", "__market_driver_claims__"}}
     normalized, conflicts = normalize_evidence(
         row["raw_question"], row["classified_content_type"], normalize_input_evidence, normalize_input_evidence,
         supplier_specific_evidence=restored_suppliers,
+        stated_price_history=restored_price_history,
         stakeholder_views=restored_stakeholders,
+        unresolved_value_conflicts=restored_conflicts,
+        market_driver_claims=restored_market_claims,
     )
     for field in conflicts:
         _log_fallback_fired(field, row["classified_content_type"], is_conflict=True, organisation_id=x_org_id)
 
-    missing = check_missing_evidence(normalized)
+    missing = check_missing_evidence(normalized, case_mode=row["case_mode"])
     if missing:
         # Genuinely still incomplete even after this answer -- revert
         # back to awaiting input for the remaining fields.
@@ -1193,9 +1246,9 @@ def respond(decision_id: UUID, body: RespondRequest, background_tasks: Backgroun
 
 
 @router.get("/commercial-decisions/{decision_id}", response_model=CommercialDecisionResponse)
-def get_decision(decision_id: UUID, request: Request, x_org_id: str = Header(...), x_user_id: str = Header(...)):
+def get_decision(decision_id: UUID, request: Request, x_org_id: str = Header(...), x_user_id: str = Header(...), include_diagnostics: bool = False):
     x_org_id, x_user_id = _require_identity(request)
-    return _fetch_decision(x_org_id, decision_id)
+    return _fetch_decision(x_org_id, decision_id, include_diagnostics=include_diagnostics)
 
 
 @router.post("/commercial-decisions/{decision_id}/cancel", response_model=CommercialDecisionResponse)
@@ -1223,7 +1276,7 @@ def continue_case(decision_id: UUID, body: ContinueCaseRequest, background_tasks
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT id, raw_question, classified_content_type, user_supplied_inputs,
-                          numeric_facts, commercial_position, status
+                          numeric_facts, commercial_position, status, case_mode, case_mode_source
                    FROM commercial_decisions WHERE id = %s""",
                 (str(decision_id),),
             )
@@ -1267,14 +1320,15 @@ def continue_case(decision_id: UUID, body: ContinueCaseRequest, background_tasks
                    (id, organisation_id, created_by_user_id, raw_question,
                     classified_content_type, parent_decision_id, status,
                     user_supplied_inputs, numeric_facts, reasoning_started_at,
-                   current_attempt_id, last_heartbeat_at, current_stage)
-                   VALUES (%s, %s, %s, %s, %s, %s, 'reasoning', %s, %s, now(), %s, now(), 'starting')
+                   current_attempt_id, last_heartbeat_at, current_stage, case_mode, case_mode_source)
+                   VALUES (%s, %s, %s, %s, %s, %s, 'reasoning', %s, %s, now(), %s, now(), 'starting', %s, %s)
                    ON CONFLICT (id) DO NOTHING
                    RETURNING id""",
                 (str(new_decision_id), x_org_id, x_user_id, body.what_happened,
                  parent["classified_content_type"], str(decision_id),
                  json.dumps({**parent_flat_evidence, "__continuation_context__": continuation_context}),
-                 json.dumps(parent_flat_evidence), new_attempt_id),
+                 json.dumps(parent_flat_evidence), new_attempt_id,
+                 parent["case_mode"], parent["case_mode_source"]),
             )
             if cur.fetchone():
                 _reserve_monthly_llm_usage(x_org_id, cur)
@@ -1909,7 +1963,7 @@ def _compute_confidence_calibration(org_id) -> str | None:
     )
 
 
-def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedEvidence, raw_question, constraint_signal=None, continuation_context=None):
+def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedEvidence, raw_question, constraint_signal=None, continuation_context=None, case_mode=None, case_mode_source=None):
     content_type = normalized.content_type
     history = _get_org_history(org_id, content_type, decision_id)
     supplier_history = []
@@ -1952,11 +2006,19 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
                 continuation_context=continuation_context,
                 system_confidence_level=pre_confidence_level,
                 stakeholder_protocol=stakeholder_protocol,
+                case_mode=case_mode,
                 **extra_kwargs,
             )
 
     try:
         position = _reasoning_call("primary_reasoning")
+        # Phase 1 / R41 foundation: mode is attached here, purely to be
+        # carried and preserved through the rest of this position's
+        # lifecycle -- it plays no role in reasoning yet ("do not add
+        # any mode-specific reasoning yet"). generate_commercial_position
+        # is never passed mode at all in this phase, by design.
+        position.case_mode = case_mode
+        position.case_mode_source = case_mode_source
         if market_verification is not None:
             position.market_verification_scope = market_verification.get("scope")
             position.market_verification = market_verification
@@ -2166,10 +2228,85 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
     # R38: single buyer-facing Commercial Answer. Built after the full
     # deterministic/validated decision stack so it can compress the result
     # without inventing any new fact, threshold, or calculation.
+    coverage_requirements = []
     try:
-        position.commercial_answer = build_commercial_answer(normalized, position, raw_question)
+        from app.pipeline.question_coverage import build_coverage_requirements
+        if normalized is not None:
+            coverage_requirements = build_coverage_requirements(normalized)
+    except Exception as e:
+        print(f"Question coverage skipped (non-blocking): {type(e).__name__}: {e}")
+    try:
+        position.commercial_answer = build_commercial_answer(normalized, position, raw_question, coverage_requirements=coverage_requirements)
     except Exception as e:
         print(f"Commercial Answer skipped (non-blocking): {type(e).__name__}: {e}")
+    try:
+        from app.pipeline.final_answer_reconciliation import reconcile_answer
+        if normalized is not None:
+            position.final_answer_reconciliation = reconcile_answer(normalized, position, coverage_requirements=coverage_requirements).model_dump()
+    except Exception as e:
+        print(f"Final answer reconciliation skipped (non-blocking): {type(e).__name__}: {e}")
+
+    # Phase 2 / R41 foundation: assembles the Commercial Intelligence
+    # Kernel from everything already computed above -- never a second
+    # computation path, never an LLM call. Built last, after every
+    # deterministic layer above it, so the kernel is always a faithful
+    # snapshot of the final, validated commercial truth for this case.
+    try:
+        from app.pipeline.kernel import build_kernel
+        position.kernel = build_kernel(normalized, position, case_id=str(decision_id), coverage_requirements=coverage_requirements).model_dump()
+    except Exception as e:
+        print(f"Commercial Intelligence Kernel skipped (non-blocking): {type(e).__name__}: {e}")
+
+    # Phase 3 / R41: supplier_request answer contract, built
+    # deterministically from the kernel and commercial_answer -- never
+    # a second computation path.
+    if getattr(position, "case_mode", None) == "supplier_request" and position.kernel and position.commercial_answer:
+        try:
+            from app.pipeline.supplier_request_profile import build_supplier_request_answer
+            from app.pipeline.market_intelligence import build_market_answer_section
+            position.supplier_request_answer = build_supplier_request_answer(position.kernel, position.commercial_answer)
+            position.supplier_request_answer["market"] = build_market_answer_section(position.kernel)
+        except Exception as e:
+            print(f"Supplier-request answer contract skipped (non-blocking): {type(e).__name__}: {e}")
+    if getattr(position, "case_mode", None) == "commercial_signal" and position.kernel:
+        try:
+            from app.pipeline.commercial_signal_profile import build_commercial_signal_answer
+            from app.pipeline.market_intelligence import build_market_answer_section
+            position.commercial_signal_answer = build_commercial_signal_answer(position.kernel, position)
+            position.commercial_signal_answer["market"] = build_market_answer_section(position.kernel)
+        except Exception as e:
+            print(f"Commercial-signal answer contract skipped (non-blocking): {type(e).__name__}: {e}")
+    if getattr(position, "case_mode", None) == "category_strategy" and position.kernel:
+        try:
+            from app.pipeline.category_strategy_profile import build_category_strategy_answer
+            from app.pipeline.market_intelligence import build_market_answer_section
+            from app.pipeline.esg_intelligence import build_esg_answer_section
+            answer = build_category_strategy_answer(position.kernel, position)
+            market = build_market_answer_section(position.kernel)
+            esg = build_esg_answer_section(position.kernel)
+            # market/esg are computed after build_category_strategy_answer
+            # returns (different module, same kernel) -- added directly
+            # to the top level here, since the top level IS the
+            # buyer-facing view, and mirrored into diagnostics for
+            # audit consistency. Only added when genuinely present,
+            # matching the same "no section when nothing was stated"
+            # rule as every other part of this answer.
+            if market:
+                answer["market"] = market
+            if esg:
+                answer["esg"] = esg
+            answer["diagnostics"]["market"] = market
+            answer["diagnostics"]["esg"] = esg
+            position.category_strategy_answer = answer
+        except Exception as e:
+            print(f"Category-strategy answer contract skipped (non-blocking): {type(e).__name__}: {e}")
+
+    if position.kernel and (position.kernel.get("case", {}) or {}).get("problem_solving_evidence"):
+        try:
+            from app.pipeline.problem_solving_profile import build_problem_solving_answer
+            position.problem_solving_answer = build_problem_solving_answer(position.kernel, position)
+        except Exception as e:
+            print(f"Problem-solving answer contract skipped (non-blocking): {type(e).__name__}: {e}")
 
     # R37: Commercial Reasoning Loop. This is intentionally after the
     # independent challenger and final deterministic layers, so the buyer sees
@@ -2439,7 +2576,30 @@ def _elapsed_seconds(started_at) -> float | None:
     return (now - started_at).total_seconds()
 
 
-def _fetch_decision(org_id, decision_id) -> CommercialDecisionResponse:
+def _strip_diagnostics_unless_requested(response: CommercialDecisionResponse, include_diagnostics: bool) -> CommercialDecisionResponse:
+    """Enforces the product rule at the transport boundary, not just by
+    nesting: diagnostics/audit data must never be SENT in the default
+    buyer response, even though it's fully computed and technically
+    available server-side. Nesting under an explicit "diagnostics" key
+    (done in category_strategy_profile.py) stops accidental exposure
+    from naive rendering; this stops it from ever leaving the server
+    in the first place unless the caller explicitly asks. Mutates
+    nothing about how the answer is built -- only removes the key from
+    what's actually returned over the wire."""
+    if include_diagnostics:
+        return response
+    cp = getattr(response, "commercial_position", None)
+    if cp is not None:
+        for field in ("category_strategy_answer", "supplier_request_answer", "commercial_signal_answer"):
+            answer = getattr(cp, field, None)
+            if isinstance(answer, dict) and "diagnostics" in answer:
+                answer = dict(answer)
+                del answer["diagnostics"]
+                setattr(cp, field, answer)
+    return response
+
+
+def _fetch_decision(org_id, decision_id, include_diagnostics: bool = False) -> CommercialDecisionResponse:
     with get_org_scoped_connection(org_id) as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -2448,6 +2608,7 @@ def _fetch_decision(org_id, decision_id) -> CommercialDecisionResponse:
                           cd.commercial_position, cd.created_at, cd.completed_at,
                           cd.user_supplied_inputs, cd.parent_decision_id, cd.reasoning_started_at,
                           cd.last_heartbeat_at, cd.current_stage, cd.current_attempt_id,
+                          cd.case_mode, cd.case_mode_source,
                           (df.id IS NOT NULL) AS has_outcome_feedback,
                           df.outcome_description AS recorded_outcome_description,
                           df.validation_verdict AS recorded_outcome_verdict,
@@ -2658,4 +2819,13 @@ def _fetch_decision(org_id, decision_id) -> CommercialDecisionResponse:
             except Exception:
                 row_dict["commercial_memory"] = None
 
-            return CommercialDecisionResponse(**row_dict)
+            response = CommercialDecisionResponse(**row_dict)
+            # Product rule enforced at the single, shared exit point
+            # every caller of _fetch_decision goes through (20+ call
+            # sites across create/respond/continue/cancel/recovery) --
+            # fixing it once here, rather than at each call site,
+            # means every caller gets the safe default automatically
+            # unless it explicitly opts in. Diagnostics/audit data is
+            # never sent over the wire by default, even though it's
+            # fully computed and technically available server-side.
+            return _strip_diagnostics_unless_requested(response, include_diagnostics)

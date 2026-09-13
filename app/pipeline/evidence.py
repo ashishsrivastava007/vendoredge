@@ -78,11 +78,23 @@ FIELD_WHY: dict[str, str] = {
 }
 
 
-def check_missing_evidence(normalized: NormalizedEvidence) -> list[dict]:
+def check_missing_evidence(normalized: NormalizedEvidence, case_mode: str | None = None) -> list[dict]:
     """
     Returns a list of {field, prompt, why} dicts for any required field not
     yet present (and non-empty) in the normalized evidence. Empty list
     means evidence is complete.
+
+    Phase 4 / R41 fix, a real bug found by running the actual golden
+    Commercial Signal case through this gate: EVIDENCE_REQUIREMENTS is
+    keyed purely by content_type, so a commercial_signal case (content_
+    type still classifies as price_increase today -- mode and content_
+    type are deliberately separate per Phase 1) was being asked for
+    requested_increase_percent and suppliers_stated_justification, which
+    make no sense when there is no supplier request at all. A signal
+    case needs evidence of a real, measurable CHANGE -- at least one
+    genuine current-vs-prior comparison, category or supplier level --
+    not a request's terms. Handled as an early return below, before any
+    of the price_increase/quote_comparison logic that follows.
 
     Reads normalized.derived.freight_relevant directly -- computed once,
     upstream, in normalize_evidence() -- rather than re-deriving it from
@@ -102,7 +114,72 @@ def check_missing_evidence(normalized: NormalizedEvidence) -> list[dict]:
     recognized, while genuinely missing per-supplier freight is still
     correctly requested.
     """
+    if normalized.content_type == "problem_solving":
+        # The "no questionnaire" UX rule, enforced structurally: ask for
+        # at most ONE missing thing, never a growing checklist. A
+        # problem_statement is the one genuinely irreducible minimum --
+        # without it there is nothing to reason about at all. current_
+        # condition/desired_condition are valuable (they unlock a real
+        # gap computation) but NOT required to start -- VendorEdge can
+        # reason from the problem statement alone and ask for whichever
+        # ONE of the two is missing only if genuinely useful, never both
+        # at once.
+        case = getattr(normalized, "case", None)
+        problem_statement = getattr(case, "problem_statement", None)
+        if not problem_statement:
+            return [{
+                "field": "problem_statement",
+                "prompt": "What's the problem, in your own words?",
+                "why": "There's nothing to diagnose yet without a stated problem.",
+            }]
+        current = getattr(case, "current_condition", None)
+        desired = getattr(case, "desired_condition", None)
+        if current is None and desired is None:
+            return [{
+                "field": "current_condition",
+                "prompt": "What's happening now, and what should be happening instead?",
+                "why": "The single most useful next fact -- without it, the gap can't be measured, only described.",
+            }]
+        return []
+
+    if case_mode == "commercial_signal":
+        case = getattr(normalized, "case", None)
+        has_category_comparison = bool(
+            case and getattr(case, "category_annual_spend_usd", None) is not None
+            and getattr(case, "category_prior_annual_spend_usd", None) is not None
+        )
+        has_supplier_comparison = any(
+            s.current_annual_spend_usd is not None and s.prior_annual_spend_usd is not None
+            for s in (normalized.suppliers or [])
+        )
+        if has_category_comparison or has_supplier_comparison:
+            return []
+        return [{
+            "field": "category_annual_spend_usd",
+            "prompt": "What changed, in numbers? Give at least a current vs. prior spend figure -- for the category or for a specific supplier.",
+            "why": "A real signal needs a real before/after comparison, not just a description of what you noticed.",
+        }]
+
+    if case_mode == "category_strategy":
+        # Different, deliberately lighter bar than commercial_signal: a
+        # strategy question can be genuinely answered from a current-
+        # period snapshot alone (spend, supplier structure) -- a prior-
+        # period comparison adds real value (growth, trend) but isn't
+        # required just to start a diagnosis, unlike a signal
+        # investigation which is inherently about a CHANGE.
+        case = getattr(normalized, "case", None)
+        has_category_spend = bool(case and getattr(case, "category_annual_spend_usd", None) is not None)
+        has_supplier_spend = any(s.current_annual_spend_usd is not None for s in (normalized.suppliers or []))
+        if has_category_spend or has_supplier_spend:
+            return []
+        return [{
+            "field": "category_annual_spend_usd",
+            "prompt": "What is the category's (or a specific supplier's) current annual spend?",
+            "why": "A category strategy needs a real starting spend figure -- it cannot be built from a description alone.",
+        }]
+
     required = list(EVIDENCE_REQUIREMENTS.get(normalized.content_type, []))
+
 
     if normalized.content_type == "price_increase" and normalized.derived.freight_relevant:
         required = required + ["freight_cost_or_estimate"]

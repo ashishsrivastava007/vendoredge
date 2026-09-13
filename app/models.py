@@ -10,8 +10,17 @@ from pydantic import BaseModel, ConfigDict, Field
 from app import caps
 from app.pipeline.scenario_engine import ScenarioComparison
 
-ContentType = Literal["price_increase", "quote_comparison"]
+ContentType = Literal["price_increase", "quote_comparison", "problem_solving"]
 DecisionType = Literal["optimization", "constraint_satisfaction"]
+# Phase 1 / R41 foundation: a genuinely independent dimension from
+# ContentType. ContentType answers "what kind of commercial analysis is
+# this"; CaseMode answers "which reasoning lens did the buyer select".
+# Nothing in this phase changes reasoning based on mode -- this exists
+# purely to make mode real, persistent, first-class data, proven to
+# survive the full request lifecycle, before any mode-specific
+# reasoning is built on top of it.
+CaseMode = Literal["supplier_request", "commercial_signal", "category_strategy"]
+CaseModeSource = Literal["explicit", "inferred"]
 Status = Literal[
     "created", "classifying", "awaiting_user_input",
     "reasoning", "completed", "provider_unavailable",
@@ -69,6 +78,15 @@ class CreateDecisionRequest(BaseModel):
     # real progress in parallel with the main request, instead of only
     # finding out the ID once everything is already finished.
     client_decision_id: Optional[UUID] = None
+    # Phase 1 / R41 foundation: the mode the buyer explicitly selected
+    # on the landing page (Supplier Request / Something I Noticed /
+    # Category Strategy), sent as real structured data, not inferred
+    # from prose. Optional and backward-compatible -- an older client
+    # or a direct API caller that sends no mode is not rejected; the
+    # backend falls back to inference and marks it accordingly (see
+    # create_decision's mode-resolution logic), never silently
+    # pretending an inferred mode was explicitly chosen.
+    mode: Optional[CaseMode] = None
     ingestion_artifact_ids: list[UUID] = Field(default_factory=list, max_length=10)
 
 
@@ -224,6 +242,13 @@ class DecisionAudit(BaseModel):
     material_evidence: list[dict] = Field(default_factory=list, max_length=12)
     inferred_signals: list[str] = Field(default_factory=list, max_length=3)
     uncertainties: list[str] = Field(default_factory=list, max_length=10)
+    # Contradiction/reconciliation fix: a supplier claim contradicted by
+    # the case's own documented history (e.g. "no price adjustment for
+    # three years" vs a stated non-zero historical change) -- distinct
+    # from uncertainties (an absence of information) and distinct from
+    # stakeholder_conflict (disagreeing people, not disagreeing facts).
+    # Deliberately not resolved either way; both sides are preserved.
+    contradictions: list[str] = Field(default_factory=list, max_length=6)
     stakeholder_tradeoffs: list[dict] = Field(default_factory=list, max_length=8)
     stakeholder_conflict: list[str] = Field(default_factory=list, max_length=8)
     reversal_conditions: list[str] = Field(default_factory=list, max_length=6)
@@ -274,6 +299,43 @@ class CommercialPosition(BaseModel):
     # This only silences Pydantic's protected-namespace warning for names
     # starting with "model_" -- it changes no behavior and renames nothing.
     model_config = ConfigDict(protected_namespaces=())
+
+    # Phase 1 / R41 foundation: carried through from case creation,
+    # never set or changed by reasoning itself in this phase. See
+    # models.py's CaseMode/CaseModeSource for what these mean.
+    case_mode: Optional[CaseMode] = None
+    case_mode_source: Optional[CaseModeSource] = None
+    # Phase 2 / R41 foundation: the single, structured source of
+    # commercial truth for this case -- assembled from everything else
+    # on this position (financial_impact, decision_audit, etc.), never
+    # a second computation path. dict, not the Pydantic CommercialKernel
+    # type, to avoid a circular import between models.py and
+    # pipeline/kernel.py; kernel.py's CommercialKernel model is the
+    # authoritative schema this dict conforms to.
+    kernel: Optional[dict] = None
+    # Phase 3 / R41: the supplier_request-specific answer contract
+    # (DECISION/WHY/MONEY/LEVERAGE/TRADE-OFF/NEXT MOVE/WHAT COULD
+    # CHANGE THIS/DRAFT RESPONSE), built only when case_mode is
+    # supplier_request. Other modes leave this None -- they are not
+    # built yet.
+    supplier_request_answer: Optional[dict] = None
+    # Phase 4 / R41: the commercial_signal-specific answer contract
+    # (SIGNAL/WHAT THE DATA SAYS/WHAT MAY EXPLAIN IT/WHAT WE CANNOT
+    # PROVE/COMMERCIAL RISK/WHAT TO CHECK NEXT/ACTION PLAN), built only
+    # when case_mode is commercial_signal.
+    commercial_signal_answer: Optional[dict] = None
+    # Phase 5 / R41: the category_strategy-specific answer contract.
+    # See app/pipeline/category_strategy_profile.py's module docstring
+    # for this pass's explicitly scoped coverage (category diagnosis +
+    # evidence-based supplier strategy) versus what's deliberately not
+    # built yet (market intelligence, full 3-year roadmap, contract/
+    # supply-chain detail).
+    category_strategy_answer: Optional[dict] = None
+    # Phase 7: the problem-solving-specific answer contract (Problem/
+    # What we know/What is likely/What still needs checking/
+    # Recommendation/Next action). Only populated when the case's
+    # content_type is genuinely "problem_solving".
+    problem_solving_answer: Optional[dict] = None
 
     recommendation: str
     commercial_insights: list[str] = Field(
@@ -388,6 +450,11 @@ class CommercialPosition(BaseModel):
     # into one actionable answer; it cannot create new facts, calculations, thresholds or
     # supplier economics.
     commercial_answer: Optional[dict[str, Any]] = None
+    # Final-answer-reconciliation safety net: verifies the assembled
+    # commercial_answer against a fresh recomputation of the canonical
+    # evidence/calculations immediately before the response is
+    # returned -- see app/pipeline/final_answer_reconciliation.py.
+    final_answer_reconciliation: Optional[dict[str, Any]] = None
     # R39: unified buyer-first commercial memory across supplier history, organizational precedent and observed activity.
     commercial_memory: Optional[dict[str, Any]] = None
     # Release 35.1: bounded agentic workflow; preparation/approval state only.
@@ -454,6 +521,14 @@ class CommercialDecisionResponse(BaseModel):
     parent_decision_id: Optional[UUID] = None
     classified_content_type: Optional[ContentType] = None
     classified_decision_type: Optional[DecisionType] = None
+    # Phase 1 / R41 foundation: the returned mode, and how it was
+    # determined -- an explicit buyer selection or a fallback inference.
+    # This is the final, authoritative step of the lifecycle: selected
+    # -> stored -> restored -> processed -> returned. If this doesn't
+    # match what was actually selected, mode has been lost somewhere
+    # upstream, which is exactly what this phase exists to prevent.
+    case_mode: Optional[CaseMode] = None
+    case_mode_source: Optional[CaseModeSource] = None
     missing_inputs_requested: Optional[list[MissingField]] = None
     commercial_position: Optional[CommercialPosition] = None
     created_at: datetime

@@ -1,0 +1,40 @@
+{
+  "release_identifier": "VendorEdge_R42_FINAL_AUDIT_RELEASE",
+  "build_date": "2026-09-13",
+  "commit_identifier": "not available (no git repository in this environment)",
+  "test_result": {
+    "total": 638,
+    "passed": 638,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "capabilities_included": [
+    "Commercial Intelligence Kernel -- single evidence/truth layer shared by every reasoning profile",
+    "Supplier Request, Commercial Signal, Category Strategy reasoning profiles",
+    "Market Intelligence and ESG/Sustainability foundations -- evidence-only, five-stage fact/claim/inference/unknown/implication chain",
+    "Category archetype detection (industrial, logistics, technology/IT, labour-services, commodity)",
+    "Dependency-aware category roadmap with real prerequisite chains and decision gates",
+    "Unknown -> Investigation conversion for material market/ESG evidence gaps",
+    "Complex Problem Solving vertical slice: Problem -> Evidence -> Root Cause -> Countermeasure -> Action -> Outcome, with the Maersk principle enforced structurally (not by keyword matching) -- validated against supplier/commercial, procurement/process, and asset/obsolescence proof cases",
+    "Provider-independent LLM client abstraction -- all five model-calling files route through app/llm_client.py",
+    "Safe buyer-facing transport -- diagnostics/internal fields excluded from the default API response, available only via explicit include_diagnostics=true"
+  ],
+  "known_limitations": [
+    "market_verification.py's use of Anthropic's server-side web_search tool is a genuine, undisguised exception to provider independence -- documented in that file directly, not redesigned this round per explicit instruction. A non-Anthropic provider would need either an equivalent server-side search tool (unlikely to exist under the same interface) or a different implementation path.",
+    "Root-cause and countermeasure gates in the Complex Problem Solving core read explicit structured fields (supporting_evidence, resource_type, lever_type), not keywords -- but the classifier's EXTRACTION of those fields from free text still depends on the model's own judgment; no independent, non-LLM verification of that extraction exists.",
+    "No live external market or ESG data source anywhere in this build.",
+    "Complex Problem Solving does not yet cover Gemba, advanced charting (run/bowling/control charts), recurrence learning, or proactive monitoring -- explicitly out of scope for this vertical slice.",
+    "supplier_request_answer and commercial_signal_answer do not carry the same explicit 'diagnostics' separation as category_strategy_answer and problem_solving_answer -- the safe-transport mechanism is ready to extend to them if they gain equivalent internal-only fields.",
+    "The cross-dimension trade-off detector (category strategy roadmap) uses generic capitalized-word matching, a known, previously-recorded precision limitation, not redesigned.",
+    "No live Claude/Anthropic API access exists anywhere in this build or the environment that produced it. Every test in this suite, including all HTTP-path tests, is deterministic and mock-based. No claim in this manifest is based on a live-model comparison."
+  ],
+  "evidence_rule": "No evidence -> no factual claim. No calculation basis -> no number. No source -> no market/ESG fact. No proof -> no certainty. Enforced structurally throughout: evidence states (VERIFIED/CALCULATED/SUPPLIER_CLAIM/STAKEHOLDER_VIEW/ASSUMED/INFERRED/UNKNOWN/CONTRADICTED) are never conflated; a root cause or countermeasure without supporting evidence is never presented as validated; expected/target results are never presented as actual/achieved results.",
+  "configuration_requirements": {
+    "required_environment_variables": ["DATABASE_URL", "VENDOREDGE_AUTH_SECRET", "ANTHROPIC_API_KEY"],
+    "optional_environment_variables": ["VENDOREDGE_CLASSIFIER_MODEL", "VENDOREDGE_REASONING_MODEL", "VENDOREDGE_MARKET_MODEL", "VENDOREDGE_MODEL", "VENDOREDGE_LLM_PROVIDER", "VENDOREDGE_CHALLENGER_PROVIDER", "ALLOW_LEGACY_WORKSPACE_LINKS", "VALIDATION_ENABLED"],
+    "database": "PostgreSQL 16, schema at db/schema.sql -- additive migrations only, including this release's classified_content_type CHECK constraint update, safe to run against any prior database in this lineage."
+  },
+  "migration_requirements": "Run db/schema.sql. Includes a safe, idempotent migration widening the classified_content_type CHECK constraint to permit 'problem_solving' alongside the existing 'price_increase'/'quote_comparison' values -- drops and re-adds the constraint by name, never fails on a fresh database or one that already has it.",
+  "packaging_notes": "No secrets, real API keys, __pycache__, .pytest_cache, or local caches included. .env.example/.env.test.example contain only placeholder values, confirmed by direct inspection before packaging. Working tree unchanged between the final regression run (638 passed) and this ZIP's creation."
+}

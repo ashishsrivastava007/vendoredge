@@ -5,11 +5,85 @@ material evidence -> uncertainty/conflict -> stakeholder trade-off -> reversal c
 This module never invents evidence and never decides whether the recommendation is good.
 """
 from __future__ import annotations
+import re
 from typing import Literal
 from app.models import CommercialPosition
 from app.pipeline.normalized_evidence import NormalizedEvidence
 
 AuditStatus = Literal["PROVEN", "INFERRED", "UNKNOWN", "CONTRADICTED"]
+
+# Contradiction/reconciliation fix, confirmed root cause: a supplier's
+# own claim (e.g. "no price adjustment for three years") was never
+# checked against the case's own documented pricing history, even when
+# the case supplied both -- there was no detection at all, so the claim
+# simply stood unchallenged in the final answer. Deliberately narrow,
+# explicit phrase-based detection rather than fragile date-range
+# parsing: this catches the specific, real pattern (a "no change"
+# claim contradicted by ANY non-zero stated historical entry) without
+# trying to precisely reconcile which years the claim covers -- that
+# imprecision is exactly why this is represented as "requires
+# reconciliation" rather than a resolved fact either way.
+_NO_ADJUSTMENT_CLAIM_PHRASES = (
+    "no price adjustment", "no adjustment", "no increase", "no price increase",
+    "prices have been stable", "unchanged for", "held flat", "no change in price",
+    "no change to price", "flat pricing",
+)
+_ZERO_CHANGE_MARKERS = ("0%", "+0%", "0.0%", "no change", "flat", "unchanged")
+# Precise, not naive substring matching -- "+3.0%" must never match as a
+# zero-change entry merely because it ends in the characters "0%".
+_ZERO_CHANGE_RE = re.compile(r"(?<![.\d])[+-]?0(?:\.0+)?\s*%")
+
+
+def _detect_claim_vs_history_contradiction(normalized: NormalizedEvidence) -> list[str]:
+    """Returns a list of contradiction descriptions (empty if none). Does
+    NOT decide which side is correct -- only detects that a supplier's
+    own claim and the case's own documented history disagree, and
+    surfaces both, once, so the buyer can resolve it."""
+    contradictions: list[str] = []
+    claim = getattr(normalized.case, "suppliers_stated_justification", None)
+    history = getattr(normalized.case, "stated_price_history", None)
+    if not claim or not history:
+        return contradictions
+    claim_lower = claim.lower()
+    if not any(phrase in claim_lower for phrase in _NO_ADJUSTMENT_CLAIM_PHRASES):
+        return contradictions
+    non_zero_entries = [
+        h for h in history
+        if not (_ZERO_CHANGE_RE.search(h) or any(m in h.lower() for m in ("no change", "flat", "unchanged")))
+    ]
+    if non_zero_entries:
+        contradictions.append(
+            f"CLAIM REQUIRES RECONCILIATION: the supplier states \"{claim.strip()}\", but the case's own "
+            f"documented history shows: {'; '.join(non_zero_entries)}. This is not resolved either way -- "
+            f"the claim and the documented history disagree, and that disagreement itself is commercially "
+            f"material to how much weight the supplier's justification should carry."
+        )
+    return contradictions
+
+
+def _detect_unresolved_value_conflicts(normalized: NormalizedEvidence) -> list[str]:
+    """Item 1 fix: surfaces genuine, structured value conflicts the
+    classifier itself detected in the raw text (see normalized_evidence.
+    py's field docstring and the classifier prompt instruction) --
+    currency-agnostic by construction, since this never inspects the
+    raw text itself or any currency symbol; it only reads the LLM's own
+    structured judgment that two numbers for the same fact disagree.
+    Does not decide which value is correct -- only surfaces the
+    disagreement, once, clearly labelled, so the buyer knows the figure
+    is unresolved rather than silently trusting whichever one the
+    system happened to keep."""
+    conflicts_out: list[str] = []
+    for c in getattr(normalized.case, "unresolved_value_conflicts", None) or []:
+        field = c.get("field", "an unspecified fact")
+        values = c.get("values_found", [])
+        note = c.get("note", "")
+        values_text = " vs ".join(str(v) for v in values) if values else "conflicting values"
+        conflicts_out.append(
+            f"UNRESOLVED VALUE CONFLICT on {field}: the case states {values_text}, "
+            f"and neither can be treated as authoritative from the evidence supplied."
+            + (f" {note}" if note else "")
+        )
+    return conflicts_out
 
 
 def _status_for_field(normalized: NormalizedEvidence, field: str) -> AuditStatus:
@@ -49,6 +123,13 @@ def build_decision_audit(normalized: NormalizedEvidence, position: CommercialPos
             ("Supplier justification", "suppliers_stated_justification", normalized.case.suppliers_stated_justification),
             ("Annual spend", "annual_spend_usd", normalized.case.annual_spend_usd),
         ]
+    elif normalized.content_type == "problem_solving":
+        fields = [
+            ("Problem", "problem_statement", normalized.case.problem_statement),
+            ("Current condition", "current_condition", normalized.case.current_condition),
+            ("Desired condition", "desired_condition", normalized.case.desired_condition),
+            ("Stated impact", "stated_impact", normalized.case.stated_impact),
+        ]
     else:
         fields = [
             ("Supplier pricing", "price_per_supplier", normalized.case.price_per_supplier),
@@ -67,9 +148,21 @@ def build_decision_audit(normalized: NormalizedEvidence, position: CommercialPos
                              ("defect rate", supplier.defect_rate_percent),
                              ("lead time", supplier.lead_time_weeks),
                              ("capacity", supplier.capacity_percent),
-                             ("qualification", supplier.qualification_status)):
+                             ("qualification", supplier.qualification_status),
+                             ("qualification timeframe", supplier.qualification_time_estimate)):
             if value is not None:
                 details.append(f"{label}: {value}")
+        # Evidence-retention fix: capacity_status is a genuinely separate
+        # fact from the capacity_percent figure itself (a stated number
+        # can be explicitly unvalidated) -- surfaced here, distinctly,
+        # not merged into the plain "capacity: X%" line above, so the
+        # caveat isn't silently lost inside a figure that reads as fully
+        # confirmed. Only surfaced when it's actually informative
+        # ("unvalidated" -- the case explicitly said so); "unknown"
+        # adds no real information over silence and stays out, matching
+        # the same discipline as every other status field in this file.
+        if supplier.capacity_status == "unvalidated":
+            details.append("capacity status: stated but not yet validated")
         if details:
             items.append({"label": supplier.supplier_name, "status": "PROVEN", "evidence": "; ".join(details)})
 
@@ -95,9 +188,27 @@ def build_decision_audit(normalized: NormalizedEvidence, position: CommercialPos
     for supplier in normalized.suppliers:
         if alternative_reliance and not supplier.is_incumbent:
             if supplier.qualification_status in {"unknown", "not_started", "in_progress"}:
-                uncertainties.append(
-                    f"{supplier.supplier_name}: qualification status was not provided"
-                )
+                # Evidence-retention fix, confirmed root cause: this
+                # previously said "qualification status was not
+                # provided" purely because qualification_status (the
+                # categorical enum) wasn't "complete" -- even when the
+                # case explicitly stated a real timeframe
+                # (qualification_time_estimate, e.g. "4-6 months"),
+                # which is a genuinely different fact this condition
+                # never checked. That silently turned an explicitly
+                # supplied fact into a false claim of no information at
+                # all. Surface the real timeframe when one exists;
+                # only claim "not provided" when genuinely nothing was
+                # stated.
+                if supplier.qualification_time_estimate:
+                    uncertainties.append(
+                        f"{supplier.supplier_name}: qualification stated as {supplier.qualification_time_estimate} "
+                        f"(not yet complete)"
+                    )
+                else:
+                    uncertainties.append(
+                        f"{supplier.supplier_name}: qualification status was not provided"
+                    )
         # Certification and production history are not emitted merely because
         # the fields are absent. They become visible only when an actual
         # decision field explicitly relies on that attribute elsewhere.
@@ -110,7 +221,10 @@ def build_decision_audit(normalized: NormalizedEvidence, position: CommercialPos
 
     conflict_fields = [f for f, p in normalized.provenance.items() if p.conflicting]
     normalization_warnings = list(normalized.normalization_warnings[:12])
-    if conflict_fields:
+    claim_contradictions = _detect_claim_vs_history_contradiction(normalized)
+    value_conflicts = _detect_unresolved_value_conflicts(normalized)
+    all_contradictions = claim_contradictions + value_conflicts
+    if conflict_fields or all_contradictions:
         status = "CONTRADICTED"
     elif uncertainties or normalization_warnings:
         status = "UNKNOWN"
@@ -154,6 +268,7 @@ def build_decision_audit(normalized: NormalizedEvidence, position: CommercialPos
         "material_evidence": items[:12],
         "inferred_signals": inferred[:3],
         "uncertainties": uncertainties[:10],
+        "contradictions": all_contradictions,
         "stakeholder_tradeoffs": stakeholder_tradeoffs,
         "stakeholder_conflict": conflict_details,
         "reversal_conditions": reversal_conditions[:6],

@@ -1,0 +1,50 @@
+{
+  "release_identifier": "VendorEdge_R41_FOUNDATION_FREEZE",
+  "build_date": "2026-09-12",
+  "commit_identifier": "not available (no git repository in this environment)",
+  "test_result": {
+    "total": 617,
+    "passed": 617,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "major_capabilities_included": [
+    "Commercial Intelligence Kernel (single evidence/truth layer, CommercialFact primitive, evidence states: VERIFIED, CALCULATED, SUPPLIER_CLAIM, STAKEHOLDER_VIEW, ASSUMED, INFERRED, UNKNOWN, CONTRADICTED)",
+    "Three reasoning profiles sharing one kernel: supplier_request, commercial_signal, category_strategy",
+    "Market Intelligence architecture (evidence-only market driver claims, five-stage fact/claim/inference/unknown/implication chain, never fabricates a market fact)",
+    "ESG/Sustainability architecture (same evidence discipline, environmental/social/governance dimensions)",
+    "Category archetype detection (evidence-based, five archetypes: industrial_component, commodity_raw_material, labour_intensive_services, technology_it, logistics_transport; honest 'not established' default)",
+    "Evidence-based supplier strategy classification (challenge/qualify/monitor/develop, never assigned merely because a supplier exists)",
+    "Dependency-aware category roadmap (Initiative object with real prerequisite chains, decision gates, four strategy dimensions -- commercial/operational/risk/esg -- with cross-dimension trade-off surfacing)",
+    "Unknown -> Investigation conversion (converts a material evidence gap into an evidence-gathering action; never manufactures the missing answer; gated to cases where resolving the gap could materially change an active decision)",
+    "'Do not do yet' as a first-class strategic output",
+    "Safe buyer-facing transport: default API response contains only the curated buyer view; internal diagnostics (archetype, category_position, priorities, capability flags, etc.) require an explicit include_diagnostics=true query parameter and are stripped at the single shared response-building function used by every endpoint"
+  ],
+  "known_limitations": [
+    "No live external market-data or ESG-data source is connected anywhere in this build; all market/ESG evidence comes only from what a case explicitly states.",
+    "Trade-off detector between strategy dimensions uses generic capitalized-word matching rather than true entity resolution -- a known, recorded precision limitation, not redesigned in this round per explicit instruction.",
+    "The Universal Category Strategy Engine's dependency-aware roadmap covers qualification, capacity, and market/ESG-driven investigation initiatives; it does not yet cover specification, demand, or contract-mechanics unknowns as investigation initiatives (no evidence source exists for these yet).",
+    "The wrong-category-mapping check for market/ESG claims is transparency-based (the stated context is shown to the reader) rather than an automated mismatch detector.",
+    "supplier_request_answer and commercial_signal_answer do not yet carry a 'diagnostics' separation the way category_strategy_answer does -- the same safe-transport mechanism is in place and ready to extend to them once they gain equivalent internal-only fields.",
+    "No live Claude/Anthropic API access exists anywhere in this build or the environment that produced it; every test in this suite is deterministic and mock-based. No claim in this manifest or the accompanying audit report is based on a live-model comparison.",
+    "Complex Procurement Problem-Solving (A3/Gemba/5-Whys/root-cause) is recorded as a future architectural target with data-model compatibility preserved, but is entirely unimplemented in this build."
+  ],
+  "model_independence": {
+    "business_logic_coupling": "None found. The Commercial Intelligence Kernel, evidence-state model, financial/scenario calculations, decision-audit contradiction detection, category diagnosis, supplier-strategy classification, market/ESG reasoning chains, and roadmap/dependency logic contain zero references to any model provider's SDK, response format, or provider-specific behavior. Confirmed by direct search.",
+    "io_boundary_coupling": "Real and localized. Four files (app/pipeline/reasoner.py, app/pipeline/classifier.py, app/pipeline/market_verification.py, app/pipeline/model_orchestration.py) import `from anthropic import Anthropic` directly and call the Anthropic SDK's `client.messages.create(...)` method with Anthropic-specific parameters. There is no shared LLM-client abstraction/interface that these files call through -- switching providers would require rewriting the API-call-and-parse logic in each of these files individually, not a single configuration change.",
+    "model_selection": "Already configurable via app/model_config.py using environment variables (VENDOREDGE_CLASSIFIER_MODEL, VENDOREDGE_REASONING_MODEL, VENDOREDGE_MARKET_MODEL, or a single VENDOREDGE_MODEL override), defaulting to specific Claude model names.",
+    "recommended_future_work": "Introduce a thin LLMClient protocol/interface (e.g., a `complete(system, messages, max_tokens) -> text` call) that the four I/O files call through, with an Anthropic-backed implementation as the default. This is a real but bounded piece of technical debt -- not attempted in this round per explicit instruction to avoid a major abstraction rewrite without a clear architectural defect forcing it."
+  },
+  "configuration_requirements": {
+    "required_environment_variables": [
+      "DATABASE_URL", "VENDOREDGE_AUTH_SECRET", "ANTHROPIC_API_KEY"
+    ],
+    "optional_environment_variables": [
+      "VENDOREDGE_CLASSIFIER_MODEL", "VENDOREDGE_REASONING_MODEL", "VENDOREDGE_MARKET_MODEL", "VENDOREDGE_MODEL", "ALLOW_LEGACY_WORKSPACE_LINKS", "VALIDATION_ENABLED"
+    ],
+    "database": "PostgreSQL 16, schema at db/schema.sql (additive migrations only -- safe to run against an existing R40.4+ database)."
+  },
+  "migration_requirements": "None beyond running db/schema.sql, which uses additive `ALTER TABLE ADD COLUMN IF NOT EXISTS` migrations throughout -- safe against any prior release in this lineage.",
+  "packaging_notes": "No secrets, real API keys, __pycache__, .pytest_cache, or local caches are included. .env.example and .env.test.example contain only placeholder values, confirmed by direct inspection before packaging."
+}

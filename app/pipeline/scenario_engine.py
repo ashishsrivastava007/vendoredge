@@ -26,7 +26,7 @@ No FX conversion, anywhere in this module, ever. Combining two
 scenarios (for a comparison) requires them to share a currency; if they
 don't, that is a hard error, not a silent guess.
 """
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel
 
@@ -122,4 +122,54 @@ def compare_scenarios(scenario_a: Scenario, scenario_b: Scenario) -> ScenarioCom
         scenario_b=scenario_b,
         delta_amount=delta,
         comparison_basis=f"{scenario_a.name} vs {scenario_b.name}, same {scenario_a.baseline.currency} baseline",
+    )
+
+
+class GrowthResult(BaseModel):
+    """A generic current-vs-prior comparison. Deliberately not specific
+    to spend, volume, or price -- one reusable primitive for "how much
+    did X change year over year", used identically for category spend,
+    category volume, supplier spend, supplier volume, and (by dividing
+    two GrowthResults' current/prior pairs) average price and spend
+    share. Built because none of these existed anywhere in the codebase
+    before this fix -- there was no YoY growth calculation of any kind,
+    for either a category or a specific supplier."""
+    metric: str
+    entity: str
+    current: float
+    prior: float
+    absolute_change: float
+    percent_change: Optional[float] = None  # None only when prior is genuinely 0 -- division by zero is never silently coerced to a number
+    state: Literal["CALCULATED"] = "CALCULATED"
+
+
+def compute_growth(metric: str, entity: str, current: float, prior: float) -> GrowthResult:
+    """The one place year-over-year growth arithmetic happens, for any
+    entity and any metric. Never estimates, never infers -- both current
+    and prior must be genuinely, deterministically known numbers before
+    this is ever called."""
+    absolute_change = round(current - prior, 4)
+    percent_change = round((absolute_change / prior) * 100, 2) if prior else None
+    return GrowthResult(
+        metric=metric, entity=entity, current=current, prior=prior,
+        absolute_change=absolute_change, percent_change=percent_change,
+    )
+
+
+def compute_share_change(entity: str, current_part: float, current_whole: float, prior_part: float, prior_whole: float) -> GrowthResult:
+    """Point-change in one entity's share of a whole (e.g. a supplier's
+    share of category spend), current period vs prior period. Returns
+    the share itself as `current`/`prior` (already expressed as a
+    percentage, e.g. 66.07 not 0.6607) and the point-change as
+    `absolute_change` -- percent_change is deliberately left None here,
+    since "percent change in a percentage-point figure" is not a
+    meaningful, commonly-understood number and would risk being
+    misread as something it isn't."""
+    current_share = round((current_part / current_whole) * 100, 4) if current_whole else None
+    prior_share = round((prior_part / prior_whole) * 100, 4) if prior_whole else None
+    if current_share is None or prior_share is None:
+        return GrowthResult(metric="spend_share_percent", entity=entity, current=0, prior=0, absolute_change=0, percent_change=None)
+    return GrowthResult(
+        metric="spend_share_percent", entity=entity, current=current_share, prior=prior_share,
+        absolute_change=round(current_share - prior_share, 2), percent_change=None,
     )

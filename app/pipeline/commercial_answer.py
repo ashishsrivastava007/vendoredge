@@ -144,6 +144,7 @@ def build_commercial_answer(
     normalized: NormalizedEvidence | None,
     position: Any,
     raw_question: str,
+    coverage_requirements: list | None = None,
 ) -> dict[str, Any]:
     """Build the single buyer-facing answer packet."""
     fi = getattr(position, "financial_impact", None)
@@ -299,8 +300,25 @@ def build_commercial_answer(
     decision_changers: list[str] = []
     if getattr(position, "disconfirming_condition", None):
         decision_changers.append(str(position.disconfirming_condition))
-    if audit.get("reversal_conditions"):
-        decision_changers.extend(audit["reversal_conditions"][:2])
+    # UX fix: reversal_conditions mechanically wraps every uncertainty
+    # with a fixed "Reassess if this unresolved point changes
+    # materially:" prefix (see decision_audit.py) -- meaning it is
+    # always substantially a near-verbatim restatement of evidence.
+    # unknown below, just with a different prefix. Pulling those into
+    # the primary decision_changers list duplicated the same fact
+    # across the primary answer and the deeper evidence detail. Only a
+    # genuinely distinct reversal condition (not a mechanical
+    # uncertainty restatement) belongs in the primary view; the
+    # uncertainty itself is still fully available in evidence.unknown.
+    _uncertainty_texts = {str(u).strip().lower() for u in unknown}
+    for rc in audit.get("reversal_conditions") or []:
+        rc_text = str(rc).strip()
+        is_uncertainty_restatement = rc_text.lower().startswith("reassess if this unresolved point changes materially:")
+        if is_uncertainty_restatement:
+            continue
+        decision_changers.append(rc_text)
+        if len(decision_changers) >= 3:
+            break
     decision_changers = _dedupe(decision_changers, 3)
 
     actions = []
@@ -313,13 +331,40 @@ def build_commercial_answer(
             actions.append(text)
     actions = _dedupe(actions, 3)
 
+    # Question-coverage wiring: surface every genuinely calculated
+    # category/supplier growth requirement here, in the primary answer,
+    # and mark it surfaced -- a CALCULATED requirement that never
+    # reaches this point stays CALCULATED, which is exactly the
+    # "silently disappeared" state final_answer_reconciliation checks
+    # for and rejects.
+    category_trends = []
+    supplier_trends = []
+    if coverage_requirements:
+        from app.pipeline.question_coverage import mark_surfaced
+        surfaced_ids = set()
+        for req in coverage_requirements:
+            if req.status != "CALCULATED" or req.result is None:
+                continue
+            entry = {
+                "metric": req.metric, "requested_analysis": req.requested_analysis,
+                "current": req.result.current, "prior": req.result.prior,
+                "absolute_change": req.result.absolute_change, "percent_change": req.result.percent_change,
+            }
+            if req.entity == "category":
+                category_trends.append(entry)
+            else:
+                supplier_trends.append(entry)
+            surfaced_ids.add(req.requirement_id)
+        mark_surfaced(coverage_requirements, surfaced_ids, "commercial_answer.category_trends/supplier_trends")
+
     return {
-        "version": "R38.0",
         "status": "READY",
         "decision": str(getattr(position, "recommendation", "Review the evidence before acting.") or "Review the evidence before acting."),
         "confidence": str(getattr(getattr(position, "confidence", None), "level", "unknown")),
         "why": why,
         "money": money,
+        "category_trends": category_trends,
+        "supplier_trends": supplier_trends,
         "evidence": {
             "verified": _dedupe(verified, 6),
             "supplier_claims": _dedupe(supplier_claims, 4),
@@ -338,8 +383,15 @@ def build_commercial_answer(
             "give_get": (negotiation.get("dimensions") or [])[:4],
         },
         "counter_case": counter,
+        # UX fix: this previously appeared twice, verbatim, under two
+        # different keys ("evidence.unknown" and "critical_unknowns"),
+        # exactly the cross-section repetition this pass exists to
+        # remove. decision_changers ("what would change THIS decision")
+        # is the primary-answer-facing concept; evidence.unknown (the
+        # deeper, complete uncertainty list) may legitimately contain
+        # more than these top items, which is real additional
+        # information, not a repeat of it.
         "decision_changers": decision_changers,
-        "critical_unknowns": _dedupe(unknown, 3),
         "supplier_response": _build_response_draft(normalized, position),
-        "method": "Deterministic R38 answer assembly from normalized evidence, guaranteed calculations, validated decision fields and explicitly-labelled uncertainty; no new commercial facts or thresholds created.",
+        "method": "Every number here is calculated directly from the evidence you supplied, not estimated or generated; no new facts or figures were introduced.",
     }

@@ -129,11 +129,11 @@ Return ONLY the JSON object matching the requested schema.
 def _get_client():
     if CHALLENGER_PROVIDER != "anthropic":
         raise RuntimeError(f"Unsupported challenger provider: {CHALLENGER_PROVIDER}")
-    from anthropic import Anthropic
+    from app.llm_client import get_llm_client
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not set.")
-    return Anthropic(api_key=api_key, timeout=PROVIDER_OPERATION_TIMEOUT_SECONDS)
+    return get_llm_client(api_key, PROVIDER_OPERATION_TIMEOUT_SECONDS)
 
 
 def run_challenger(normalized: NormalizedEvidence, position: CommercialPosition) -> ChallengerOpinion:

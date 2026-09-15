@@ -1,0 +1,52 @@
+{
+  "release_identifier": "VendorEdge_R44_DYNAMIC_EXPERIENCE_RELEASE",
+  "based_on": "VendorEdge_R43_FRONTDOOR_TILE_RELEASE",
+  "build_date": "2026-09-13",
+  "commit_identifier": "not available (no git repository in this environment)",
+  "test_result": {
+    "total": 643,
+    "passed": 643,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "changes_since_r43": [
+    "Adaptive Buyer Experience: category_strategy_answer and commercial_signal_answer are now rendered by the frontend (previously computed but never displayed) -- dedicated renderers matching each experience's natural information needs (category position/supplier strategy/opportunities/roadmap for strategy; what changed/what it may mean/where I would look for signals).",
+    "Signal headline fix: the 'signal' summary sentence is now derived from the actual calculated spend/volume growth figures when available, replacing a hard-coded generic sentence.",
+    "Adaptive Depth: section visibility within each of the four experiences now reflects materiality, not mere data presence -- MONEY only shown when a reliable calculation exists, a genuine 'WHAT IS MISSING' section added for supplier requests, category-strategy roadmap horizons containing only boilerplate 'not yet supported by evidence' status are dropped from the primary answer, problem-solving OPTIONS is suppressed once the root cause is established and the decision is made (kept fully in the underlying data for audit/deep-dive).",
+    "Dynamic Experience principle codified as a permanent, standing comment at the answer-composition dispatch point in app/static/index.html, with five new regression tests proving both halves: materially different situations produce materially different section-driving data, and materially identical situations produce identical results across independent requests (never randomly varying).",
+    "Cross-contamination guard (app/pipeline/reasoner.py): the three case_mode-specific prompt injections (supplier_request/commercial_signal/category_strategy) no longer fire for a problem_solving case, closing a bug where an inferred or accidentally-selected case_mode could inject a misleading 'you are reasoning through a supplier request' frame onto an unrelated problem-solving case.",
+    "Fourth front-door tile ('A problem I need to solve') added to both the hero grid and the activity panel, routing via free-text classification with no case_mode forced.",
+    "Problem-solving buyer-facing answer restructured to WHAT'S HAPPENING / WHAT WE KNOW / WHAT WE DON'T KNOW YET / OPTIONS / MY RECOMMENDATION / NEXT STEP / WHAT COULD CHANGE THIS, with deterministic (never model-generated) safety templates for the OEM-conflict-of-interest and unproven-economics cases."
+  ],
+  "capabilities_included": [
+    "Commercial Intelligence Kernel -- single evidence/truth layer shared by every reasoning profile",
+    "Supplier Request, Commercial Signal, Category Strategy reasoning profiles, all now rendered as distinct buyer experiences",
+    "Market Intelligence and ESG/Sustainability foundations",
+    "Category archetype detection",
+    "Dependency-aware category roadmap with real prerequisite chains and decision gates",
+    "Unknown -> Investigation conversion for material market/ESG evidence gaps",
+    "Complex Problem Solving vertical slice: Problem -> Evidence -> Root Cause -> Countermeasure -> Action -> Outcome, Maersk principle enforced structurally, validated against supplier/commercial, procurement/process, and asset/obsolescence proof cases",
+    "Provider-independent LLM client abstraction across all five model-calling files",
+    "Safe buyer-facing transport -- diagnostics excluded from the default API response",
+    "Adaptive answer composition -- each of the four front-door experiences renders its own natural section set, adapted further within each case by evidence materiality and decision stage, not fixed to a rigid template",
+    "Four-tile front door with preserved free-text classification"
+  ],
+  "known_limitations": [
+    "market_verification.py's use of Anthropic's server-side web_search tool remains a genuine, undisguised exception to provider independence.",
+    "Supplier Request's negotiation-section gating depends on the model's own judgment of when negotiation is genuinely warranted; that gating exists structurally but has not been independently verified against a live model in this environment.",
+    "Category Strategy's SUPPLIER STRATEGY section suppression is all-or-nothing (empty vs populated), not yet graded by evidence strength within a populated section.",
+    "No live external market or ESG data source anywhere in this build.",
+    "Complex Problem Solving does not cover Gemba, advanced charting, recurrence learning, or proactive monitoring -- explicitly out of scope by design.",
+    "supplier_request_answer and commercial_signal_answer do not carry the same explicit 'diagnostics' separation as category_strategy_answer and problem_solving_answer.",
+    "The cross-dimension trade-off detector (category strategy roadmap) uses generic capitalized-word matching -- known, previously-recorded precision limitation, unchanged.",
+    "No live Claude/Anthropic API access exists anywhere in this build or the environment that produced it. Every test, including all HTTP-path tests, is deterministic and mock-based."
+  ],
+  "configuration_requirements": {
+    "required_environment_variables": ["DATABASE_URL", "VENDOREDGE_AUTH_SECRET", "ANTHROPIC_API_KEY"],
+    "optional_environment_variables": ["VENDOREDGE_CLASSIFIER_MODEL", "VENDOREDGE_REASONING_MODEL", "VENDOREDGE_MARKET_MODEL", "VENDOREDGE_MODEL", "VENDOREDGE_LLM_PROVIDER", "VENDOREDGE_CHALLENGER_PROVIDER", "ALLOW_LEGACY_WORKSPACE_LINKS", "VALIDATION_ENABLED"],
+    "database": "PostgreSQL 16, schema at db/schema.sql -- additive/idempotent migrations only, safe against any prior database in this lineage."
+  },
+  "migration_requirements": "Run db/schema.sql. No new migrations in this release beyond what R42 already introduced (the classified_content_type CHECK constraint widening).",
+  "packaging_notes": "No secrets, real API keys, __pycache__, .pytest_cache, or local caches included. .env.example/.env.test.example contain only placeholder values, confirmed by direct inspection before packaging. Working tree unchanged between the final regression run (643 passed) and this ZIP's creation -- no application code was modified after that run."
+}

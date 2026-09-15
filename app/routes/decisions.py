@@ -1994,6 +1994,55 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
         with attempt_fencing.HeartbeatTicker(org_id, decision_id, attempt_id, "market_verification"):
             market_verification = verify_market_claim(stated_justification, region=supplier_region)
 
+    # R45 Fresh Decision Intelligence -- first vertical slice. Distinct
+    # from market_verification above: that verifies the SUPPLIER'S OWN
+    # stated claim; this proactively researches what's changed in the
+    # world regardless of whether the supplier cited anything. Gated by
+    # should_research_fresh_intelligence's free, deterministic check
+    # (real category subject + real supplier spend + a real requested
+    # change already established) before spending a research call.
+    # Results are appended to the case's OWN market_driver_claims
+    # (never replacing anything the case itself stated) so they flow
+    # through the exact same, already-proven evidence chain in
+    # market_intelligence.py -- external_research claims are never
+    # auto-attributed to this case's supplier, same as any other
+    # unscoped market claim.
+    if content_type == "price_increase":
+        try:
+            from app.pipeline.fresh_intelligence import should_research_fresh_intelligence, research_fresh_market_intelligence
+            from app.pipeline.decision_audit import build_decision_audit as _build_decision_audit_for_gate
+            from app.pipeline.kernel import build_kernel as _build_kernel_for_gate
+            from app.models import CommercialPosition as _CommercialPositionForGate, Confidence as _ConfidenceForGate, ConfidenceFactor as _ConfidenceFactorForGate
+            _bare_position_for_gate = _CommercialPositionForGate(
+                recommendation="x", commercial_insights=["x"], reasoning="x",
+                confidence=_ConfidenceForGate(level="medium", factors=[_ConfidenceFactorForGate(factor="x", value="x", weight="increases confidence")], derivation_note="x"),
+                assumptions=["x"], disconfirming_condition="x", decision_type="optimization",
+                financial_impact=financial_impact,
+            )
+            _bare_position_for_gate.decision_audit = DecisionAudit(**_build_decision_audit_for_gate(normalized, _bare_position_for_gate))
+            _pre_kernel_for_gate = _build_kernel_for_gate(normalized, _bare_position_for_gate).model_dump()
+            if should_research_fresh_intelligence(_pre_kernel_for_gate):
+                with attempt_fencing.HeartbeatTicker(org_id, decision_id, attempt_id, "fresh_intelligence"):
+                    fresh_claims = research_fresh_market_intelligence(_pre_kernel_for_gate)
+                if fresh_claims:
+                    from app.pipeline.normalized_evidence import MarketDriverClaim
+                    existing = list(normalized.case.market_driver_claims or [])
+                    for c in fresh_claims:
+                        try:
+                            # Guarantee, don't just trust the caller: every
+                            # claim added here IS externally researched by
+                            # definition -- forced explicitly regardless of
+                            # what the dict happens to contain, the same
+                            # "guarantee, don't just ask nicely" pattern
+                            # used throughout this codebase (e.g. the
+                            # kernel's own deterministic scope label).
+                            existing.append(MarketDriverClaim(**{**c, "attributed_to": "external_research"}))
+                        except Exception:
+                            continue
+                    normalized.case.market_driver_claims = existing
+        except Exception as e:
+            print(f"Fresh intelligence gate/research skipped (non-blocking): {type(e).__name__}: {e}")
+
     pre_confidence_level, pre_confidence_reasons = compute_pre_reasoning_confidence(normalized)
     stakeholder_protocol = build_stakeholder_decision_protocol(normalized)
 
@@ -2307,6 +2356,13 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
             position.problem_solving_answer = build_problem_solving_answer(position.kernel, position)
         except Exception as e:
             print(f"Problem-solving answer contract skipped (non-blocking): {type(e).__name__}: {e}")
+
+    if position.kernel and (position.kernel.get("case", {}) or {}).get("content_type") == "price_increase":
+        try:
+            from app.pipeline.fresh_intelligence import build_fresh_intelligence_answer
+            position.fresh_intelligence_answer = build_fresh_intelligence_answer(position.kernel)
+        except Exception as e:
+            print(f"Fresh intelligence answer contract skipped (non-blocking): {type(e).__name__}: {e}")
 
     # R37: Commercial Reasoning Loop. This is intentionally after the
     # independent challenger and final deterministic layers, so the buyer sees

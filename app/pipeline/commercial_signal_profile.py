@@ -145,7 +145,20 @@ def build_commercial_signal_answer(kernel: dict[str, Any], position: Any) -> dic
 
     signal_subject = kernel.get("case", {}).get("subject")
     has_category_facts = any(f["entity"] == "category" for f in facts)
-    if has_category_facts:
+    # Value-density / genericness fix: this was a fixed template
+    # sentence regardless of what the category facts actually showed --
+    # exactly the "generic template dressed as intelligence" problem
+    # this profile exists to avoid. Now derives the headline from the
+    # calculated spend/volume growth figures themselves when they
+    # exist, falling back to the generic phrasing only when there's
+    # nothing more specific to say.
+    category_growth = {f["metric"]: f["value"] for f in calculated if f["entity"] == "category"}
+    spend_growth = category_growth.get("annual_spend_growth_percent")
+    volume_growth = category_growth.get("annual_volume_growth_percent")
+    if spend_growth is not None and volume_growth is not None:
+        direction = "faster than" if spend_growth > volume_growth else "slower than" if spend_growth < volume_growth else "in line with"
+        signal = f"Category spend is growing {direction} volume ({spend_growth:+.1f}% spend vs {volume_growth:+.1f}% volume)."
+    elif has_category_facts:
         signal = "Category spend and volume are being reviewed for a real commercial change."
     elif signal_subject:
         signal = f"{signal_subject}'s spend is being reviewed for a real commercial change."

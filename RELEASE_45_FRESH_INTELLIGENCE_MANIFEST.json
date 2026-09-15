@@ -1,0 +1,48 @@
+{
+  "release_identifier": "VendorEdge_R45_FRESH_INTELLIGENCE_RELEASE",
+  "based_on": "VendorEdge_R44_DYNAMIC_EXPERIENCE_RELEASE",
+  "build_date": "2026-09-14",
+  "commit_identifier": "not available (no git repository in this environment)",
+  "test_result": {
+    "total": 656,
+    "passed": 656,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "changes_since_r44": [
+    "Tool Abstraction Layer: app/research_tool.py -- a provider-independent research/search tool interface mirroring app/llm_client.py's design. market_verification.py's Anthropic-specific web_search mechanics (tools parameter, pause_turn continuation, last-text-block extraction) relocated unchanged into an AnthropicWebSearchTool adapter; market_verification.py now only builds prompts and parses responses, never touching Anthropic mechanics directly. Verified no direct Anthropic tool invocation remains outside the adapter.",
+    "Fresh Decision Intelligence -- first vertical slice (app/pipeline/fresh_intelligence.py): a free, deterministic gate firing only for the target case shape (real category subject + real supplier spend + a real requested change, i.e. the 'Industrial Valves / Supplier A / 11%' vertical), one gated research call, and a buyer-facing composition (WHAT CHANGED / WHAT IT MEANS FOR YOU / WHAT IS PROVEN / WHAT IS NOT PROVEN / MY VIEW / NEXT MOVE / WHAT COULD CHANGE THIS) or a fixed, honest 'no current external development identified' message when nothing relevant is found. Adds exactly one new value ('external_research') to the existing MarketDriverClaim.attributed_to field -- zero new evidence-chain logic; confirmed by direct test that externally-researched claims flow through market_intelligence.py's already-proven reasoning chain untouched, including never being auto-attributed to the case's supplier.",
+    "Minimal frontend rendering for the Fresh Intelligence answer, appended to the existing market-verification panel."
+  ],
+  "capabilities_included": [
+    "Commercial Intelligence Kernel -- single evidence/truth layer shared by every reasoning profile",
+    "Supplier Request, Commercial Signal, Category Strategy, Complex Problem Solving -- all four rendered as genuinely distinct buyer experiences with adaptive depth within each",
+    "Market Intelligence and ESG/Sustainability foundations",
+    "Category archetype detection",
+    "Dependency-aware category roadmap with real prerequisite chains and decision gates",
+    "Unknown -> Investigation conversion for material market/ESG evidence gaps",
+    "Complex Problem Solving vertical slice with the Maersk principle enforced structurally",
+    "Provider-independent LLM client abstraction across all five model-calling files",
+    "Provider-independent research/search tool abstraction, with the Anthropic web-search adapter as the only registered provider",
+    "Fresh Decision Intelligence -- first vertical slice, proactive but narrowly gated live research for a specific case shape",
+    "Safe buyer-facing transport -- diagnostics excluded from the default API response",
+    "Adaptive answer composition proven dynamic-not-random across all tested experiences",
+    "Four-tile front door with preserved free-text classification"
+  ],
+  "known_limitations": [
+    "Fresh Decision Intelligence's frontend rendering is minimal -- appended plainly to the market-verification panel, not yet matching the polish of the four main experience renderers.",
+    "The Fresh Intelligence gate is narrow by design (price_increase cases with real spend+percent data only) and has not been tested against edge cases like partial evidence or multiple suppliers in the same case.",
+    "The live web-search path (both market_verification.py's claim verification and fresh_intelligence.py's proactive research) remains unproven against the real Anthropic API -- no live key exists anywhere in this build or the environment that produced it.",
+    "market_verification.py's and fresh_intelligence.py's shared reliance on Anthropic's server-side web_search tool remains a genuine, documented exception to full provider independence for the search mechanism itself (the client/model layer is fully abstracted).",
+    "The four-experience audit this round was a quick confirmatory review, not an exhaustive re-verification -- that rigor was spent in prior rounds this session.",
+    "No live Claude/Anthropic API access exists anywhere in this build. Every test, including all HTTP-path and fresh-intelligence tests, is deterministic and mock-based."
+  ],
+  "configuration_requirements": {
+    "required_environment_variables": ["DATABASE_URL", "VENDOREDGE_AUTH_SECRET", "ANTHROPIC_API_KEY"],
+    "optional_environment_variables": ["VENDOREDGE_CLASSIFIER_MODEL", "VENDOREDGE_REASONING_MODEL", "VENDOREDGE_MARKET_MODEL", "VENDOREDGE_MODEL", "VENDOREDGE_LLM_PROVIDER", "VENDOREDGE_CHALLENGER_PROVIDER", "VENDOREDGE_RESEARCH_TOOL_PROVIDER", "ALLOW_LEGACY_WORKSPACE_LINKS", "VALIDATION_ENABLED"],
+    "database": "PostgreSQL 16, schema at db/schema.sql -- additive/idempotent migrations only, safe against any prior database in this lineage."
+  },
+  "migration_requirements": "Run db/schema.sql. No new migrations in this release beyond what R42 already introduced.",
+  "packaging_notes": "No secrets, real API keys, __pycache__, .pytest_cache, or local caches included. .env.example/.env.test.example contain only placeholder values, confirmed by direct inspection before packaging. Working tree unchanged between the final regression run (656 passed) and this ZIP's creation -- no application code was modified after that run."
+}

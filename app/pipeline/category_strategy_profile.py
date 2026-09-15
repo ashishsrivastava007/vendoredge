@@ -473,12 +473,20 @@ def _build_buyer_facing_view(full_answer: dict[str, Any]) -> dict[str, Any]:
     contract_notes dumps -- those remain available in the object above
     for audit and deep-dive, never in this view."""
     view: dict[str, Any] = {}
+    if full_answer.get("what_we_know"):
+        view["category_position"] = full_answer["what_we_know"]
     if full_answer.get("decision"):
         view["decision"] = full_answer["decision"]
     if full_answer.get("what_is_changing"):
         view["why"] = full_answer["what_is_changing"]
     if full_answer.get("money"):
         view["money"] = full_answer["money"]
+    if full_answer.get("priorities"):
+        # "Opportunities": the headline of each priority, without its
+        # internal reasoning duplicate (kept in diagnostics for
+        # audit) -- avoids repeating the same conclusion twice on one
+        # screen.
+        view["opportunities"] = [p["priority"] for p in full_answer["priorities"] if p.get("priority")][:5]
     if full_answer.get("what_i_would_do"):
         view["recommendation"] = full_answer["what_i_would_do"]
     if full_answer.get("supplier_strategy"):
@@ -517,7 +525,7 @@ def _build_buyer_facing_view(full_answer: dict[str, Any]) -> dict[str, Any]:
         view["roadmap"] = curated_roadmap
 
     if full_answer.get("what_still_needs_to_be_learned"):
-        view["what_could_change_this"] = full_answer["what_still_needs_to_be_learned"]
+        view["what_we_need_to_find_out"] = full_answer["what_still_needs_to_be_learned"]
     if full_answer.get("market"):
         view["market"] = full_answer["market"]
     if full_answer.get("esg"):

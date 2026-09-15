@@ -226,7 +226,15 @@ class MarketDriverClaim(BaseModel):
     geography: Optional[str] = None
     period: Optional[str] = None
     source: Optional[str] = None  # e.g. "LME", "the supplier", "not specified"
-    attributed_to: Literal["supplier", "buyer_cited", "unspecified"] = "unspecified"
+    # "external_research" (R45): a claim VendorEdge itself found via a
+    # live, targeted research call -- not something the case stated.
+    # Flows through the exact same reasoning chain as any other claim
+    # (_establish_supplier_scope only special-cases "supplier"; this
+    # value correctly falls through to "no supplier scope established"
+    # by default, same as "buyer_cited"/"unspecified" -- a market
+    # movement VendorEdge found on its own is never silently promoted
+    # to this case's supplier's exposure).
+    attributed_to: Literal["supplier", "buyer_cited", "unspecified", "external_research"] = "unspecified"
     # A driver contributing a stated SHARE of a supplier's cost --
     # ONLY ever populated when the case itself states this weight
     # explicitly (e.g. "steel is 30% of our cost"). Never inferred,

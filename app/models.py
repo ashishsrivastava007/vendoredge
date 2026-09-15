@@ -336,6 +336,13 @@ class CommercialPosition(BaseModel):
     # Recommendation/Next action). Only populated when the case's
     # content_type is genuinely "problem_solving".
     problem_solving_answer: Optional[dict] = None
+    # R45: Fresh Decision Intelligence first vertical slice -- only
+    # populated for a price_increase case matching the target shape
+    # (real category + real supplier spend + real requested change).
+    # Always a structured result, never absent when the gate fired --
+    # {"available": False, "message": "..."} is the honest "nothing
+    # material found" outcome, not a missing field.
+    fresh_intelligence_answer: Optional[dict] = None
 
     recommendation: str
     commercial_insights: list[str] = Field(

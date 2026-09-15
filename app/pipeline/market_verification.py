@@ -1,5 +1,6 @@
 """
-Targeted live market-claim verification using Claude's web search tool.
+Targeted live market-claim verification using a provider-independent
+research/search tool interface (app/research_tool.py).
 
 Deliberate design, matching the "near-zero cash cost" constraint: this is
 NOT a live data subscription and does not run on every question. It makes
@@ -8,46 +9,34 @@ in a price_increase question names something genuinely checkable (a
 commodity, a market trend) -- turning a per-use, cents-level API call into
 an honest, current, citable verification, instead of a recurring paid feed.
 
+Tool abstraction note: this module used to construct an Anthropic client
+and call `.messages.create(..., tools=[{"type": "web_search_20250305",
+...}])` directly -- the one genuinely provider-specific capability in the
+whole I/O boundary, since a live web search has no generic cross-provider
+call shape the way a plain text completion does. That mechanism (the
+tools parameter, the pause_turn continuation for long-running searches,
+taking the last text block) has been relocated, unchanged, into
+AnthropicWebSearchTool in app/research_tool.py -- this file now only
+builds the verification prompt and calls get_research_tool().search(...),
+never touching Anthropic-specific mechanics directly. A future research-
+tool provider registers there, not here; this file's behavior is
+unaffected either way.
+
 HONESTY NOTE ON TEST COVERAGE, stated plainly rather than hidden: the
-trigger logic (does this claim look checkable?) and the failure-handling
-(what happens if the search call errors) are both tested below without a
-live key. The actual live web_search tool call itself has NOT been proven
-against the real Anthropic API in this environment -- that is the one
-piece that genuinely needs to be tested with a real key before being
-trusted in front of real pilot users. This is flagged here on purpose,
-not discovered later.
+trigger logic (does this claim look checkable?), the failure-handling
+(what happens if the search call errors), and this file's correct use of
+the generic tool interface (proven against a fake research-tool provider
+with zero Anthropic dependency) are all tested below without a live key.
+The actual live web_search tool call itself has NOT been proven against
+the real Anthropic API in this environment -- that is the one piece that
+genuinely needs to be tested with a real key before being trusted in
+front of real pilot users. This is flagged here on purpose, not
+discovered later.
 """
 import json
-import os
 import re
-from app.llm_client import get_llm_client, LLMProvider
+from app.research_tool import get_research_tool
 from app.model_config import MARKET_MODEL
-
-PROVIDER_OPERATION_TIMEOUT_SECONDS = 20 * 60
-
-# Honest limit on this file's abstraction, unlike the other three I/O
-# boundary files: this module calls .messages.create(..., tools=[{
-# "type": "web_search_20250305", ...}]) -- Anthropic's server-side web
-# search tool, a genuinely provider-specific capability with no
-# generic equivalent. Routing client construction through
-# get_llm_client() still makes sense (a future Anthropic-compatible
-# deployment benefits), but a non-Anthropic provider adapter would
-# either need to implement an equivalent server-side search tool under
-# the same "type" string (unlikely to exist) or this module would need
-# a different implementation path (e.g. calling VendorEdge's own web
-# search tool directly and injecting results into the prompt) for that
-# provider. This is real, not hidden by this abstraction.
-_client: LLMProvider | None = None
-
-
-def _get_client() -> LLMProvider:
-    global _client
-    if _client is None:
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise RuntimeError("ANTHROPIC_API_KEY not set.")
-        _client = get_llm_client(api_key, PROVIDER_OPERATION_TIMEOUT_SECONDS)
-    return _client
 
 
 # Deliberately narrow keyword list -- a supplier's justification only counts
@@ -119,44 +108,22 @@ def verify_market_claim(stated_justification: str, region: str | None = None) ->
         scope_label = "global"
 
     try:
-        client = _get_client()
-        tools = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}]
-        messages = [{
-            "role": "user",
-            "content": (
-                f"A supplier has justified a price increase by citing: \"{stated_justification}\". "
-                f"{region_instruction} "
-                f"Use web search to check current, real information about whether this specific market "
-                f"claim is accurate right now. Respond with ONLY a JSON object, no other text: "
-                f'{{"claim_checked": "the specific claim being checked", '
-                f'"finding": "supported | contradicted | inconclusive", '
-                f'"verified_note": "one or two sentences on what the search actually found, '
-                f'in plain language, citing roughly what the search showed, and explicitly noting '
-                f'if genuine regional data was unavailable and a global figure was used instead", '
-                f'"sources": [{{"title": "source name", "url": "https://..."}}]}}'
-            ),
-        }]
-        response = client.messages.create(
-            model=MARKET_MODEL, max_tokens=600, tools=tools, messages=messages
+        tool = get_research_tool()
+        prompt = (
+            f"A supplier has justified a price increase by citing: \"{stated_justification}\". "
+            f"{region_instruction} "
+            f"Use web search to check current, real information about whether this specific market "
+            f"claim is accurate right now. Respond with ONLY a JSON object, no other text: "
+            f'{{"claim_checked": "the specific claim being checked", '
+            f'"finding": "supported | contradicted | inconclusive", '
+            f'"verified_note": "one or two sentences on what the search actually found, '
+            f'in plain language, citing roughly what the search showed, and explicitly noting '
+            f'if genuine regional data was unavailable and a global figure was used instead", '
+            f'"sources": [{{"title": "source name", "url": "https://..."}}]}}'
         )
-
-        # Anthropic server-side tools can return pause_turn for a long-running
-        # search. Continue the same turn once, preserving the tool state,
-        # instead of silently treating a valid search as a failure.
-        if getattr(response, "stop_reason", None) == "pause_turn":
-            continuation_messages = messages + [{"role": "assistant", "content": response.content}]
-            response = client.messages.create(
-                model=MARKET_MODEL, max_tokens=600, tools=tools, messages=continuation_messages
-            )
-
-        # Server-side tools (like web_search) can return multiple content
-        # blocks (search results, then the model's final text). We want the
-        # LAST text block, which is the model's synthesized answer after
-        # having seen the search results -- not an intermediate block.
-        text_blocks = [b for b in response.content if getattr(b, "type", None) == "text"]
-        if not text_blocks:
+        raw_text = tool.search(prompt, model=MARKET_MODEL, max_tokens=600)
+        if raw_text is None:
             return None
-        raw_text = text_blocks[-1].text.strip()
 
         # Reuse the same robust JSON extraction already proven earlier today,
         # since a tool-use response is at least as likely to include

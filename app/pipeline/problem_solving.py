@@ -89,7 +89,7 @@ def evaluate_root_cause_evidence(candidate: dict[str, Any]) -> dict[str, Any]:
             "claimed_category": claimed_category,
             "source": source,
             "reason": f"\"{label}\" has no supporting evidence.{note} This describes what was observed or claimed, not a validated cause.",
-            "what_would_establish_this": f"Evidence showing WHY \"{label}\" occurred -- e.g. what specific process step, specification gap, or system condition made it likely or possible.",
+            "what_would_establish_this": f"Evidence showing why \"{label}\" is actually happening, not just that it's being claimed.",
         }
 
     return {

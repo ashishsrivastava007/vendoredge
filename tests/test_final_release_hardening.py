@@ -55,6 +55,7 @@ def test_market_verification_resumes_server_tool_pause(monkeypatch):
     pytest.importorskip("anthropic")
     from types import SimpleNamespace
     import app.pipeline.market_verification as mv
+    from app.research_tool import AnthropicWebSearchTool
 
     class FakeMessages:
         def __init__(self):
@@ -69,12 +70,19 @@ def test_market_verification_resumes_server_tool_pause(monkeypatch):
                 content=[SimpleNamespace(type="text", text='{"claim_checked":"steel","finding":"supported","verified_note":"Current market evidence supports the claim."}')],
             )
 
-    fake = SimpleNamespace(messages=FakeMessages())
-    monkeypatch.setattr(mv, "_client", fake)
+    fake_client = SimpleNamespace(messages=FakeMessages())
+    # Patches at the same seam the tool-abstraction refactor introduced:
+    # verify_market_claim() calls get_research_tool() and never touches
+    # Anthropic mechanics directly any more -- this fakes only the
+    # underlying Anthropic SDK client, exercising the REAL
+    # AnthropicWebSearchTool.search() (proving the pause_turn
+    # continuation still works) and the REAL verify_market_claim()
+    # orchestration around it.
+    monkeypatch.setattr(mv, "get_research_tool", lambda: AnthropicWebSearchTool(fake_client))
     result = mv.verify_market_claim("steel prices increased", "Europe")
     assert result["finding"] == "supported"
     assert result["scope"] == "Europe"
-    assert fake.messages.calls == 2
+    assert fake_client.messages.calls == 2
 
 
 def test_xlsx_nested_zip_expansion_limit_is_enforced():

@@ -167,7 +167,7 @@
   .ve-answer-title { margin:3px 0 0; font-size:18px; line-height:1.3; font-weight:850; }
   .ve-answer-badge { font-size:10px; font-weight:850; padding:5px 8px; border-radius:999px; background:#eef2ff; color:#243b78; white-space:nowrap; }
   .ve-answer-body { padding:14px 16px; }
-  .ve-answer-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:0 0 12px; }
+  .ve-answer-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; margin:0 0 12px; }
   .ve-answer-metric { border:1px solid #e7e9ed; border-radius:10px; padding:9px 10px; background:#fafbfc; }
   .ve-answer-metric label { display:block; font-size:8.5px; font-weight:850; letter-spacing:.08em; color:#7d838d; }
   .ve-answer-metric strong { display:block; margin-top:3px; font-size:14px; line-height:1.25; }
@@ -1353,6 +1353,28 @@ function renderCommercialTruthModel(pos) {
 }
 
 
+function renderFreshIntelligence(pos) {
+  const el = document.getElementById("pos-market-verification");
+  const a = pos.fresh_intelligence_answer;
+  if (!el || !a) return;
+  const esc = (v) => escapeHtml(String(v == null ? "" : v));
+  const list = (items) => (items || []).filter(Boolean).map(x => `<li>${esc(x)}</li>`).join("");
+  if (!a.available) {
+    // Honest "nothing found" -- shown plainly, once, never silently
+    // omitted and never dressed up as a finding.
+    el.insertAdjacentHTML("beforeend", `<div class="ve-answer-section" style="margin-top:10px"><h4>EXTERNAL CONTEXT</h4><div style="color:#777">${esc(a.message)}</div></div>`);
+    return;
+  }
+  el.insertAdjacentHTML("beforeend", `
+    <div class="ve-answer-section" style="margin-top:10px">
+      <h4>WHAT CHANGED</h4><ul class="ve-answer-list">${list(a.what_changed)}</ul>
+      <h4 style="margin-top:8px">WHAT IT MEANS FOR YOU</h4><ul class="ve-answer-list">${list(a.what_it_means_for_you)}</ul>
+      <h4 style="margin-top:8px">WHAT IS NOT PROVEN</h4><ul class="ve-answer-list">${list(a.what_is_not_proven)}</ul>
+      <h4 style="margin-top:8px">MY VIEW</h4><div class="ve-answer-callout">${esc(a.my_view)}</div>
+      <h4 style="margin-top:8px">NEXT MOVE</h4><div class="ve-answer-callout">${esc(a.next_move)}</div>
+    </div>`);
+}
+
 function renderMarketVerification(pos) {
   const el = document.getElementById("pos-market-verification");
   if (!el) return;
@@ -1915,6 +1937,122 @@ function renderCommercialDecisionEngine(pos) {
   </section>`;
 }
 
+function renderCategoryStrategyAnswer(pos) {
+  const el = document.getElementById("pos-commercial-answer");
+  if (!el) return false;
+  const a = pos.category_strategy_answer;
+  if (!a || (!a.decision && !a.category_position)) return false;
+  const esc = (v) => escapeHtml(String(v == null ? "" : v));
+  const list = (items) => (items || []).filter(Boolean).map(x => `<li>${esc(x)}</li>`).join("");
+  const supplierBlock = (a.supplier_strategy || []).map(s => `<div class="ve-answer-callout" style="margin-top:6px"><b>${esc(s.supplier)} -- ${esc(s.strategy)}</b><div style="margin-top:3px">${esc(s.reason)}</div></div>`).join("");
+  const roadmap = a.roadmap || {};
+  const roadmapHorizon = (label, items) => {
+    // Adaptive depth: a horizon with only a "not yet supported by
+    // evidence" placeholder status is not useful information -- it's
+    // the absence of a plan, not a plan. Only render a horizon that
+    // has at least one real action; drop it from the primary answer
+    // entirely otherwise rather than repeating "not enough evidence."
+    const realActions = (items || []).filter(i => i.action);
+    if (!realActions.length) return "";
+    return `<div style="margin-top:8px"><small style="font-weight:800;letter-spacing:.06em;color:#888">${esc(label)}</small>${realActions.map(i => `<div style="margin-top:3px">${esc(i.action)}</div>`).join("")}</div>`;
+  };
+  const roadmapBlock = [
+    roadmapHorizon("QUICK WINS", roadmap.quick_wins),
+    roadmapHorizon("0-90 DAYS", roadmap.short_term_0_90_days),
+    roadmapHorizon("3-12 MONTHS", roadmap.medium_term_3_12_months),
+    roadmapHorizon("YEAR 1", roadmap.year_1),
+    roadmapHorizon("YEAR 2", roadmap.year_2),
+    roadmapHorizon("YEAR 3", roadmap.year_3),
+  ].filter(Boolean).join("");
+  el.innerHTML = `
+    <section class="ve-answer">
+      <div class="ve-answer-head">
+        <div><div class="ve-answer-title">${esc(a.decision || "Category strategy")}</div></div>
+      </div>
+      <div class="ve-answer-body">
+        ${a.category_position && a.category_position.length ? `<div class="ve-answer-section"><h4>CATEGORY POSITION</h4><ul class="ve-answer-list">${list(a.category_position)}</ul></div>` : ""}
+        ${a.why && a.why.length ? `<div class="ve-answer-section"><h4>WHAT IS CHANGING</h4><ul class="ve-answer-list">${list(a.why)}</ul></div>` : ""}
+        ${supplierBlock ? `<div class="ve-answer-section"><h4>SUPPLIER STRATEGY</h4>${supplierBlock}</div>` : ""}
+        ${a.opportunities && a.opportunities.length ? `<div class="ve-answer-section"><h4>OPPORTUNITIES</h4><ul class="ve-answer-list">${list(a.opportunities)}</ul></div>` : ""}
+        ${a.recommendation && a.recommendation.length ? `<div class="ve-answer-section"><h4>WHAT I WOULD DO</h4><ul class="ve-answer-list">${list(a.recommendation)}</ul></div>` : ""}
+        ${roadmapBlock ? `<div class="ve-answer-section"><h4>ROADMAP</h4>${roadmapBlock}</div>` : ""}
+        ${a.do_not_do_yet && a.do_not_do_yet.length ? `<div class="ve-answer-section"><h4>NOT YET</h4><ul class="ve-answer-list">${list(a.do_not_do_yet)}</ul></div>` : ""}
+        ${a.what_we_need_to_find_out && a.what_we_need_to_find_out.length ? `<div class="ve-answer-section"><h4>WHAT WE NEED TO FIND OUT</h4><ul class="ve-answer-list">${list(a.what_we_need_to_find_out)}</ul></div>` : ""}
+      </div>
+    </section>`;
+  return true;
+}
+
+function renderCommercialSignalAnswer(pos) {
+  const el = document.getElementById("pos-commercial-answer");
+  if (!el) return false;
+  const a = pos.commercial_signal_answer;
+  if (!a || !a.signal) return false;
+  const esc = (v) => escapeHtml(String(v == null ? "" : v));
+  const list = (items) => (items || []).filter(Boolean).map(x => `<li>${esc(x)}</li>`).join("");
+  const dataSays = a.what_the_data_says || {};
+  const categoryRows = (dataSays.category || []).map(esc).join(" · ");
+  const supplierRows = Object.entries(dataSays.by_supplier || {}).map(([name, facts]) => `<div style="margin-top:5px"><b>${esc(name)}</b>: ${(facts || []).map(esc).join(" · ")}</div>`).join("");
+  const nextMove = a.action_plan && a.action_plan.next_7_days;
+  el.innerHTML = `
+    <section class="ve-answer">
+      <div class="ve-answer-head">
+        <div><div class="ve-answer-title">${esc(a.signal)}</div></div>
+      </div>
+      <div class="ve-answer-body">
+        ${(categoryRows || supplierRows) ? `<div class="ve-answer-section"><h4>WHAT CHANGED</h4>${categoryRows ? `<div>${categoryRows}</div>` : ""}${supplierRows}</div>` : ""}
+        ${a.what_may_explain_it && a.what_may_explain_it.length ? `<div class="ve-answer-section"><h4>WHAT IT MAY MEAN</h4><ul class="ve-answer-list">${list(a.what_may_explain_it)}</ul></div>` : ""}
+        ${a.what_we_cannot_prove && a.what_we_cannot_prove.length ? `<div class="ve-answer-section"><h4>WHAT IS NOT PROVEN</h4><ul class="ve-answer-list">${list(a.what_we_cannot_prove)}</ul></div>` : ""}
+        ${a.commercial_risk && a.commercial_risk.length ? `<div class="ve-answer-section"><h4>WHY IT MATTERS</h4><ul class="ve-answer-list">${list(a.commercial_risk)}</ul></div>` : ""}
+        ${a.what_to_check_next && a.what_to_check_next.length ? `<div class="ve-answer-section"><h4>WHERE I WOULD LOOK</h4><ul class="ve-answer-list">${list(a.what_to_check_next)}</ul></div>` : ""}
+        ${nextMove ? `<div class="ve-answer-section"><h4>NEXT MOVE</h4><div class="ve-answer-callout">${esc(nextMove)}</div></div>` : ""}
+      </div>
+    </section>`;
+  return true;
+}
+
+function renderProblemSolvingAnswer(pos) {
+  const el = document.getElementById("pos-commercial-answer");
+  if (!el) return false;
+  const a = pos.problem_solving_answer;
+  if (!a || !a.whats_happening) return false;
+  const esc = (v) => escapeHtml(String(v == null ? "" : v));
+  const list = (items) => (items || []).filter(Boolean).map(x => `<li>${esc(x)}</li>`).join("");
+  // Adaptive depth: once the root cause is established (nothing left
+  // in "what we don't know yet"), re-listing every option already
+  // considered adds nothing -- the decision is made, so the options
+  // discussion is dropped from the primary answer rather than shown
+  // for completeness. It stays available in progressive/deeper views
+  // where the underlying data still exists; this function just
+  // doesn't render it into the first screen.
+  const rootCauseEstablished = !(a.what_we_dont_know_yet && a.what_we_dont_know_yet.length);
+  const optionsBlock = (!rootCauseEstablished && a.options) ? a.options.map(o => `<div class="ve-answer-callout" style="margin-top:6px"><b>${esc(o.option)}</b><div style="margin-top:3px">${esc(o.status)}</div></div>`).join("") : "";
+  const progress = a.progress;
+  const hasActual = progress && (progress.actual != null);
+  const progressBlock = progress ? `<div class="ve-answer-section"><h4>${hasActual ? "PROGRESS SO FAR" : "HOW WE WILL MEASURE IT"}</h4>
+      ${progress.expected ? `<div><small>EXPECTED</small> ${esc(progress.expected)}</div>` : ""}
+      ${progress.target ? `<div style="margin-top:4px"><small>TARGET</small> ${esc(progress.target)}</div>` : ""}
+      ${progress.actual ? `<div style="margin-top:4px"><small>ACTUAL</small> ${esc(progress.actual)}</div>` : ""}
+      ${progress.sustained != null ? `<div style="margin-top:4px"><small>HOLDING UP OVER TIME</small> ${progress.sustained ? "Yes" : "Not yet -- keep monitoring."}</div>` : ""}
+    </div>` : "";
+  el.innerHTML = `
+    <section class="ve-answer">
+      <div class="ve-answer-head">
+        <div><div class="ve-answer-title">${esc(a.whats_happening)}</div></div>
+      </div>
+      <div class="ve-answer-body">
+        ${a.what_we_know && a.what_we_know.length ? `<div class="ve-answer-section"><h4>WHAT WE KNOW</h4><ul class="ve-answer-list">${list(a.what_we_know)}</ul></div>` : ""}
+        ${a.what_we_dont_know_yet && a.what_we_dont_know_yet.length ? `<div class="ve-answer-section"><h4>WHAT WE DON'T KNOW YET</h4><ul class="ve-answer-list">${list(a.what_we_dont_know_yet)}</ul></div>` : ""}
+        ${optionsBlock ? `<div class="ve-answer-section"><h4>OPTIONS</h4>${optionsBlock}</div>` : ""}
+        <div class="ve-answer-section"><h4>MY RECOMMENDATION</h4><div class="ve-answer-callout">${esc(a.my_recommendation)}</div></div>
+        <div class="ve-answer-section"><h4>NEXT STEP</h4><div class="ve-answer-callout">${esc(a.next_step)}</div></div>
+        ${a.what_could_change_this && a.what_could_change_this.length ? `<div class="ve-answer-section"><h4>WHAT COULD CHANGE THIS</h4><ul class="ve-answer-list">${list(a.what_could_change_this)}</ul></div>` : ""}
+        ${progressBlock}
+      </div>
+    </section>`;
+  return true;
+}
+
 function renderCommercialAnswer(pos) {
   const el = document.getElementById("pos-commercial-answer");
   if (!el) return;
@@ -1975,11 +2113,12 @@ function renderCommercialAnswer(pos) {
       </div>
       <div class="ve-answer-body">
         <div class="ve-answer-grid">
-          <div class="ve-answer-metric"><label>MONEY</label><strong>${headline}</strong></div>
+          ${moneyAvailable ? `<div class="ve-answer-metric"><label>MONEY</label><strong>${headline}</strong></div>` : ""}
           <div class="ve-answer-metric"><label>NEXT MOVE</label><strong>${esc((a.what_to_do || [])[0] || "Review the validated decision.")}</strong></div>
-          <div class="ve-answer-metric"><label>EVIDENCE</label><strong>${esc((evidence.verified || []).length)} verified · ${esc((evidence.unknown || []).length)} material unknown</strong></div>
+          ${(evidence.unknown || []).length ? `<div class="ve-answer-metric"><label>EVIDENCE</label><strong>${esc((evidence.verified || []).length)} verified · ${esc((evidence.unknown || []).length)} still missing</strong></div>` : ""}
         </div>
         ${moneyAvailable ? `<div class="ve-answer-section"><h4>COMMERCIAL EXPOSURE</h4><div class="ve-answer-money"><div><small>ANNUAL SPEND</small><b>${esc(_moneyLabel(money.annual_spend ?? money.annual_spend_usd, money.currency))}</b></div><div><small>REQUESTED CHANGE</small><b>${esc(_pctLabel(money.requested_change_percent))}</b></div><div><small>ANNUAL IMPACT</small><b>${esc(_moneyLabel(money.annual_impact ?? money.annual_impact_usd, money.currency))}</b></div></div></div>` : ""}
+        ${(evidence.unknown || []).length ? `<div class="ve-answer-section"><h4>WHAT IS MISSING</h4><ul class="ve-answer-list">${list(evidence.unknown)}</ul></div>` : ""}
         ${scenarioBlock}
         ${trendsBlock}
         ${a.why && a.why.length ? `<div class="ve-answer-section"><h4>WHY</h4><ul class="ve-answer-list">${list(a.why)}</ul></div>` : ""}
@@ -3225,9 +3364,42 @@ function renderPosition(pos) {
   pos.commercial_insights = Array.isArray(pos.commercial_insights) ? pos.commercial_insights : [];
   pos.assumptions = Array.isArray(pos.assumptions) ? pos.assumptions : [];
 
-  renderCommercialAnswer(pos);
+  // PERMANENT PRODUCT RULE -- DYNAMIC EXPERIENCE (do not remove):
+  // Do not optimise for a complete answer. Optimise for the best
+  // answer for this specific user, this specific problem, at this
+  // specific moment. The four front-door experiences (Supplier
+  // Request / Something I Noticed / Category Strategy / A Problem I
+  // Need to Solve) are entry points, never rigid templates -- each of
+  // the four render functions below already decides its own section
+  // set from the real evidence (money materiality, root-cause
+  // certainty, roadmap horizons with real content vs boilerplate
+  // status, evidence gaps), not from a fixed list. That per-case
+  // section selection is the mechanism; this comment is the
+  // standing instruction to keep extending it that way rather than
+  // adding a fifth hard-coded template.
+  //
+  // "Different" must come from a genuine difference in the user's
+  // problem, evidence, or decision stage -- never from reworded text,
+  // shuffled section order, or cosmetic variation for its own sake.
+  // The same underlying situation must keep producing the same shape;
+  // only a materially different situation should change it. See
+  // tests/test_dynamic_experience.py for the proof of both halves of
+  // this rule.
+  //
+  // Adaptive answer routing: each problem type gets its own structure
+  // -- what's happening/options/recommendation for a problem to solve,
+  // category position/supplier strategy/roadmap for a strategy
+  // question, what changed/what it may mean for a signal -- never the
+  // same generic negotiation shell for all of them. Falls back to the
+  // generic commercial answer (money/negotiation/evidence) only when
+  // none of the specialized answers apply -- the right shape for an
+  // actual supplier price request.
+  if (!renderProblemSolvingAnswer(pos) && !renderCategoryStrategyAnswer(pos) && !renderCommercialSignalAnswer(pos)) {
+    renderCommercialAnswer(pos);
+  }
   renderTrustEngine(pos);
   renderMarketVerification(pos);
+  renderFreshIntelligence(pos);
   renderTrustCertification(pos);
   renderCommercialReasoningLoop(pos);
   renderCommercialTruthModel(pos);

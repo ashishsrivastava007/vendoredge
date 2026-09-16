@@ -1,0 +1,50 @@
+{
+  "release_identifier": "VendorEdge_R46_SUPPLIER_REQUEST_WIRING_RELEASE",
+  "based_on": "VendorEdge_R45_FRESH_INTELLIGENCE_RELEASE",
+  "build_date": "2026-09-15",
+  "commit_identifier": "not available (no git repository in this environment)",
+  "test_result": {
+    "total": 667,
+    "passed": 667,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "changes_since_r45": [
+    "Decision Experience Refactor: removed the R38 release-label and blanket CONFIDENCE badge from the default Supplier Request answer header; negotiation_intelligence.available is now genuinely conditional on real negotiation dimensions existing (previously hard-coded True, forcing an empty-looking negotiation card even when nothing was relevant); negotiation terminology translated to plain English (Give/Get Matrix, Dimension/Boundary/Trading Rule, Response Playbook, Escalation Triggers all renamed); removed a confirmed duplicate rendering of negotiation_dimensions; fixed a raw Python dict repr() leak in evidence_to_lead_with; renamed three internal-sounding progressive-disclosure section summaries to plain language.",
+    "Live Decision Experience Certification: audited the full Supplier Request path and found build_supplier_request_answer() (LEVERAGE, TRADE-OFF, no forced negotiation content) was fully built on the backend but never rendered on the frontend -- the same orphaned-object pattern previously found and fixed for the other three experiences. Built a six-case test matrix (A-F) and a stability test proving the deterministic composition layer behaves correctly once reached. Built tests/live_certification_harness.py -- a small, explicit, opt-in live-model certification harness (never auto-discovered by pytest, requires an explicit env-var confirmation and a real API key to run) -- but did not execute it: no live Anthropic API key exists anywhere in this environment.",
+    "Supplier Request Wiring Fix: added renderSupplierRequestAnswer(pos) to app/static/index.html and wired it into the existing render-dispatch fallback chain ahead of the generic commercial answer renderer. Supplier Request now renders its dedicated, adaptive answer object (LEVERAGE/TRADE-OFF sections that genuinely differ by case, sanitization-safe target/walk-away fields) instead of falling through to the generic template. No backend changes were required -- the backend wiring was already correct."
+  ],
+  "capabilities_included": [
+    "Commercial Intelligence Kernel -- single evidence/truth layer shared by every reasoning profile",
+    "All four front-door experiences (Supplier Request, Something I Noticed, Category Strategy, A Problem I Need to Solve) now render their own dedicated, adaptive answer objects -- confirmed none orphaned as of this release",
+    "Market Intelligence and ESG/Sustainability foundations",
+    "Category archetype detection",
+    "Dependency-aware category roadmap with real prerequisite chains and decision gates",
+    "Unknown -> Investigation conversion for material market/ESG evidence gaps",
+    "Complex Problem Solving vertical slice with the Maersk principle enforced structurally",
+    "Provider-independent LLM client abstraction across all five model-calling files",
+    "Provider-independent research/search tool abstraction",
+    "Fresh Decision Intelligence -- first vertical slice, narrowly gated live research",
+    "Safe buyer-facing transport -- diagnostics excluded from the default API response for the answer objects that separate them",
+    "Adaptive answer composition proven dynamic-not-random, now including Supplier Request",
+    "Evidence-safety sanitization confirmed working end-to-end: unsupported specific negotiation numbers are structurally blocked from surfacing as target/walk-away, independent of model behavior",
+    "Four-tile front door with preserved free-text classification",
+    "tests/live_certification_harness.py -- ready to run live-model certification the moment a real API key is available; not executed in this build"
+  ],
+  "known_limitations": [
+    "No live Anthropic API key exists anywhere in this build or the environment that produced it. Live model behavior (Parts 6-9 of the certification) remains completely unverified -- the harness to run it is included but has never been executed.",
+    "The six-case Supplier Request test matrix used mocked, prose-only evidence for its 'weak vs strong justification' distinction (Cases A/B/C/E) -- the deterministic LEVERAGE section showed identical generic facts across those cases because the kernel only reflects structured evidence, not prose. A richer test matrix with structured price-history/verification fields would better exercise this section's differentiation; not built in this pass, reported as an honest limitation rather than concealed.",
+    "Case F (routine, contract-permitted 2% adjustment) still shows a real dollar figure for the Money section -- an open, undecided design question about whether a small routine adjustment should suppress Money entirely. Not changed in this release, per explicit instruction to report it separately rather than alter behavior.",
+    "market_verification.py's and fresh_intelligence.py's shared reliance on Anthropic's server-side web_search tool remains a genuine, documented exception to full provider independence for the search mechanism itself.",
+    "The generic usefulness-scoring/composition engine remains deliberately unbuilt -- every certification finding so far has been a wiring gap or a test-data limitation, not evidence the current adaptive-composition architecture is structurally insufficient.",
+    "No live Claude/Anthropic API access exists anywhere in this build. Every test, including all HTTP-path and certification-matrix tests, is deterministic and mock-based."
+  ],
+  "configuration_requirements": {
+    "required_environment_variables": ["DATABASE_URL", "VENDOREDGE_AUTH_SECRET", "ANTHROPIC_API_KEY"],
+    "optional_environment_variables": ["VENDOREDGE_CLASSIFIER_MODEL", "VENDOREDGE_REASONING_MODEL", "VENDOREDGE_MARKET_MODEL", "VENDOREDGE_MODEL", "VENDOREDGE_LLM_PROVIDER", "VENDOREDGE_CHALLENGER_PROVIDER", "VENDOREDGE_RESEARCH_TOOL_PROVIDER", "ALLOW_LEGACY_WORKSPACE_LINKS", "VALIDATION_ENABLED", "RUN_LIVE_CERTIFICATION (only for tests/live_certification_harness.py, never for normal operation)"],
+    "database": "PostgreSQL 16, schema at db/schema.sql -- additive/idempotent migrations only, safe against any prior database in this lineage."
+  },
+  "migration_requirements": "Run db/schema.sql. No new migrations in this release beyond what R42 already introduced.",
+  "packaging_notes": "No secrets, real API keys, .env files, __pycache__, .pytest_cache, .git, virtual environments, or local caches included. .env.example/.env.test.example contain only placeholder values, confirmed by direct inspection before packaging. Working tree unchanged between the final regression run (667 passed) and this ZIP's creation -- no application code was modified after that run. No live-certification artifact exists (the harness was never executed)."
+}

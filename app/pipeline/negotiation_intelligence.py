@@ -133,7 +133,14 @@ def build_negotiation_intelligence(position: CommercialPosition) -> dict[str, An
         readiness = "HOLD_FOR_EVIDENCE_CONFLICT"
 
     return {
-        "available": True,
+        # UX fix: this was hard-coded True regardless of whether any
+        # negotiation dimensions actually existed, so a case with
+        # nothing to negotiate still rendered a "Negotiation
+        # Intelligence" card with a header and readiness badge but no
+        # real content -- exactly the "forced negotiation section"
+        # defect. Now genuinely conditional: only True when there's a
+        # real give/get position to show.
+        "available": bool(give_get),
         "readiness": readiness,
         "trading_principle": "Trade any dimension only for a measurable supplier concession; never concede unconditionally.",
         "objective": position.recommendation,

@@ -25,7 +25,20 @@ def build_negotiation_playbook(position: CommercialPosition) -> dict[str, Any]:
     evidence = []
     audit = position.decision_audit
     if audit:
-        evidence.extend(str(x) for x in audit.material_evidence[:5])
+        # Bug fix: material_evidence is list[dict] (label/status/
+        # evidence keys) -- str(x) on a dict was producing the raw
+        # Python repr ("{'label': ..., 'status': ...}") directly in
+        # buyer-facing text. Extract the actual readable "evidence"
+        # field; fall back to the dict's own str() only if it somehow
+        # isn't a dict at all (defensive, should not happen given the
+        # schema, but never worse than the previous behavior).
+        for item in audit.material_evidence[:5]:
+            if isinstance(item, dict):
+                text = item.get("evidence") or item.get("label")
+                if text:
+                    evidence.append(str(text))
+            else:
+                evidence.append(str(item))
     questions = []
     for x in (audit.uncertainties[:5] if audit else []):
         questions.append(str(x))

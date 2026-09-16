@@ -363,7 +363,7 @@
     </details>
 
     <details class="ve-secondary" style="margin-top:10px">
-      <summary>Commercial analysis <span>economics, alternatives and sensitivity</span></summary>
+      <summary>The numbers behind this <span>calculations, alternatives and what could change them</span></summary>
       <div id="pos-financial-impact"></div>
       <div id="pos-financial-scenarios"></div>
       <div id="pos-cost-drivers"></div>
@@ -378,7 +378,7 @@
     </details>
 
     <details class="ve-secondary" style="margin-top:10px">
-      <summary>Negotiation detail <span>targets, give/get, scenarios and talk track</span></summary>
+      <summary>Negotiation detail <span>positions, scenarios and talking points</span></summary>
       <div id="pos-negotiation-dimensions"></div>
       <div id="pos-talk-track"></div>
       <div id="pos-walkaway"></div>
@@ -386,7 +386,7 @@
     </details>
 
     <details class="ve-secondary" style="margin-top:10px">
-      <summary>Memory &amp; learning <span>supplier history, outcomes and organisational learning</span></summary>
+      <summary>What we've seen before <span>supplier history and past outcomes</span></summary>
       <div id="pos-commercial-memory"></div>
       <div id="pos-supplier-memory"></div>
       <div id="pos-procurement-memory"></div>
@@ -396,7 +396,7 @@
     </details>
 
     <details class="ve-secondary" style="margin-top:10px">
-      <summary>Advanced review <span>model challenge, methodology and decision pack</span></summary>
+      <summary>How this was worked out <span>a second opinion, full reasoning and audit trail</span></summary>
       <div id="pos-model-orchestration"></div>
       <div id="pos-why-wins"></div>
       <div id="pos-commercial-insights"></div>
@@ -1234,8 +1234,6 @@ function renderNegotiationIntelligence(pos) {
   if (!el) return;
   const n = pos.negotiation_intelligence;
   if (!n || !n.available) { el.innerHTML = ""; return; }
-  const status = String(n.readiness || "CONDITIONAL");
-  const badge = status === "READY" ? "READY" : status === "HOLD_FOR_EVIDENCE_CONFLICT" ? "HOLD — EVIDENCE CONFLICT" : "CONDITIONAL";
   const rows = (n.give_get_matrix || []).slice(0,6).map(x => `
     <tr style="border-top:1px solid #eee">
       <td style="padding:7px 9px;font-weight:700">${escapeHtml(String(x.dimension||""))}</td>
@@ -1243,21 +1241,26 @@ function renderNegotiationIntelligence(pos) {
       <td style="padding:7px 9px">${escapeHtml(String(x.buyer_boundary||""))}</td>
       <td style="padding:7px 9px;color:#555">${escapeHtml(String(x.rule||""))}</td>
     </tr>`).join("");
-  const scenarios = (n.response_scenarios || []).slice(0,5).map(x => `<div style="padding:7px 0;border-top:1px solid #eee"><b>${escapeHtml(String(x.trigger||""))}</b><div style="margin-top:3px">${escapeHtml(String(x.buyer_move||""))}</div><div style="font-size:9.5px;color:#9a5b00;margin-top:2px">Scenario — not a supplier prediction</div></div>`).join("");
+  const scenarios = (n.response_scenarios || []).slice(0,5).map(x => `<div style="padding:7px 0;border-top:1px solid #eee"><b>${escapeHtml(String(x.trigger||""))}</b><div style="margin-top:3px">${escapeHtml(String(x.buyer_move||""))}</div></div>`).join("");
   const escalations = (n.escalation_triggers || []).slice(0,5).map(x => `<li style="margin:5px 0"><b>${escapeHtml(String(x.trigger||""))}</b> — ${escapeHtml(String(x.action||""))}</li>`).join("");
   const evidenceGapCount = Number(n.evidence_gap_count || 0);
   const checklist = (n.preparation_checklist || []).slice(0,5).map(x => `<li style="margin:5px 0">${escapeHtml(String(x))}</li>`).join("");
+  // UX rewrite: this used to expose the internal framework directly --
+  // a table labeled with dimension/target/boundary/trading-rule
+  // columns, plus scenario and escalation sections under their raw
+  // internal names -- the exact jargon a founder shouldn't have to
+  // ask "what does this mean?" about. The capability is unchanged;
+  // only the words a buyer reads changed. Kept as collapsible detail
+  // (progressive disclosure), not forced open, since this is
+  // negotiation preparation detail, not the primary answer.
   el.innerHTML = `
     <div style="border:1px solid #ddd;border-radius:12px;margin:10px 0;padding:12px 14px;background:#fff">
-      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
-        <div><div style="font-size:9px;letter-spacing:.15em;font-weight:900;opacity:.65">NEGOTIATION INTELLIGENCE</div><div style="font-size:17px;font-weight:900;margin-top:3px">Prepare → trade → respond → escalate</div><div style="font-size:10.5px;opacity:.7;margin-top:4px">Evidence-backed operating guidance. Supplier reactions are never presented as predictions.</div></div>
-        <span style="font-size:9px;font-weight:900;padding:5px 7px;border:1px solid #ddd;border-radius:999px">${escapeHtml(badge)}</span>
-      </div>
-      ${rows ? `<details open style="margin-top:11px"><summary style="cursor:pointer;font-size:11px;font-weight:900">GIVE / GET MATRIX</summary>${n.trading_principle ? `<div style="font-size:11px;color:#666;margin-top:5px">${escapeHtml(n.trading_principle)}</div>` : ""}<div style="overflow:auto;margin-top:6px"><table style="width:100%;border-collapse:collapse;font-size:11px"><tr style="color:#888"><td style="padding:4px 9px">Dimension</td><td style="padding:4px 9px">Target</td><td style="padding:4px 9px">Boundary</td><td style="padding:4px 9px">Trading rule</td></tr>${rows}</table></div></details>` : ""}
-      ${scenarios ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">RESPONSE PLAYBOOK</summary><div style="margin-top:5px">${scenarios}</div></details>` : ""}
-      ${escalations ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">ESCALATION TRIGGERS</summary><ul style="font-size:11px;padding-left:18px;margin:6px 0">${escalations}</ul></details>` : ""}
-      ${evidenceGapCount > 0 ? `<div style="margin-top:10px;font-size:11px;color:#8a6500"><b>${evidenceGapCount} open evidence gap${evidenceGapCount === 1 ? "" : "s"}</b> affecting readiness — see the evidence section above for details.</div>` : ""}
-      ${checklist ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">BEFORE YOU NEGOTIATE</summary><ul style="font-size:11px;padding-left:18px;margin:6px 0">${checklist}</ul></details>` : ""}
+      <div style="font-size:11px;font-weight:800;letter-spacing:.04em;color:#777;text-transform:uppercase">Handling the negotiation</div>
+      ${rows ? `<details open style="margin-top:9px"><summary style="cursor:pointer;font-size:11px;font-weight:900">What I'd trade</summary>${n.trading_principle ? `<div style="font-size:11px;color:#666;margin-top:5px">${escapeHtml(n.trading_principle)}</div>` : ""}<div style="overflow:auto;margin-top:6px"><table style="width:100%;border-collapse:collapse;font-size:11px"><tr style="color:#888"><td style="padding:4px 9px">Issue</td><td style="padding:4px 9px">What I want</td><td style="padding:4px 9px">What I wouldn't accept</td><td style="padding:4px 9px">How I'd trade it</td></tr>${rows}</table></div></details>` : ""}
+      ${scenarios ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">If the supplier pushes back</summary><div style="margin-top:5px">${scenarios}</div></details>` : ""}
+      ${escalations ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">When to take this further</summary><ul style="font-size:11px;padding-left:18px;margin:6px 0">${escalations}</ul></details>` : ""}
+      ${evidenceGapCount > 0 ? `<div style="margin-top:10px;font-size:11px;color:#8a6500"><b>${evidenceGapCount} open evidence gap${evidenceGapCount === 1 ? "" : "s"}</b> — see the evidence above.</div>` : ""}
+      ${checklist ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">Before you negotiate</summary><ul style="font-size:11px;padding-left:18px;margin:6px 0">${checklist}</ul></details>` : ""}
     </div>`;
 }
 
@@ -1937,6 +1940,40 @@ function renderCommercialDecisionEngine(pos) {
   </section>`;
 }
 
+function renderSupplierRequestAnswer(pos) {
+  const el = document.getElementById("pos-commercial-answer");
+  if (!el) return false;
+  const a = pos.supplier_request_answer;
+  if (!a || !a.decision) return false;
+  const esc = (v) => escapeHtml(String(v == null ? "" : v));
+  const list = (items) => (items || []).filter(Boolean).map(x => `<li>${esc(x)}</li>`).join("");
+  const money = a.money || {};
+  const moneyAvailable = money.available;
+  const leverage = a.leverage || {};
+  const hasLeverage = (leverage.real && leverage.real.length) || (leverage.theoretical && leverage.theoretical.length);
+  const hasPosition = a.target || a.walk_away;
+  el.innerHTML = `
+    <section class="ve-answer">
+      <div class="ve-answer-head">
+        <div><div class="ve-answer-title">${esc(a.decision)}</div></div>
+      </div>
+      <div class="ve-answer-body">
+        ${a.why && a.why.length ? `<div class="ve-answer-section"><h4>WHY</h4><ul class="ve-answer-list">${list(a.why)}</ul></div>` : ""}
+        ${moneyAvailable ? `<div class="ve-answer-section"><h4>MONEY</h4><div class="ve-answer-money"><div><small>ANNUAL SPEND</small><b>${esc(_moneyLabel(money.annual_spend ?? money.annual_spend_usd, money.currency))}</b></div><div><small>REQUESTED CHANGE</small><b>${esc(_pctLabel(money.requested_change_percent))}</b></div><div><small>ANNUAL IMPACT</small><b>${esc(_moneyLabel(money.annual_impact ?? money.annual_impact_usd, money.currency))}</b></div></div></div>` : ""}
+        ${hasLeverage ? `<div class="ve-answer-section"><h4>LEVERAGE</h4>
+            ${leverage.real && leverage.real.length ? `<div style="font-size:11px;font-weight:800;color:#2f7d4f;margin-top:4px">What's actually proven</div><ul class="ve-answer-list">${list(leverage.real)}</ul>` : ""}
+            ${leverage.theoretical && leverage.theoretical.length ? `<div style="font-size:11px;font-weight:800;color:#a33;margin-top:6px">What's only a claim so far</div><ul class="ve-answer-list">${list(leverage.theoretical)}</ul>` : ""}
+          </div>` : ""}
+        ${a.trade_off && a.trade_off.length ? `<div class="ve-answer-section"><h4>RESOLVE BEFORE TRADING VALUE</h4><ul class="ve-answer-list">${list(a.trade_off)}</ul></div>` : ""}
+        <div class="ve-answer-section"><h4>NEXT MOVE</h4><ul class="ve-answer-list">${list(a.next_move && a.next_move.length ? a.next_move : ["Review the recommendation above."])}</ul></div>
+        ${hasPosition ? `<div class="ve-answer-section"><h4>MY POSITION</h4>${a.target ? `<div><small>TARGET</small> ${esc(a.target)}</div>` : ""}${a.walk_away ? `<div style="margin-top:4px"><small>WALK-AWAY</small> ${esc(a.walk_away)}</div>` : ""}</div>` : ""}
+        ${a.what_could_change_this && a.what_could_change_this.length ? `<div class="ve-answer-section"><h4>WHAT COULD CHANGE THIS</h4><ul class="ve-answer-list">${list(a.what_could_change_this)}</ul></div>` : ""}
+        ${a.draft_response ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">Draft response to the supplier</summary><div style="margin-top:6px;white-space:pre-wrap;font-size:13px">${esc(a.draft_response)}</div></details>` : ""}
+      </div>
+    </section>`;
+  return true;
+}
+
 function renderCategoryStrategyAnswer(pos) {
   const el = document.getElementById("pos-commercial-answer");
   if (!el) return false;
@@ -2065,7 +2102,6 @@ function renderCommercialAnswer(pos) {
   const evidence = a.evidence || {};
   const neg = a.negotiation || {};
   const response = a.supplier_response || null;
-  const confidence = String(a.confidence || "unknown").toUpperCase();
   const moneyAvailable = money.available;
   const headline = moneyAvailable ? `${esc(money.headline || "Economics available")}` : "No safe deterministic exposure calculation";
   const scenarioBlock = scenario ? `
@@ -2108,8 +2144,7 @@ function renderCommercialAnswer(pos) {
   el.innerHTML = `
     <section class="ve-answer">
       <div class="ve-answer-head">
-        <div><div class="ve-answer-eyebrow">VENDOREDGE COMMERCIAL ANSWER · R38</div><div class="ve-answer-title">${esc(a.decision)}</div></div>
-        <div class="ve-answer-badge">CONFIDENCE · ${esc(confidence)}</div>
+        <div><div class="ve-answer-title">${esc(a.decision)}</div></div>
       </div>
       <div class="ve-answer-body">
         <div class="ve-answer-grid">
@@ -3386,15 +3421,22 @@ function renderPosition(pos) {
   // tests/test_dynamic_experience.py for the proof of both halves of
   // this rule.
   //
+  // R46 fix: supplier_request_answer (LEVERAGE built only from real
+  // VERIFIED/CALCULATED facts, TRADE-OFF only from real contradictions/
+  // unknowns) existed on the backend the whole time but was never
+  // rendered -- Supplier Request fell through to the generic answer,
+  // same orphaned-object pattern already fixed for the other three
+  // experiences. Checked first now, alongside them.
+  //
   // Adaptive answer routing: each problem type gets its own structure
   // -- what's happening/options/recommendation for a problem to solve,
   // category position/supplier strategy/roadmap for a strategy
-  // question, what changed/what it may mean for a signal -- never the
-  // same generic negotiation shell for all of them. Falls back to the
-  // generic commercial answer (money/negotiation/evidence) only when
-  // none of the specialized answers apply -- the right shape for an
-  // actual supplier price request.
-  if (!renderProblemSolvingAnswer(pos) && !renderCategoryStrategyAnswer(pos) && !renderCommercialSignalAnswer(pos)) {
+  // question, what changed/what it may mean for a signal, leverage/
+  // trade-off/next-move for a supplier request -- never the same
+  // generic negotiation shell for all of them. Falls back to the
+  // fully generic commercial answer only when none of the specialized
+  // answers apply.
+  if (!renderProblemSolvingAnswer(pos) && !renderCategoryStrategyAnswer(pos) && !renderCommercialSignalAnswer(pos) && !renderSupplierRequestAnswer(pos)) {
     renderCommercialAnswer(pos);
   }
   renderTrustEngine(pos);
@@ -3462,7 +3504,14 @@ function renderPosition(pos) {
   renderFinancialScenarios(pos);
   renderKeyFigures(pos);
   renderSupplierComparison(pos);
-  renderNegotiationDimensions(pos);
+  // UX fix (item 12, no repetition): renderNegotiationDimensions and
+  // renderNegotiationIntelligence both read pos.negotiation_dimensions
+  // -- the same underlying data was rendering twice on the same page,
+  // once as a bare table and once (more usefully, with the actual
+  // trading rule reasoning per row) inside "What I'd trade" below.
+  // Function kept, not deleted, in case it's useful for a future
+  // deeper/audit view; simply no longer called from the default
+  // render path.
   renderNegotiationIntelligence(pos);
   renderModelOrchestration(pos);
   renderSupplierMemory(pos);

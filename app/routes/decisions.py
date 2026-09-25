@@ -752,19 +752,32 @@ def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTas
     if body.mode is not None:
         resolved_mode, mode_source = body.mode, "explicit"
     else:
-        # Simple, clearly-labelled fallback inference -- deliberately
-        # not an LLM call or anything mode-specific in its own right
-        # ("do not add any mode-specific reasoning yet"); this exists
-        # only so an older client or a direct API caller sending no
-        # mode at all still gets a real, honestly-labelled value rather
-        # than a silent None flowing through the rest of the system.
-        lowered = body.raw_question.lower()
-        if any(w in lowered for w in ("noticed", "pattern", "trend", "spend is rising", "seems to be")):
-            resolved_mode, mode_source = "commercial_signal", "inferred"
-        elif any(w in lowered for w in ("strategy", "category review", "sourcing plan", "roadmap")):
-            resolved_mode, mode_source = "category_strategy", "inferred"
+        # R48 Signal Engine routing fix: the previous fallback was a
+        # five-word keyword list, which silently misrouted any genuine
+        # observation not containing one of those exact words (e.g.
+        # "Our OTIF has deteriorated from 96% to 81%" contains none of
+        # them) straight into Supplier Request -- the wrong journey
+        # entirely, since Supplier Request's own answer object is only
+        # ever built for case_mode == "supplier_request". Fixed with a
+        # genuine, structured LLM classification of the text's actual
+        # intent (classify_case_mode_from_observation), not a longer
+        # keyword list. The keyword heuristic is kept, but demoted to
+        # a fallback of last resort -- used only if the classification
+        # call itself fails for any reason, so a transient failure
+        # still yields a real, honestly-labelled value rather than
+        # blocking the request.
+        from app.pipeline.classifier import classify_case_mode_from_observation
+        llm_routed_mode = classify_case_mode_from_observation(body.raw_question)
+        if llm_routed_mode is not None:
+            resolved_mode, mode_source = llm_routed_mode, "inferred"
         else:
-            resolved_mode, mode_source = "supplier_request", "inferred"
+            lowered = body.raw_question.lower()
+            if any(w in lowered for w in ("noticed", "pattern", "trend", "spend is rising", "seems to be")):
+                resolved_mode, mode_source = "commercial_signal", "inferred"
+            elif any(w in lowered for w in ("strategy", "category review", "sourcing plan", "roadmap")):
+                resolved_mode, mode_source = "category_strategy", "inferred"
+            else:
+                resolved_mode, mode_source = "supplier_request", "inferred"
     with get_org_scoped_connection(x_org_id) as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -788,12 +801,41 @@ def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTas
         return _fetch_decision(x_org_id, decision_id)
 
     # Step A — classify
-    try:
-        classification = classify(body.raw_question)
-    except Exception as e:
-        detail = _log_full_error("Classification (Step A) failed", e)
-        _update_status(x_org_id, decision_id, "provider_unavailable")
-        raise HTTPException(status_code=503, detail=detail)
+    # Market Intelligence journey isolation (Phase 1 hardening): this
+    # mode has its own understanding step (market_signal_intelligence.
+    # understand_and_plan) that serves the equivalent purpose -- the
+    # existing classify() is built for price_increase/quote_comparison/
+    # problem_solving's own evidence-extraction shape, which has no
+    # meaning for an arbitrary external signal. Calling it anyway was
+    # a real, needless dependency: a transient classify() failure
+    # would fail the whole request even when market_signal_
+    # intelligence's own pipeline would have succeeded on its own.
+    # content_type is set to a value distinct from every existing
+    # content_type so none of the content_type-gated logic below
+    # (fresh_intelligence, market_verification, etc., all built for
+    # the specialist evidence pipeline) can fire for this mode by
+    # accident.
+    if resolved_mode == "market_intelligence":
+        classification = {
+            # "problem_solving" is used as a safe placeholder value here
+            # -- NormalizedEvidence's content_type field is Pydantic-
+            # constrained to the three existing specialist content
+            # types, and this mode's own normalized evidence is never
+            # consumed by market_signal_intelligence (which operates
+            # directly on raw_question), so any valid placeholder
+            # satisfies the shared pipeline's type requirement without
+            # affecting this journey's actual behavior.
+            "content_type": "problem_solving", "decision_type": "optimization",
+            "constraint_satisfaction_signal": None, "extracted_evidence": {}, "numeric_facts": {},
+            "supplier_specific_evidence": [],
+        }
+    else:
+        try:
+            classification = classify(body.raw_question)
+        except Exception as e:
+            detail = _log_full_error("Classification (Step A) failed", e)
+            _update_status(x_org_id, decision_id, "provider_unavailable")
+            raise HTTPException(status_code=503, detail=detail)
 
     content_type = classification.get("content_type")
     if content_type == "unsupported":
@@ -890,7 +932,15 @@ def create_decision(body: CreateDecisionRequest, background_tasks: BackgroundTas
     # Step B — evidence check, deterministic, no LLM call. Reads
     # normalized.derived.freight_relevant directly -- computed once,
     # above -- rather than re-deriving it from raw Incoterm text.
-    missing = check_missing_evidence(normalized, case_mode=resolved_mode)
+    # Market Intelligence Phase 1: this gate exists for the specialist
+    # evidence pipeline (price_increase/quote_comparison/problem_
+    # solving)'s own field model -- market_intelligence mode has no
+    # such fields at all (it operates directly on raw_question) and
+    # has its own separate understanding step (understand_and_plan)
+    # serving the equivalent purpose, so it is exempted here rather
+    # than being asked to satisfy a field model that was never built
+    # for it.
+    missing = check_missing_evidence(normalized, case_mode=resolved_mode) if resolved_mode != "market_intelligence" else None
     if missing:
         _set_awaiting_input(x_org_id, decision_id, missing)
         return _fetch_decision(x_org_id, decision_id)
@@ -2060,7 +2110,29 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
             )
 
     try:
-        position = _reasoning_call("primary_reasoning")
+        # Market Intelligence journey isolation (Phase 1 hardening):
+        # skip the shared primary reasoning call entirely for this
+        # mode -- its output (recommendation/commercial_insights/etc.)
+        # is never consumed by the market_intelligence composition
+        # block below, so calling it was a real, undecoupled
+        # dependency: a failure there previously failed the whole
+        # request even when market_signal_intelligence's own pipeline
+        # would have succeeded on its own. A minimal, valid stub
+        # satisfies the shared CommercialPosition model's required
+        # fields (reusing the exact same bare-position construction
+        # pattern already used elsewhere in this function for a
+        # different gate, just above) without making an LLM call.
+        if case_mode == "market_intelligence":
+            from app.models import CommercialPosition as _MICommercialPosition, Confidence as _MIConfidence, ConfidenceFactor as _MIConfidenceFactor
+            position = _MICommercialPosition(
+                recommendation="Market intelligence signal -- see market_intelligence_answer.",
+                commercial_insights=["This case is handled by the market_signal_intelligence pipeline, not primary commercial reasoning."],
+                reasoning="Not applicable for this journey.",
+                confidence=_MIConfidence(level="low", factors=[_MIConfidenceFactor(factor="not_applicable", value="market_intelligence journey", weight="decreases confidence")], derivation_note="Primary reasoning is not used for market_intelligence mode."),
+                assumptions=["Not applicable for this journey."], disconfirming_condition="Not applicable.", decision_type="optimization",
+            )
+        else:
+            position = _reasoning_call("primary_reasoning")
         # Phase 1 / R41 foundation: mode is attached here, purely to be
         # carried and preserved through the rest of this position's
         # lifecycle -- it plays no role in reasoning yet ("do not add
@@ -2306,10 +2378,70 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
     except Exception as e:
         print(f"Commercial Intelligence Kernel skipped (non-blocking): {type(e).__name__}: {e}")
 
+    # P0 fix (acceptance-test finding): the four journey-specific answer
+    # fields below were only ever conditionally SET when the current
+    # case_mode matched -- never explicitly cleared otherwise. That is
+    # request-isolation by ASSUMPTION (the position object starts with
+    # these fields empty), not by GUARANTEE. Root-caused via direct
+    # reproduction: a position object that already carried a value in
+    # one of these fields (from any prior mutation, by any future
+    # caller, retry path, or reuse) would carry it straight through into
+    # a response for a completely different journey, since nothing here
+    # ever asked "does this field belong to the CURRENT case_mode" --
+    # only "does the current case_mode match, if so set it." Explicitly
+    # resetting all four to None here, unconditionally, before any of
+    # the mode-specific blocks run, makes only-the-current-journey's-
+    # field-survives a guarantee of this composition step itself, not a
+    # property that depends on every caller always starting clean.
+    position.supplier_request_answer = None
+    position.commercial_signal_answer = None
+    position.category_strategy_answer = None
+    position.problem_solving_answer = None
+    position.market_intelligence_answer = None
+
+    # Single authoritative journey resolution (replaces the earlier
+    # per-gate patch). case_mode is fixed by the time this function
+    # runs -- it's a parameter, resolved and persisted before classify()
+    # ever ran, so it cannot know whether the text turned out to be
+    # problem-solving-shaped. problem_solving_evidence only becomes
+    # known once the kernel is built, here, later. Rather than letting
+    # each of the four composition gates independently decide whether
+    # it applies (which is how the earlier cross-contamination arose:
+    # two gates could each be genuinely, correctly satisfied on their
+    # own separate terms), resolved_journey is computed exactly once
+    # and is the single value every gate below checks -- reconciliation
+    # happens here, not per-gate:
+    #   - an explicit mode is authoritative outright: the user's own
+    #     choice is never overridden by what the classifier inferred
+    #     about the text, matching "explicit mode always wins."
+    #   - an inferred case_mode is overridden by problem_solving_
+    #     evidence when present: that signal comes from the classifier
+    #     actually reading the full text, later and more informed than
+    #     the earlier routing inference that produced case_mode in the
+    #     first place.
+    #   - otherwise resolved_journey is exactly the already-resolved
+    #     case_mode.
+    # This is deterministic for a given (case_mode, case_mode_source,
+    # problem_solving_evidence) triple -- the only real question left
+    # for "ambiguous" cases is which of those three inputs the case
+    # actually produces, not any further judgment call at this point.
+    _is_problem_solving_shaped = bool(position.kernel and (position.kernel.get("case", {}) or {}).get("problem_solving_evidence"))
+    resolved_journey = case_mode
+    if case_mode_source != "explicit" and _is_problem_solving_shaped:
+        resolved_journey = "problem_solving"
+    # position.case_mode's own type only ever represented the three
+    # routable case_mode values (supplier_request/commercial_signal/
+    # category_strategy) -- problem_solving was never one of its valid
+    # values, so it is deliberately left holding the original,
+    # pre-classification case_mode rather than being overwritten with
+    # resolved_journey. resolved_journey is the single authoritative
+    # value the four composition gates below use; it is a local
+    # variable, not persisted onto position.case_mode.
+
     # Phase 3 / R41: supplier_request answer contract, built
     # deterministically from the kernel and commercial_answer -- never
     # a second computation path.
-    if getattr(position, "case_mode", None) == "supplier_request" and position.kernel and position.commercial_answer:
+    if resolved_journey == "supplier_request" and position.kernel and position.commercial_answer:
         try:
             from app.pipeline.supplier_request_profile import build_supplier_request_answer
             from app.pipeline.market_intelligence import build_market_answer_section
@@ -2317,7 +2449,7 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
             position.supplier_request_answer["market"] = build_market_answer_section(position.kernel)
         except Exception as e:
             print(f"Supplier-request answer contract skipped (non-blocking): {type(e).__name__}: {e}")
-    if getattr(position, "case_mode", None) == "commercial_signal" and position.kernel:
+    if resolved_journey == "commercial_signal" and position.kernel:
         try:
             from app.pipeline.commercial_signal_profile import build_commercial_signal_answer
             from app.pipeline.market_intelligence import build_market_answer_section
@@ -2325,12 +2457,35 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
             position.commercial_signal_answer["market"] = build_market_answer_section(position.kernel)
         except Exception as e:
             print(f"Commercial-signal answer contract skipped (non-blocking): {type(e).__name__}: {e}")
-    if getattr(position, "case_mode", None) == "category_strategy" and position.kernel:
+    if resolved_journey == "category_strategy" and position.kernel:
         try:
             from app.pipeline.category_strategy_profile import build_category_strategy_answer
             from app.pipeline.market_intelligence import build_market_answer_section
             from app.pipeline.esg_intelligence import build_esg_answer_section
-            answer = build_category_strategy_answer(position.kernel, position)
+
+            # Category Memory Reasoning Integration: retrieval now
+            # happens BEFORE reasoning/composition, not after. The
+            # retrieved list is passed INTO build_category_strategy_
+            # answer, which threads it into build_360_findings --
+            # reconciliation happens there, inside actual finding
+            # construction, not as a step bolted on afterward. A
+            # retrieval failure here is caught and treated as "no
+            # relevant memory" for THIS call only (logged, not
+            # silently indistinguishable from a genuine absence in the
+            # sense that it's still observable in server logs) --
+            # reasoning proceeds normally either way, since memory is
+            # a secondary intelligence layer, never a dependency for
+            # producing the primary answer.
+            _retrieved_memory = None
+            try:
+                from app.pipeline.memory_service import retrieve_memory
+                _category = (position.kernel.get("case", {}) or {}).get("subject")
+                _retrieved_memory = retrieve_memory(org_id, category=_category) if _category else []
+            except Exception as e:
+                print(f"Category Memory retrieval failed (non-blocking, reasoning proceeds without it): {type(e).__name__}: {e}")
+                _retrieved_memory = []
+
+            answer = build_category_strategy_answer(position.kernel, position, raw_question, retrieved_memory=_retrieved_memory)
             market = build_market_answer_section(position.kernel)
             esg = build_esg_answer_section(position.kernel)
             # market/esg are computed after build_category_strategy_answer
@@ -2346,11 +2501,59 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
                 answer["esg"] = esg
             answer["diagnostics"]["market"] = market
             answer["diagnostics"]["esg"] = esg
+
             position.category_strategy_answer = answer
+
+            # Write happens LAST, only from THIS case's own just-computed
+            # findings, after the answer above is already finalized --
+            # this case can never reason from its own write, since the
+            # retrieval above necessarily happened before this write
+            # exists at all.
+            try:
+                from app.pipeline.memory_service import extract_candidates, store_candidates
+                _candidates = extract_candidates(position.kernel, answer["diagnostics"].get("findings", []), source_case_id=str(decision_id))
+                _store_result = store_candidates(org_id, _candidates)
+                if _store_result.get("error"):
+                    # store_candidates catches its own DB-level failures
+                    # internally and returns {"error": ...} rather than
+                    # raising -- the except block below only ever sees
+                    # exceptions raised OUTSIDE store_candidates (e.g.
+                    # in extract_candidates), so without this explicit
+                    # check an internal write failure (M1.3: the
+                    # evidence_state VARCHAR truncation that motivated
+                    # this fix) would never reach this existing,
+                    # already-established print-based observability
+                    # signal at all.
+                    print(f"Category Memory write failed (non-blocking): {_store_result['error']}")
+            except Exception as e:
+                print(f"Category Memory write skipped (non-blocking): {type(e).__name__}: {e}")
         except Exception as e:
             print(f"Category-strategy answer contract skipped (non-blocking): {type(e).__name__}: {e}")
 
-    if position.kernel and (position.kernel.get("case", {}) or {}).get("problem_solving_evidence"):
+    if resolved_journey == "market_intelligence":
+        # Phase 1 foundation: operates directly on raw_question, not on
+        # position.kernel -- classify()'s existing content-type model
+        # (price_increase/quote_comparison/problem_solving) has no
+        # shape for an arbitrary external signal, and this capability
+        # deliberately does not force one. Explicit mode only for this
+        # foundation (no inference path), matching supplier_request's
+        # and category_strategy's own explicit-only reachability.
+        try:
+            from app.pipeline.market_signal_intelligence import (
+                understand_and_plan, build_research_plan, execute_research,
+                classify_evidence, synthesize_and_translate, build_dynamic_answer,
+            )
+            signal_plan = understand_and_plan(raw_question)
+            research_plan = build_research_plan(signal_plan) if signal_plan else []
+            raw_findings = execute_research(research_plan) if research_plan else []
+            classified_findings = classify_evidence(raw_findings) if raw_findings else []
+            synthesis = synthesize_and_translate(signal_plan, classified_findings) if signal_plan else None
+            position.market_intelligence_answer = build_dynamic_answer(raw_question, signal_plan, classified_findings, synthesis)
+        except Exception as e:
+            print(f"Market signal intelligence skipped (non-blocking): {type(e).__name__}: {e}")
+            position.market_intelligence_answer = {"raw_question": raw_question, "understood": False, "message": "Unable to analyze this signal."}
+
+    if resolved_journey == "problem_solving" and position.kernel and _is_problem_solving_shaped:
         try:
             from app.pipeline.problem_solving_profile import build_problem_solving_answer
             position.problem_solving_answer = build_problem_solving_answer(position.kernel, position)

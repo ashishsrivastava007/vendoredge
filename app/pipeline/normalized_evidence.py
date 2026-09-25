@@ -134,7 +134,17 @@ class SupplierEvidence(BaseModel):
     price_display: Optional[str] = None
     lead_time_weeks: Optional[float] = None
     otif_percent: Optional[float] = None
+    # R48 Signal Engine: the current-value-only field above made a
+    # genuine OTIF deterioration signal structurally impossible to
+    # calculate -- there was nowhere to state the prior value at all.
+    # Additive and optional; every existing case with only a current
+    # otif_percent is entirely unaffected. Never invented when absent
+    # -- if only the current value is known, the deterministic
+    # calculation is honestly reported as not yet possible, per the
+    # evidence model's own "do not invent missing prior values" rule.
+    prior_otif_percent: Optional[float] = None
     defect_rate_percent: Optional[float] = None
+    prior_defect_rate_percent: Optional[float] = None
     payment_terms: Optional[str] = None
     capacity_percent: Optional[float] = None
     qualification_status: QualificationStatus = "unknown"
@@ -350,6 +360,14 @@ class PriceIncreaseEvidence(BaseModel):
     category_prior_annual_volume_units: Optional[float] = None
     prior_annual_spend_usd: Optional[float] = None  # the specific supplier's own prior-year spend
     prior_annual_volume_units: Optional[float] = None  # the specific supplier's own prior-year volume
+    # R48 Signal Engine: specification/requirement-change signal --
+    # genuinely new dimension, nothing existing represents it. Free-text
+    # description (like stated_price_history above) since specification
+    # changes are stated in too many different shapes to force into a
+    # rigid structure without losing real nuance. Optional and additive;
+    # every existing case is unaffected.
+    specification_changed: Optional[bool] = None
+    specification_change_description: Optional[str] = None
     # Phase 5B / R41: market driver evidence -- ONLY ever populated from
     # what the case text itself genuinely states (a claim the supplier
     # made, or a source the buyer themselves cited when writing the

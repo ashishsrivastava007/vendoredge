@@ -144,19 +144,43 @@ def check_missing_evidence(normalized: NormalizedEvidence, case_mode: str | None
 
     if case_mode == "commercial_signal":
         case = getattr(normalized, "case", None)
-        has_category_comparison = bool(
+        # R48 Signal Engine fix: this previously recognized ONLY a
+        # spend comparison as valid evidence, structurally blocking
+        # OTIF, defect-rate, volume-only, and specification-change
+        # signals even when the user supplied a real, specific fact.
+        # Now recognizes every signal dimension the evidence model
+        # actually supports. OTIF/defect are checked on PRESENCE of
+        # the current value alone, not a full comparison -- per the
+        # evidence model's own rule, a single snapshot is real
+        # evidence too; it is the downstream signal composer's job to
+        # honestly say "deterioration cannot yet be calculated" when
+        # no prior value exists, not this gate's job to block the case
+        # entirely for lacking one.
+        has_category_spend_comparison = bool(
             case and getattr(case, "category_annual_spend_usd", None) is not None
             and getattr(case, "category_prior_annual_spend_usd", None) is not None
         )
-        has_supplier_comparison = any(
+        has_category_volume_comparison = bool(
+            case and getattr(case, "category_annual_volume_units", None) is not None
+            and getattr(case, "category_prior_annual_volume_units", None) is not None
+        )
+        has_supplier_spend_comparison = any(
             s.current_annual_spend_usd is not None and s.prior_annual_spend_usd is not None
             for s in (normalized.suppliers or [])
         )
-        if has_category_comparison or has_supplier_comparison:
+        has_supplier_otif_evidence = any(s.otif_percent is not None for s in (normalized.suppliers or []))
+        has_supplier_defect_evidence = any(s.defect_rate_percent is not None for s in (normalized.suppliers or []))
+        has_specification_change = bool(
+            case and (getattr(case, "specification_changed", None) or getattr(case, "specification_change_description", None))
+        )
+        if any([
+            has_category_spend_comparison, has_category_volume_comparison, has_supplier_spend_comparison,
+            has_supplier_otif_evidence, has_supplier_defect_evidence, has_specification_change,
+        ]):
             return []
         return [{
             "field": "category_annual_spend_usd",
-            "prompt": "What changed, in numbers? Give at least a current vs. prior spend figure -- for the category or for a specific supplier.",
+            "prompt": "What changed, in numbers? Give at least a current vs. prior figure -- spend, volume, OTIF, defect rate -- for the category or for a specific supplier, or describe a specification change that occurred.",
             "why": "A real signal needs a real before/after comparison, not just a description of what you noticed.",
         }]
 

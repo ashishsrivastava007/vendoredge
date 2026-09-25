@@ -65,6 +65,16 @@ def test_secondary_section_summaries_use_plain_english():
         assert forbidden not in text
 
 
+def test_signal_hypothesis_status_labels_are_translated_to_plain_english():
+    """R48: the raw backend status values (SUPPORTED, PARTIALLY_
+    SUPPORTED, NOT_SUPPORTED, UNKNOWN, CONTRADICTED) must never be the
+    only thing rendered -- a translation map must cover all five."""
+    text = _read()
+    assert 'statusLabel = { SUPPORTED:' in text
+    for raw_status in ("SUPPORTED:", "PARTIALLY_SUPPORTED:", "NOT_SUPPORTED:", "UNKNOWN:", "CONTRADICTED:"):
+        assert raw_status in text  # present as a translation-map key, not as bare rendered text
+
+
 def test_negotiation_dimensions_raw_table_no_longer_duplicated_on_page():
     """Repetition fix: pos.negotiation_dimensions used to render twice
     (a bare table, and again -- more usefully -- inside the give/get

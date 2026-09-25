@@ -1,0 +1,72 @@
+{
+  "release_identifier": "VendorEdge_R48_SIGNAL_ENGINE_HANDOVER_PACKAGE",
+  "based_on": "VendorEdge_R47_SUPPLIER_REQUEST_COMPLETE_RELEASE",
+  "build_date": "2026-09-17",
+  "commit_identifier": "not available (no git repository in this environment)",
+  "status": "ENGINEERING PAUSED -- NOT FROZEN, NOT SCORED, NOT DECLARED PRODUCTION-READY",
+  "test_result": {
+    "total": 731,
+    "passed": 731,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "scope_of_this_release": "Something I Noticed (commercial_signal) only. Supplier Request remains frozen at R47 behavior, re-verified via its full dedicated test suite (22/22 passing) as part of this validation, not modified in any way during R48.",
+  "major_architectural_changes_in_r48": [
+    "Evidence gate fix: recognizes OTIF, defect-rate, and concentration comparisons (not spend-only) as valid signal evidence.",
+    "Multi-dimensional signal detection: dimensions (spend/volume, OTIF, defect, concentration, specification change, market divergence) collected as a list, not a single if/elif match -- headline and materiality genuinely combine multiple present dimensions.",
+    "Generalized competing-explanations engine: two universal hypotheses (one-off/time-limited event; data or reporting error) generated once, generically, for every dimension with a real calculated delta -- not hand-written per signal type.",
+    "Evidence-derived investigation-value scoring: feasibility, decision impact (magnitude-based, not binary), and status combined via a single scoring function -- no per-dimension hardcoded priority (e.g. no 'OTIF always outranks commercial'), verified by a test specifically designed to break such a rule if one existed.",
+    "Explicit contradiction detection: calculated evidence vs. stated claims (price direction, OTIF direction), kept visibly separate from ordinary hypotheses in both the API and the frontend.",
+    "Decision-relevant uncertainty: a dimension with an already-resolved, non-generic explanation has its residual generic questions demoted to non-decision-relevant, rather than every technically-open UNKNOWN forcing investigation.",
+    "Explicit decision state (ACT_NOW / INVESTIGATE / WATCH), derived from evidence sufficiency, material contradictions, and decision-relevant unresolved hypotheses.",
+    "Generalized impact representation: absolute dollar exposure computed directly from a category's own spend and growth evidence, replacing the prior scenario_annual_impact mechanism borrowed from Supplier Request's requested_change_percent field (which most observation-only signals never carry).",
+    "Structured, LLM-based free-text routing (classify_case_mode_from_observation), replacing a five-word keyword list, used only when no explicit mode is supplied and provably never invoked when mode is explicit -- Supplier Request's routing is unreachable through this code path."
+  ],
+  "files_changed_in_r48": [
+    "app/pipeline/commercial_signal_profile.py (the majority of R48's logic)",
+    "app/pipeline/evidence.py (evidence gate fix)",
+    "app/pipeline/normalized_evidence.py (prior_otif_percent, prior_defect_rate_percent, specification_changed, specification_change_description fields)",
+    "app/pipeline/normalize.py (wiring for the above new fields)",
+    "app/pipeline/kernel.py (OTIF/defect delta calculation; specification_changed/description on CaseIdentity)",
+    "app/pipeline/fresh_intelligence.py (signal-aware external intelligence gate, additive to the existing Supplier Request gate)",
+    "app/pipeline/classifier.py (classify_case_mode_from_observation)",
+    "app/routes/decisions.py (routing logic using the new classifier, decision_state wiring)",
+    "app/static/index.html (hypotheses/contradictions/investigate-first rendering)",
+    "tests/test_signal_engine_critical_fixes.py, test_signal_engine_routing.py, test_signal_engine_hypotheses.py, test_signal_engine_external_intelligence.py, test_signal_engine_contradictions.py, test_signal_engine_decision_state.py (all new)"
+  ],
+  "validation_performed_this_session": [
+    "Full regression suite: 731 passed, 0 failed, 0 errors -- executed directly, not assumed.",
+    "Representative fresh re-execution (this session, not relying on prior-turn memory) of cases from: the original 20-case signal matrix, the 10-case adversarial/unseen-combination matrix, the decision-value stress scenarios, and contradiction scenarios -- 9 cases run live via the real HTTP path in this validation pass, all behaving as expected (decision_state, signal headline, and contradiction detection all correct).",
+    "Stability: same case run 3 times, byte-identical result -- executed in this session.",
+    "Supplier Request regression: all 22 tests across its 4 dedicated test files re-run explicitly in this session -- 22/22 passing.",
+    "Real HTTP validation: genuine running server process (not TestClient), workspace creation over a real socket returning HTTP 200 with a real JWT.",
+    "Served-frontend validation: fetched the actually-served index.html from that running process -- confirmed no [object Object], EVIDENCE CONFLICT and WHAT I WOULD INVESTIGATE FIRST sections present, no internal markers (_generic/_dimension/_gates_others/decision_state/ACT_NOW) leaking into rendered output."
+  ],
+  "known_limitations": [
+    "The 'immaterial contradiction should not block action' case is NOT solved. Every contradiction this engine detects is currently treated as material -- there is no distinction between a large, consequential conflict and a genuinely trivial one. Explicitly not faked with an invented magnitude threshold; left as an open, named gap.",
+    "The feasibility-vs-decision-impact ordering is a designed hierarchy (feasibility checked before impact), not a value derived with zero human judgment -- documented as such in the code, not hidden.",
+    "The hypothesis catalogue, while now generalized (two universal hypotheses generated per dimension rather than per-signal-type hand-written branches), still only has ONE type-specific, non-generic hypothesis set for the spend/volume dimension (average-unit-price, mix-shift, specification-attribution). OTIF, defect, and concentration currently only ever produce the two generic hypotheses.",
+    "The routing classifier (classify_case_mode_from_observation) has never been verified against a live model -- no real Anthropic API key exists anywhere in this environment or session. Its mechanism, fallback safety, and non-interference with Supplier Request are proven; live judgment quality is not.",
+    "No live model call of any kind has been made in this entire R48 body of work. All 731 tests are deterministic and mock-based, consistent with every prior release in this engagement.",
+    "No genuine browser automation exists in this environment; frontend validation used a real running server process and direct HTTP/HTML inspection, not actual browser rendering, console error capture, or visual layout checking."
+  ],
+  "unresolved_technical_debt": [
+    "Internal hypothesis/contradiction tags (_generic, _dimension, _gates_others) require explicit stripping before every API response -- confirmed done, but any future dimension type added to this profile must remember to follow the same pattern or risk a leak.",
+    "Contradiction phrase-matching (price/OTIF direction claims) is narrow, hand-built text patterns -- the same class of fragility the original routing keyword list had, just smaller in scope and only used as a detector, not a router.",
+    "dimension_established_materiality is a binary True/False signal reused across headline, materiality-text, investigation-value scoring, and now decision-state logic -- a single shared concept doing several jobs, which kept the implementation coherent but means a future change to what 'established materiality' means for one purpose could unintentionally affect the others."
+  ],
+  "explicit_statements": {
+    "frozen": false,
+    "self_scored": false,
+    "declared_complete": false,
+    "declared_production_ready": false,
+    "stopping_point": "Engineering work stopped immediately after the decision-state and generalized-impact fixes were validated (731 tests passing) and this handover package was requested. No further features, refactoring, or scope changes were made after that point -- this package reflects exactly that state."
+  },
+  "configuration_requirements": {
+    "required_environment_variables": ["DATABASE_URL", "VENDOREDGE_AUTH_SECRET", "ANTHROPIC_API_KEY"],
+    "optional_environment_variables": ["MIGRATION_DATABASE_URL (required for a fresh deployment to complete startup migrations)", "VENDOREDGE_CLASSIFIER_MODEL", "VENDOREDGE_REASONING_MODEL", "VENDOREDGE_MARKET_MODEL", "VENDOREDGE_LLM_PROVIDER", "VENDOREDGE_RESEARCH_TOOL_PROVIDER", "ALLOW_LEGACY_WORKSPACE_LINKS", "VALIDATION_ENABLED"],
+    "database": "PostgreSQL 16, schema at db/schema.sql -- additive/idempotent migrations only."
+  },
+  "packaging_notes": "No secrets, real API keys, .env files, __pycache__, .pytest_cache, .git, virtual environments, or local caches included. Working tree unchanged between the final regression run (731 passed) and this ZIP's creation -- no code was modified after that run, per explicit instruction to stop feature development."
+}

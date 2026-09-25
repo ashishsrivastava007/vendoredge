@@ -24,6 +24,10 @@ from app.pipeline.commercial_signal_profile import detect_unsupported_overchargi
 from app.pipeline.category_archetype import detect_archetype, ARCHETYPE_LENS_LABELS
 from app.pipeline.esg_intelligence import build_esg_answer_section
 from app.pipeline.dependency_roadmap import build_initiatives, build_dependency_aware_roadmap
+from app.pipeline.category_strategy_intelligence import (
+    infer_category_objective, assess_category_boundary, build_360_findings, surfaced_findings, build_minimal_questions,
+    apply_decision_impact_guardrails,
+)
 
 
 def _build_dependency_roadmap_section(kernel: dict[str, Any], diagnosis: dict[str, Any], supplier_strategies: list[dict[str, Any]]) -> dict[str, Any]:
@@ -100,7 +104,7 @@ def build_category_diagnosis(kernel: dict[str, Any]) -> dict[str, Any]:
 _STRATEGY_OPTIONS = ("maintain", "develop", "challenge", "qualify", "dual-source", "consolidate", "reduce_dependency", "exit", "monitor")
 
 
-def classify_supplier_strategy(supplier_diagnosis: dict[str, Any], supplier_profile: dict[str, Any] | None) -> dict[str, Any]:
+def classify_supplier_strategy(supplier_diagnosis: dict[str, Any], supplier_profile: dict[str, Any] | None, memory_context: dict[str, Any] | None = None, related_context: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Returns {strategy, reason}. Conservative by design: defaults to
     "monitor" (the only classification that asserts nothing) whenever
     the evidence genuinely doesn't clearly support a stronger call --
@@ -113,31 +117,102 @@ def classify_supplier_strategy(supplier_diagnosis: dict[str, Any], supplier_prof
     awarded spend at all (supplier_diagnosis empty, classification
     driven purely by qualification/capacity evidence) -- a supplier
     existing in the case is never, by itself, a reason to classify it;
-    each branch below requires an actual fact."""
+    each branch below requires an actual fact.
+
+    memory_context (Category Memory Reasoning slice): an OPTIONAL,
+    already-reconciled historical-precedent record for THIS supplier's
+    spend_concentration proposition (see memory_service.
+    reconcile_memory_for_category). CURRENT evidence (share, growth,
+    qualification, capacity) is what decides the strategy VALUE below
+    -- memory never flips challenge/develop/qualify/monitor by itself.
+    What memory CAN genuinely change is the REASON text: a repeating
+    pattern (COMPLEMENTS) or a documented improvement/decline over
+    time (TEMPORAL_CHANGE) is real procurement context worth stating
+    alongside the current, authoritative classification.
+
+    related_context (M1.2 fix A): OPTIONAL list of this supplier's
+    RELATED_HISTORICAL_CONTEXT items -- memory sharing this supplier's
+    entity but NOT its exact proposition (e.g. a past negotiation
+    outcome, a differently-typed prior observation). These can never
+    be proposition evidence for the current finding -- never SUPPORTS,
+    CONTRADICTS, or TEMPORAL_CHANGE -- so they are surfaced as
+    explicitly-labelled context only, appended after any memory_
+    context handling, never altering the strategy value.
+    """
     share = supplier_diagnosis.get("category_share_percent")
     growth = supplier_diagnosis.get("spend_growth_percent")
     qualification = (supplier_profile or {}).get("qualification")
     capacity = (supplier_profile or {}).get("capacity")
 
     if share is not None and share >= 50:
-        return {"strategy": "challenge", "reason": f"holds {share}% of category spend -- a concentration level worth actively challenging with dual-sourcing or competitive pressure, not treating as settled"}
-    if qualification and (
+        result = {"strategy": "challenge", "reason": f"holds {share}% of category spend -- a concentration level worth actively challenging with dual-sourcing or competitive pressure, not treating as settled"}
+    elif qualification and (
         qualification.get("metric") == "qualification_timeline"
         or "not" in str(qualification.get("value", "")).lower()
         or str(qualification.get("value", "")).lower() in ("in_progress", "not_started")
     ):
-        return {"strategy": "qualify", "reason": f"qualification is not yet complete (stated: {qualification['value']}) -- do not treat as an immediately usable alternative"}
-    if share is not None and share >= 25 and growth is not None and growth > (supplier_diagnosis.get("_category_growth") or 0):
-        return {"strategy": "develop", "reason": f"already holds {share}% of category spend and is growing faster than the category -- worth actively managing the relationship, not just monitoring it"}
+        result = {"strategy": "qualify", "reason": f"qualification is not yet complete (stated: {qualification['value']}) -- do not treat as an immediately usable alternative"}
+    elif share is not None and share >= 25 and growth is not None and growth > (supplier_diagnosis.get("_category_growth") or 0):
+        result = {"strategy": "develop", "reason": f"already holds {share}% of category spend and is growing faster than the category -- worth actively managing the relationship, not just monitoring it"}
     # Capacity-unvalidated alone (no qualification concern) is
     # deliberately "monitor", not "qualify" -- these are different
     # evidence gaps. Qualification-incomplete means the supplier
     # cannot yet be used at all; an unvalidated capacity figure on an
     # otherwise-fine supplier just needs a data check, which "monitor
     # / validate capacity" reflects more accurately than "qualify".
-    if capacity and "unvalidated" in str(capacity.get("value", "")).lower():
-        return {"strategy": "monitor", "reason": "capacity is stated but not yet validated -- confirm the figure before relying on it as an alternative"}
-    return {"strategy": "monitor", "reason": "current evidence does not clearly support a stronger classification than ongoing monitoring"}
+    elif capacity and "unvalidated" in str(capacity.get("value", "")).lower():
+        result = {"strategy": "monitor", "reason": "capacity is stated but not yet validated -- confirm the figure before relying on it as an alternative"}
+    else:
+        result = {"strategy": "monitor", "reason": "current evidence does not clearly support a stronger classification than ongoing monitoring"}
+
+    if memory_context and memory_context.get("relationship") in ("COMPLEMENTS", "TEMPORAL_CHANGE", "CONTRADICTS", "SUPPORTS"):
+        rel = memory_context["relationship"]
+        prior_text = memory_context.get("finding_text", "")
+        if rel == "SUPPORTS":
+            result["reason"] = result["reason"] + " -- this confirms a previously recorded observation, not a new or isolated finding"
+        elif rel == "COMPLEMENTS" and memory_context.get("values_differ_unknown_period"):
+            # M1.2 fix B: the prior wording ("recurs... not a one-off")
+            # was only accurate when there was nothing numeric to
+            # compare at all. When the historical and current values
+            # genuinely differ and the period is unknown, "recurs" is
+            # misleading -- it implies repetition when the values
+            # actually changed. State the difference and the temporal
+            # uncertainty honestly instead.
+            result["reason"] = result["reason"] + f" -- this differs from a previously recorded observation ({prior_text}); whether that reflects a genuine change over time or a conflicting observation is not established, since the period of the prior observation is unknown"
+        elif rel == "COMPLEMENTS":
+            result["reason"] = result["reason"] + f" -- this recurs a previous observation for this supplier ({prior_text}), not a one-off"
+        elif rel == "TEMPORAL_CHANGE":
+            result["reason"] = result["reason"] + f" (previously recorded: {prior_text} -- this reflects genuine change over time, not a discrepancy)"
+        elif rel == "CONTRADICTS":
+            result["reason"] = result["reason"] + f" -- note: this differs from a same-period prior observation ({prior_text}); current evidence is what this classification is based on"
+
+    if related_context:
+        # M1.2 fix A: explicitly-labelled context only -- never treated
+        # as proposition evidence, never claimed to support or
+        # contradict the current classification. Only the single most
+        # decision-relevant item is surfaced (never a dump of
+        # everything retrieved), and irrelevant related context (a
+        # different supplier, filtered out before this call) produces
+        # no text here at all.
+        #
+        # M1.4 content-quality fix: surfaces the historical PROPOSITION
+        # (finding_text -- WHAT the memory actually says) and, only
+        # when the memory item itself recorded one, its IMPLICATION
+        # (WHY it may matter) -- never fabricating an implication that
+        # wasn't stored (test case H). Both stay explicitly attributed
+        # to "historical Memory," never rewritten into a present-tense
+        # factual claim.
+        item = related_context[0]
+        proposition = item.get("finding_text") or ""
+        implication = item.get("implication_text")
+        if proposition:
+            _context_text = f" (Related historical context, not directly comparable evidence -- historical Memory indicates: {proposition}"
+            if implication:
+                _context_text += f" This may matter because: {implication}"
+            _context_text += ")"
+            result["reason"] = result["reason"] + _context_text
+
+    return result
 
 
 # ---------------------------------------------------------------------
@@ -251,10 +326,41 @@ def build_roadmap(quick_wins: dict[str, list[str]], supplier_strategies: list[di
 # Answer assembly
 # ---------------------------------------------------------------------
 
-def build_category_strategy_answer(kernel: dict[str, Any], position: Any) -> dict[str, Any]:
+def build_category_strategy_answer(kernel: dict[str, Any], position: Any, raw_question: str = "", retrieved_memory: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     diagnosis = build_category_diagnosis(kernel)
     supplier_profiles = {s["supplier_name"]: s for s in kernel.get("suppliers", [])}
     diagnosis_by_supplier = {s["supplier"]: s for s in diagnosis["suppliers_by_spend"]}
+
+    # Category Memory Reasoning Integration slice: reconciliation now
+    # happens HERE -- immediately after diagnosis (pure, current-
+    # evidence-only, never itself touched by memory) and BEFORE
+    # supplier strategy classification and opportunity prioritization,
+    # so both of those genuinely reasoning stages can consult it. This
+    # is the direct fix for the prior audit's finding that memory only
+    # ever reached finding-level annotation, after every substantive
+    # stage was already complete.
+    #
+    # current_event_date: this case's own KNOWN business-event date,
+    # if any -- deliberately NOT the analysis timestamp. This evidence
+    # model has no field that reliably establishes when the underlying
+    # business fact occurred, so this stays None; reconcile_one
+    # correctly treats an unknown period as grounds for the cautious
+    # COMPLEMENTS label, never a manufactured CONTRADICTS or
+    # TEMPORAL_CHANGE from request timing alone.
+    _current_event_date = None
+    _reconciled_by_key: dict[tuple[str, str | None], dict[str, Any]] = {}
+    _related_historical_context: list[dict[str, Any]] = []
+    if retrieved_memory:
+        try:
+            from app.pipeline.memory_service import reconcile_memory_for_category
+            _reconciled_by_key, _related_historical_context = reconcile_memory_for_category(diagnosis, retrieved_memory, _current_event_date)
+        except Exception as e:
+            # A reconciliation failure must never break the primary
+            # answer -- diagnosis above was already computed from
+            # current evidence alone, and everything below proceeds
+            # exactly as it would with no memory at all.
+            print(f"Category Memory early reconciliation failed (non-blocking): {type(e).__name__}: {e}")
+            _reconciled_by_key, _related_historical_context = {}, []
 
     # Supplier-universe fix, confirmed by certification finding #5: this
     # previously classified only suppliers with spend data (diagnosis.
@@ -271,8 +377,11 @@ def build_category_strategy_answer(kernel: dict[str, Any], position: Any) -> dic
     for name, profile in supplier_profiles.items():
         s_with_context = dict(diagnosis_by_supplier.get(name, {}))
         s_with_context["_category_growth"] = diagnosis.get("category_spend_growth_percent")
-        classification = classify_supplier_strategy(s_with_context, profile)
+        memory_context = _reconciled_by_key.get(("spend_concentration", name))
+        related_context = [r for r in _related_historical_context if r.get("entity_supplier") == name]
+        classification = classify_supplier_strategy(s_with_context, profile, memory_context=memory_context, related_context=related_context)
         supplier_strategies.append({"supplier": name, "sentence": f"{name} \u2014 {classification['strategy']}: {classification['reason']}.", **classification})
+
     # Stable order: challenge/develop first (the suppliers needing real
     # attention), then qualify, then monitor -- not alphabetical, so
     # the most consequential classification leads.
@@ -386,7 +495,47 @@ def build_category_strategy_answer(kernel: dict[str, Any], position: Any) -> dic
     priorities = []
     for s in supplier_strategies:
         if s["strategy"] in ("challenge", "qualify", "develop"):
-            priorities.append({"priority": f"{s['supplier']} \u2014 {s['strategy']}", "reason": _short_reason.get(s["strategy"], s["strategy"])})
+            entry = {"priority": f"{s['supplier']} \u2014 {s['strategy']}", "reason": _short_reason.get(s["strategy"], s["strategy"])}
+            # Opportunity Prioritization Memory reasoning: a repeated,
+            # still-unresolved opportunity for the same supplier is
+            # genuinely more urgent than a first-time one -- this is
+            # the direct implementation of the spec's own example ("a
+            # repeated unresolved opportunity may influence opportunity
+            # prioritization"). Only fires on a genuine recurrence
+            # (COMPLEMENTS without a confirmed value difference, or an
+            # exact SUPPORTS match) -- never on a COMPLEMENTS case where
+            # the values actually differ under an unknown period (that
+            # is a change, not a repeat -- the same M1.2 fix B
+            # distinction as classify_supplier_strategy's own wording).
+            _mem = _reconciled_by_key.get(("spend_concentration", s["supplier"]))
+            if _mem and (_mem.get("relationship") == "SUPPORTS" or (_mem.get("relationship") == "COMPLEMENTS" and not _mem.get("values_differ_unknown_period"))):
+                entry["reason"] = entry["reason"] + " -- recurring, previously identified and still unresolved"
+                entry["_recurring"] = True
+            # M1.2 fix A: related historical context (a differently-
+            # typed prior observation for this supplier) is surfaced
+            # as explicit context only -- never treated as proposition
+            # evidence, never triggering the "recurring" urgency flag,
+            # since it does not confirm repetition of THIS proposition.
+            _related = [r for r in _related_historical_context if r.get("entity_supplier") == s["supplier"]]
+            if _related:
+                # M1.4: same proposition/implication distinction as
+                # classify_supplier_strategy's own related-context
+                # handling -- never fabricates a missing implication.
+                _proposition = _related[0].get("finding_text") or ""
+                _implication = _related[0].get("implication_text")
+                if _proposition:
+                    _ctx = f" (related historical context -- historical Memory indicates: {_proposition}"
+                    if _implication:
+                        _ctx += f" This may matter because: {_implication}"
+                    _ctx += ")"
+                    entry["reason"] = entry["reason"] + _ctx
+            priorities.append(entry)
+    # Recurring, previously-unresolved opportunities are genuinely more
+    # urgent than first-time ones -- moved to the front, stable order
+    # otherwise preserved (a real reordering, not just a text change).
+    priorities.sort(key=lambda p: 0 if p.get("_recurring") else 1)
+    for p in priorities:
+        p.pop("_recurring", None)
     if any(f["evidence_state"] == "CONTRADICTED" for f in facts):
         priorities.append({"priority": "Resolve the pricing-history contradiction", "reason": "supplier claim vs. documented history"})
     if diagnosis.get("category_price_growth_percent") is not None:
@@ -425,6 +574,24 @@ def build_category_strategy_answer(kernel: dict[str, Any], position: Any) -> dic
     if any(f["evidence_state"] == "CONTRADICTED" for f in facts):
         do_not_do_yet.append("Do not accept the supplier's cost narrative as settled -- it conflicts with the case's own documented history.")
 
+    # Slice 1 additions: objective inference, boundary assessment, and
+    # the 360-degree finding model with decision-impact classification
+    # -- the mechanism that turns a 360-degree internal picture into a
+    # small, high-value surfaced set (THINK 360, SHOW SIMPLY). Built
+    # from the SAME diagnosis/supplier_strategies already computed
+    # above; nothing here recalculates spend, share, or growth.
+    objective_summary, _objective_signals = infer_category_objective(raw_question)
+    boundary_note = assess_category_boundary(raw_question, kernel.get("case", {}).get("subject"))
+    findings = build_360_findings(kernel, diagnosis, supplier_strategies, retrieved_memory)
+    findings = apply_decision_impact_guardrails(findings)
+    surfaced = surfaced_findings(findings)
+    open_questions = build_minimal_questions(findings, objective_summary, boundary_note)
+
+    # _guardrail_applied is an internal audit marker for this function's
+    # own tests, not part of the buyer- or diagnostics-facing contract.
+    findings = [{k: v for k, v in f.items() if k != "_guardrail_applied"} for f in findings]
+    surfaced = [{k: v for k, v in f.items() if k != "_guardrail_applied"} for f in surfaced]
+
     internal = {
         "decision": decision,
         "money": money,
@@ -449,6 +616,22 @@ def build_category_strategy_answer(kernel: dict[str, Any], position: Any) -> dic
         # genuinely richer (dependencies, decision gates, four
         # dimensions), not a second, duplicate roadmap section.
         "roadmap": _build_dependency_roadmap_section(kernel, diagnosis, supplier_strategies),
+        # Slice 1: objective/boundary/findings live in internal (audit-
+        # visible via diagnostics); the buyer-facing view below decides
+        # what actually surfaces, per the decision-impact rule.
+        "objective": objective_summary,
+        "category_boundary_note": boundary_note,
+        "findings": findings,
+        "surfaced_findings": surfaced,
+        "open_questions": open_questions,
+        # Memory reconciliation summary (structured, not hidden
+        # reasoning): current_evidence_precedence states the
+        # unconditional rule this implementation follows; historical_
+        # context_used is true only when at least one finding actually
+        # received a historical_precedent annotation above -- not
+        # merely because memory was retrieved.
+        "historical_context_used": any(f.get("historical_precedent") for f in findings),
+        "current_evidence_precedence": "Current evidence always determines each finding's stated value; historical memory is attached only as labelled context and never overrides it.",
     }
     # Final UX fix: naively rendering "the answer object" must be safe
     # by default. Previously the safe view was a nested "buyer_facing"
@@ -473,6 +656,21 @@ def _build_buyer_facing_view(full_answer: dict[str, Any]) -> dict[str, Any]:
     contract_notes dumps -- those remain available in the object above
     for audit and deep-dive, never in this view."""
     view: dict[str, Any] = {}
+    # Slice 1: category_boundary_note and open_questions surface
+    # directly (they are already the curated, high-value output by
+    # construction); surfaced_findings is the decision-impact-filtered
+    # list -- BACKGROUND findings never reach here, matching the
+    # "SURFACE: DECISION_CHANGING/MATERIAL_RISK/DECISION_CRITICAL_
+    # UNKNOWN, RETAIN: BACKGROUND" rule.
+    if full_answer.get("category_boundary_note"):
+        view["category_boundary_note"] = full_answer["category_boundary_note"]
+    if full_answer.get("surfaced_findings"):
+        view["what_matters_now"] = [
+            {"finding": f["finding"], "implication": f["implication"], "possible_action": f.get("possible_action")}
+            for f in full_answer["surfaced_findings"]
+        ]
+    if full_answer.get("open_questions"):
+        view["open_questions"] = full_answer["open_questions"]
     if full_answer.get("what_we_know"):
         view["category_position"] = full_answer["what_we_know"]
     if full_answer.get("decision"):

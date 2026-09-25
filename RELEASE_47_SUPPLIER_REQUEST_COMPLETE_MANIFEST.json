@@ -1,0 +1,48 @@
+{
+  "release_identifier": "VendorEdge_R47_SUPPLIER_REQUEST_COMPLETE_RELEASE",
+  "based_on": "VendorEdge_R46_SUPPLIER_REQUEST_WIRING_RELEASE",
+  "build_date": "2026-09-15",
+  "commit_identifier": "not available (no git repository in this environment)",
+  "test_result": {
+    "total": 685,
+    "passed": 685,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "changes_since_r46": [
+    "P0 defect fix: '[object Object]' in the deployed supplier draft. Root cause traced precisely -- _build_response_draft() has always returned a structured {subject, body, status} object by design (matching the generic commercial_answer renderer's own correct handling); the R46 wiring fix's renderSupplierRequestAnswer coerced the whole object to a string instead of extracting .subject/.body. Fixed by extracting the fields, matching the pattern already proven correct elsewhere -- not a frontend workaround.",
+    "next_move genericity fix: two of three next_move items were gated on conditions true for virtually every price_increase case, so they appeared identically across materially different situations, including nonsensical combinations (requesting supplier evidence on a case that was just accepted). Now gated on the actual decision state -- a genuinely pending alternative-supplier qualification (reusing the same signal trade_off already reflects) and the actual decision stance.",
+    "Decision-stance classifier precision fix: a plain substring check for 'accept' incorrectly matched 'before accepting the 8%' and would have matched 'do not accept'. Fixed by checking negated/conditional forms first.",
+    "Stance-aware next_move fallback: previously one generic sentence regardless of decision; now distinct fallback text for accept/investigate/challenge, closing a gap where accept and investigate cases could collapse to an identical next_move.",
+    "Supplier draft situation-tailoring: investigated whether a structured decision-type field already exists (found DecisionType -- optimization/constraint_satisfaction, a different axis; no field distinguishes timing/FX/contract-index/competition situations). Built _classify_situation_type() layered on the existing stance classifier, using a real structured signal (a genuine alternative supplier present in case evidence) where one exists. Eight situation-specific draft templates (accept, challenge, investigate-suppressed, contract_compliance, timing, fx, competition, strategic_continuity) replace the single generic template, each using only facts the case actually states."
+  ],
+  "capabilities_included": [
+    "Commercial Intelligence Kernel -- single evidence/truth layer shared by every reasoning profile",
+    "Supplier Request experience: DECLARED COMPLETE AND FROZEN in this release -- dedicated adaptive answer object (decision/why/money/leverage/trade-off/next-move/what-could-change-this/situation-tailored draft response), all genuinely reaching the frontend, all verified through the real HTTP path and a genuine running server process",
+    "The other three experiences (Something I Noticed, Category Strategy, A Problem I Need to Solve) unchanged in this release -- explicitly out of scope for this packaging pass",
+    "Market Intelligence and ESG/Sustainability foundations",
+    "Category archetype detection",
+    "Dependency-aware category roadmap",
+    "Unknown -> Investigation conversion",
+    "Complex Problem Solving vertical slice with the Maersk principle enforced structurally",
+    "Provider-independent LLM client and research-tool abstractions",
+    "Fresh Decision Intelligence -- first vertical slice",
+    "Safe buyer-facing transport",
+    "11-case Supplier Request test matrix with structured (not prose-only) evidence, proving genuine deterministic differentiation"
+  ],
+  "known_limitations": [
+    "No live Anthropic API key exists anywhere in this build or the environment that produced it. Live model behavior remains completely unverified for Supplier Request, as for every other experience. tests/live_certification_harness.py is ready to run the moment a real key is available.",
+    "No browser automation tool is available in this environment. Deployment validation used a genuine running server process and real HTTP requests, confirmed to differ meaningfully from the in-process TestClient, but true browser rendering, console errors, and visual layout have never been observed.",
+    "The 8-situation supplier-draft classifier (_classify_situation_type) is deterministic text-pattern matching layered on structured signals where they exist, not a fully structured model-output field -- documented honestly in the code as a smaller, safer choice than extending the live classifier's JSON contract, which would be untestable without a real API key.",
+    "Money materiality (whether a small routine adjustment should suppress the Money section) was investigated properly this pass and deliberately left as-is, with reasoning recorded: every alternative considered either required an arbitrary dollar threshold or hid legitimate budget information.",
+    "The generic usefulness-scoring/composition engine remains deliberately unbuilt across every experience -- no finding in any Supplier Request certification round has shown the current adaptive-composition architecture structurally incapable of the required behavior."
+  ],
+  "configuration_requirements": {
+    "required_environment_variables": ["DATABASE_URL", "VENDOREDGE_AUTH_SECRET", "ANTHROPIC_API_KEY"],
+    "optional_environment_variables": ["MIGRATION_DATABASE_URL (required for a fresh deployment to complete startup migrations -- the runtime DATABASE_URL role correctly lacks schema-modification privileges)", "VENDOREDGE_CLASSIFIER_MODEL", "VENDOREDGE_REASONING_MODEL", "VENDOREDGE_MARKET_MODEL", "VENDOREDGE_MODEL", "VENDOREDGE_LLM_PROVIDER", "VENDOREDGE_CHALLENGER_PROVIDER", "VENDOREDGE_RESEARCH_TOOL_PROVIDER", "ALLOW_LEGACY_WORKSPACE_LINKS", "VALIDATION_ENABLED"],
+    "database": "PostgreSQL 16, schema at db/schema.sql -- additive/idempotent migrations only, safe against any prior database in this lineage."
+  },
+  "migration_requirements": "Run db/schema.sql. No new migrations in this release beyond what R42 already introduced.",
+  "packaging_notes": "No secrets, real API keys, .env files, __pycache__, .pytest_cache, .git, virtual environments, or local caches included. Working tree unchanged between the final regression run (685 passed) and this ZIP's creation -- no application code was modified after that run. This release freezes Supplier Request exactly as certified complete; the other three experiences are explicitly untouched and out of scope for this packaging pass."
+}

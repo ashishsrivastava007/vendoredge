@@ -42,25 +42,46 @@ from app.model_config import MARKET_MODEL
 
 
 def should_research_fresh_intelligence(kernel: dict[str, Any]) -> bool:
-    """Free, deterministic gate -- no API call. Only fires for the
-    target vertical's shape: a price_increase case where the category
-    has an identifiable subject/product context AND there's a real
-    supplier with meaningful spend concentration already established
-    (matching "Industrial Valves / Supplier A" -- a named category, a
-    named supplier, a real requested change). A case with no category
-    context, or no supplier spend data at all, has nothing concrete
-    enough to research -- firing a search anyway would just be "search
-    for anything," the exact behavior item 5/7 rule out."""
+    """Free, deterministic gate -- no API call. Fires for either of two
+    genuinely distinct shapes, kept as separate, additive conditions so
+    neither can change the other's behavior:
+
+    1. The original target vertical's shape (unchanged, byte-for-byte):
+       a price_increase case where the category has an identifiable
+       subject/product context AND there's a real supplier with
+       meaningful spend concentration already established (matching
+       "Industrial Valves / Supplier A"). A case with no category
+       context, or no supplier spend data at all, has nothing concrete
+       enough to research.
+
+    2. R48 Signal Engine addition: a commercial_signal case whose own
+       stated text describes a market-price-divergence pattern (a
+       market price moving while a specific supplier's price has not)
+       -- the one signal shape from Section 13 where external
+       verification can genuinely change the conclusion. An OTIF,
+       defect-rate, or concentration signal never matches this and
+       never triggers research -- those are internal facts with no
+       external-market relevance, and Section 13 is explicit that
+       research must not fire "merely because the signal mentions a
+       market."
+    """
     case = kernel.get("case") or {}
-    if case.get("content_type") != "price_increase":
-        return False
-    subject = case.get("subject")
-    if not subject:
-        return False
     facts = kernel.get("facts") or []
-    has_supplier_spend = any(f.get("metric") == "annual_spend" and f.get("value") for f in facts)
-    has_requested_change = any(f.get("metric") == "requested_change_percent" for f in facts)
-    return bool(has_supplier_spend and has_requested_change)
+    if case.get("content_type") == "price_increase":
+        subject = case.get("subject")
+        if subject:
+            has_supplier_spend = any(f.get("metric") == "annual_spend" and f.get("value") for f in facts)
+            has_requested_change = any(f.get("metric") == "requested_change_percent" for f in facts)
+            if has_supplier_spend and has_requested_change:
+                return True
+    stated_text = " ".join(str(f.get("value") or "") for f in facts if f.get("metric") == "stated_justification").lower()
+    _market_divergence_markers = (
+        "market price has fallen", "market prices have fallen", "market price fell", "market prices fell",
+        "supplier price has not moved", "supplier's price has not moved", "supplier price remains unchanged", "price has not changed",
+    )
+    if any(m in stated_text for m in _market_divergence_markers):
+        return True
+    return False
 
 
 def _parse_research_response(raw_text: str) -> list[dict[str, Any]]:

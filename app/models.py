@@ -19,7 +19,7 @@ DecisionType = Literal["optimization", "constraint_satisfaction"]
 # purely to make mode real, persistent, first-class data, proven to
 # survive the full request lifecycle, before any mode-specific
 # reasoning is built on top of it.
-CaseMode = Literal["supplier_request", "commercial_signal", "category_strategy"]
+CaseMode = Literal["supplier_request", "commercial_signal", "category_strategy", "market_intelligence"]
 CaseModeSource = Literal["explicit", "inferred"]
 Status = Literal[
     "created", "classifying", "awaiting_user_input",
@@ -331,6 +331,7 @@ class CommercialPosition(BaseModel):
     # built yet (market intelligence, full 3-year roadmap, contract/
     # supply-chain detail).
     category_strategy_answer: Optional[dict] = None
+    market_intelligence_answer: Optional[dict] = None
     # Phase 7: the problem-solving-specific answer contract (Problem/
     # What we know/What is likely/What still needs checking/
     # Recommendation/Next action). Only populated when the case's

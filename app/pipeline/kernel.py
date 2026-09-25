@@ -78,6 +78,20 @@ class CaseIdentity(BaseModel):
     # verdicts, countermeasure verdicts) structures, not something
     # forced into individual CommercialFact triples.
     problem_solving_evidence: Optional[dict] = None
+    # R48 Signal Engine: specification-change signal flag/description,
+    # mirrored from normalized.case (PriceIncreaseEvidence) -- kernel
+    # profiles read only the kernel dict, never normalized directly,
+    # so this needs its own narrow field here the same way subject/
+    # category already do.
+    specification_changed: Optional[bool] = None
+    # Additive, shared-layer field (spec: prefer shared evidence
+    # primitives). stated_price_history already existed on normalized.
+    # case for every journey but was never threaded into the kernel --
+    # Category Strategy's finding model reads only the kernel, so it
+    # had no access to it at all. Purely additive: no existing field
+    # changed, no existing journey's behavior altered.
+    stated_price_history: list[str] = Field(default_factory=list)
+    specification_change_description: Optional[str] = None
 
 
 class SupplierProfile(BaseModel):
@@ -198,6 +212,9 @@ def build_kernel(
         # ambiguous when there is no incumbent at all.
         subject=normalized.common.supplier_name or next((s.supplier_name for s in normalized.suppliers if s.is_incumbent), None),
         suppliers=[s.supplier_name for s in normalized.suppliers] or ([normalized.common.supplier_name] if normalized.common.supplier_name else []),
+        specification_changed=getattr(normalized.case, "specification_changed", None),
+        stated_price_history=list(getattr(normalized.case, "stated_price_history", None) or []),
+        specification_change_description=getattr(normalized.case, "specification_change_description", None),
         market_driver_claims=[c.model_dump() for c in getattr(normalized.case, "market_driver_claims", None) or []],
         esg_claims=[c.model_dump() for c in getattr(normalized.case, "esg_claims", None) or []],
         problem_solving_evidence=(
@@ -298,8 +315,17 @@ def build_kernel(
         # normalized directly.
         if s.otif_percent is not None:
             profile.performance.append(CommercialFact(entity=s.supplier_name, metric="otif_percent", value=s.otif_percent, evidence_state="VERIFIED", provenance=f"supplier:{s.supplier_name}:otif_percent"))
+        if s.prior_otif_percent is not None and s.otif_percent is not None:
+            # R48 Signal Engine: a genuine, deterministic OTIF
+            # deterioration/improvement figure -- computed only when
+            # both values are actually present, never invented. This
+            # is what makes an OTIF signal calculable the same way a
+            # spend/volume signal already was.
+            profile.performance.append(CommercialFact(entity=s.supplier_name, metric="otif_change_pp", value=round(s.otif_percent - s.prior_otif_percent, 2), evidence_state="CALCULATED", provenance=f"supplier:{s.supplier_name}:otif_percent-prior_otif_percent"))
         if s.defect_rate_percent is not None:
             profile.performance.append(CommercialFact(entity=s.supplier_name, metric="defect_rate_percent", value=s.defect_rate_percent, evidence_state="VERIFIED", provenance=f"supplier:{s.supplier_name}:defect_rate_percent"))
+        if s.prior_defect_rate_percent is not None and s.defect_rate_percent is not None:
+            profile.performance.append(CommercialFact(entity=s.supplier_name, metric="defect_rate_change_pp", value=round(s.defect_rate_percent - s.prior_defect_rate_percent, 2), evidence_state="CALCULATED", provenance=f"supplier:{s.supplier_name}:defect_rate_percent-prior_defect_rate_percent"))
         if s.lead_time_weeks is not None:
             profile.performance.append(CommercialFact(entity=s.supplier_name, metric="lead_time_weeks", value=s.lead_time_weeks, evidence_state="VERIFIED", provenance=f"supplier:{s.supplier_name}:lead_time_weeks"))
         _commercial_bits = []

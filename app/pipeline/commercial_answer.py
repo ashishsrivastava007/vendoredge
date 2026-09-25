@@ -82,16 +82,172 @@ def _supplier_name(normalized: NormalizedEvidence) -> str | None:
     return None
 
 
+def _classify_decision_stance(recommendation: str | None) -> str:
+    """Deterministic, text-based read of what the recommendation
+    actually decided -- accept / challenge / investigate / other. A
+    structured decision-type field doesn't exist yet and building a
+    generic classifier is out of scope for this pass; this reads the
+    same plain-English opening a human would, to judge whether a
+    supplier draft is even useful yet.
+
+    Bug found and fixed during the Supplier Request quality-gate audit:
+    a plain substring check for "accept" incorrectly matched "before
+    accepting the 8%" and "do not accept" -- both genuinely
+    challenge/evidence-gathering language, not acceptance. Negated and
+    conditional forms are now checked first, and explicitly excluded
+    from the plain "accept" match."""
+    text = (recommendation or "").strip().lower()
+    if not text:
+        return "unclear"
+    lead = text[:70]
+    if any(w in lead for w in ("investigate", "gather", "establish", "confirm before", "do not yet", "not yet", "wait for", "hold until", "before deciding", "not enough evidence")):
+        return "investigate"
+    if any(w in lead for w in ("challenge", "push back", "reject", "decline", "do not accept", "not accept", "before accept", "negotiate", "resist")):
+        return "challenge"
+    if any(w in lead for w in ("accept", "agree to", "proceed with", "approve")):
+        return "accept"
+    return "other"
+
+
+def _classify_situation_type(normalized: NormalizedEvidence | None, position: Any) -> str:
+    """Situation-specific read, layered on top of _classify_decision_
+    stance rather than expanding it -- investigated first whether a
+    clean structured field already exists for this (checked
+    DecisionType, constraint_satisfaction signals, and the full
+    NormalizedEvidence/CommercialPosition schema): none of them
+    distinguish "this is a timing dispute" from "this is an FX
+    request" from "this is a contract-index case". Building that as a
+    new model-output field would mean changing the live classifier's
+    JSON contract, which is a materially larger and riskier change
+    than this pass is scoped for and cannot be verified without a real
+    model call. So this reads the same case text a human reviewing the
+    request would, using a structured signal (a genuine alternative
+    supplier actually present in the case evidence) wherever one
+    exists, and falls back to _classify_decision_stance's accept/
+    challenge/investigate/other read otherwise -- never guessing a
+    situation the case's own text doesn't support.
+
+    Returns one of: accept, investigate, contract_compliance, timing,
+    fx, competition, strategic_continuity, challenge, other."""
+    stance = _classify_decision_stance(getattr(position, "recommendation", None))
+    if stance in ("accept", "investigate"):
+        return stance
+
+    case = normalized.case if normalized else None
+    justification = (getattr(case, "suppliers_stated_justification", None) or "").lower()
+    criticality = (getattr(normalized.common, "how_critical_is_this_supplier_relationship", None) or "").lower() if normalized else ""
+    recommendation = (getattr(position, "recommendation", None) or "").lower()
+    combined = f"{justification} {criticality} {recommendation}"
+
+    has_alt_suppliers = bool(normalized and any(not s.is_incumbent for s in (normalized.suppliers or [])))
+
+    if any(w in combined for w in ("index clause", "index mechanism", "indexation", "contract's index", "index formula", "per the contract")):
+        return "contract_compliance"
+    if any(w in combined for w in ("notice period", "notice requirement", "days notice", "days' notice", "effective date", "notice was given")):
+        return "timing"
+    if any(w in combined for w in ("fx", "foreign exchange", "exchange rate", "usd/eur", "eur/usd", "currency")):
+        return "fx"
+    if has_alt_suppliers and any(w in combined for w in ("alternative", "qualified", "competitive", "competition", "capacity")):
+        return "competition"
+    if any(w in combined for w in ("critical", "sole-source", "sole source", "single-source", "single source", "switching", "continuity")):
+        return "strategic_continuity"
+    return stance
+
+
 def _build_response_draft(normalized: NormalizedEvidence | None, position: Any) -> dict[str, str] | None:
-    """Create a conservative, editable supplier draft from existing case facts."""
+    """Create a conservative, editable supplier draft tailored to the
+    actual situation -- not a single generic template reused
+    regardless of what's actually happening. Suppressed entirely when
+    the recommendation itself says more investigation is needed first
+    (nothing useful to send a supplier yet). Every template below uses
+    only facts the case actually states (the requested percentage, the
+    supplier's own justification text, the supplier's name) -- never a
+    specific contract clause, a specific notice-period length, a
+    specific FX rate, or a competitor's name/price that the case
+    didn't provide."""
     if normalized is None or normalized.content_type != "price_increase":
         return None
     case = normalized.case
     assert isinstance(case, PriceIncreaseEvidence)
+    situation = _classify_situation_type(normalized, position)
+    if situation == "investigate":
+        return None
+
     supplier = _supplier_name(normalized) or "Supplier"
     requested = _pct(case.requested_increase_percent) or "the requested increase"
     justification = (case.suppliers_stated_justification or "the stated cost drivers").strip()
     opening = (position.opening_position or "").strip()
+    closing = "Best regards,\nProcurement"
+
+    if situation == "accept":
+        body = (
+            f"Dear {supplier},\n\n"
+            f"Thank you for your proposal regarding the {requested} price adjustment. "
+            f"We have reviewed the request and are able to proceed on the basis stated ({justification}).\n\n"
+            "Please confirm the effective date and any changes to invoicing, and we will process the "
+            f"adjustment accordingly.\n\n{closing}"
+        )
+        return {"subject": f"{supplier} – confirming the proposed price adjustment", "body": body, "status": "DRAFT — requires buyer review before sending"}
+
+    if situation == "contract_compliance":
+        body = (
+            f"Dear {supplier},\n\n"
+            f"Thank you for your proposal regarding the {requested} price adjustment. "
+            "Before we can respond to the requested percentage, please confirm how this figure was "
+            "calculated against the price-adjustment mechanism already in our agreement, including the "
+            "reference period and index used.\n\n"
+            f"We understand the stated basis is: {justification}\n\n"
+            f"{closing}"
+        )
+        return {"subject": f"{supplier} – confirming the index calculation", "body": body, "status": "DRAFT — requires buyer review before sending"}
+
+    if situation == "timing":
+        body = (
+            f"Dear {supplier},\n\n"
+            f"Thank you for your proposal regarding the {requested} price adjustment. "
+            "Our records show the notice given does not match the notice period required under our "
+            "agreement for a change of this kind. Please confirm the notice period you believe applies "
+            "and the effective date you are proposing, so we can align this with the agreed terms before "
+            "discussing the adjustment itself.\n\n"
+            f"{closing}"
+        )
+        return {"subject": f"{supplier} – confirming notice period and effective date", "body": body, "status": "DRAFT — requires buyer review before sending"}
+
+    if situation == "fx":
+        body = (
+            f"Dear {supplier},\n\n"
+            f"Thank you for your proposal regarding the {requested} price adjustment, stated as being "
+            f"driven by currency movement ({justification}). Before we can evaluate this, please provide "
+            "the specific reference rate and period you are using, and confirm this against the currency "
+            "terms in our existing agreement.\n\n"
+            f"{closing}"
+        )
+        return {"subject": f"{supplier} – confirming the currency basis for the adjustment", "body": body, "status": "DRAFT — requires buyer review before sending"}
+
+    if situation == "competition":
+        body = (
+            f"Dear {supplier},\n\n"
+            f"Thank you for your proposal regarding the {requested} price adjustment. "
+            f"We have reviewed the request and the stated basis of {justification}. "
+            "We are currently reviewing our sourcing options for this category as part of our normal "
+            "commercial process, and would like to understand the full basis for this request before "
+            "moving forward.\n\n"
+            f"{closing}"
+        )
+        return {"subject": f"{supplier} – reviewing the proposed price adjustment", "body": body, "status": "DRAFT — requires buyer review before sending"}
+
+    if situation == "strategic_continuity":
+        body = (
+            f"Dear {supplier},\n\n"
+            f"Thank you for your proposal regarding the {requested} price adjustment. "
+            f"We have reviewed the request and the stated basis of {justification}. "
+            "Given the importance of this relationship to our operations, we would like to work through "
+            "this constructively -- please provide the supporting basis for the requested figure so we "
+            "can consider it alongside the broader commercial terms of our agreement.\n\n"
+            f"{closing}"
+        )
+        return {"subject": f"{supplier} – working through the proposed price adjustment", "body": body, "status": "DRAFT — requires buyer review before sending"}
+
     body = (
         f"Dear {supplier},\n\n"
         f"Thank you for your proposal regarding the requested {requested} price adjustment. "
@@ -113,6 +269,7 @@ def _build_response_draft(normalized: NormalizedEvidence | None, position: Any) 
         "body": body,
         "status": "DRAFT — requires buyer review before sending",
     }
+
 
 
 
@@ -227,11 +384,20 @@ def build_commercial_answer(
             leverage.append({"label": "Alternative supplier evidence", "value": f"{len(non_incumbent)} non-incumbent supplier(s) are represented in the case evidence."})
     insights = list(getattr(position, "commercial_insights", []) or [])
     why = _dedupe(insights, 4)
+    # Computed early so both the next_move fallback and the actions
+    # list below can use it -- avoids two separate reads of the same
+    # recommendation text producing inconsistent stances.
+    decision_stance = _classify_decision_stance(getattr(position, "recommendation", None))
+    _stance_fallback = {
+        "accept": "Confirm the effective date with the supplier and process the adjustment.",
+        "investigate": "Gather the missing information before forming a position.",
+        "challenge": "Request the supplier's supporting evidence before moving your position.",
+    }.get(decision_stance, "Review the evidence and act within the stated conditions.")
     next_move = None
     for candidate in [
         getattr(position, "opening_position", None),
         (position.commercial_decision_engine.get("next_move") if isinstance(getattr(position, "commercial_decision_engine", None), dict) else None),
-        "Review the evidence and act within the stated conditions.",
+        _stance_fallback,
     ]:
         if candidate:
             next_move = str(candidate)
@@ -322,10 +488,31 @@ def build_commercial_answer(
     decision_changers = _dedupe(decision_changers, 3)
 
     actions = []
+    # Reuses decision_stance computed earlier for the next_move
+    # fallback, rather than reclassifying the same text twice.
+    # Fix (Supplier Request quality gate): these two items were
+    # previously unconditional in practice -- their old guard
+    # conditions ("a supplier exists" / "a percent was requested")
+    # are true for virtually every price_increase case, which is why
+    # they appeared identically across 11 materially different audit
+    # cases, including nonsensical combinations (telling the buyer to
+    # "request supplier-specific support before agreeing" on a case
+    # that was just accepted). Now gated on the actual decision state:
+    # alternative-supplier validation only when a supplier's
+    # qualification is genuinely still pending (the same evidence
+    # trade_off already reflects, not duplicated logic -- read from
+    # the same normalized.suppliers data); requesting supplier
+    # evidence only when the decision is actually still open
+    # (challenge/other), never when the case was already accepted or
+    # is explicitly waiting on investigation first.
+    has_pending_alt_supplier = bool(normalized and any(
+        getattr(s, "qualification_time_estimate", None) for s in (normalized.suppliers or [])
+    ))
+    needs_supplier_evidence = decision_stance in ("challenge", "other") and requested_pct is not None
     for text in [
         next_move,
-        ("Validate alternative-supplier qualification/capacity before making a consequential commitment." if normalized and normalized.suppliers else None),
-        ("Request supplier-specific support for the requested change before agreeing to it." if requested_pct is not None and normalized else None),
+        ("Validate alternative-supplier qualification/capacity before making a consequential commitment." if has_pending_alt_supplier else None),
+        ("Request supplier-specific support for the requested change before agreeing to it." if needs_supplier_evidence else None),
     ]:
         if text:
             actions.append(text)

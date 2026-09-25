@@ -1968,7 +1968,7 @@ function renderSupplierRequestAnswer(pos) {
         <div class="ve-answer-section"><h4>NEXT MOVE</h4><ul class="ve-answer-list">${list(a.next_move && a.next_move.length ? a.next_move : ["Review the recommendation above."])}</ul></div>
         ${hasPosition ? `<div class="ve-answer-section"><h4>MY POSITION</h4>${a.target ? `<div><small>TARGET</small> ${esc(a.target)}</div>` : ""}${a.walk_away ? `<div style="margin-top:4px"><small>WALK-AWAY</small> ${esc(a.walk_away)}</div>` : ""}</div>` : ""}
         ${a.what_could_change_this && a.what_could_change_this.length ? `<div class="ve-answer-section"><h4>WHAT COULD CHANGE THIS</h4><ul class="ve-answer-list">${list(a.what_could_change_this)}</ul></div>` : ""}
-        ${a.draft_response ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">Draft response to the supplier</summary><div style="margin-top:6px;white-space:pre-wrap;font-size:13px">${esc(a.draft_response)}</div></details>` : ""}
+        ${a.draft_response ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:900">Draft response to the supplier</summary><div class="ve-answer-callout" style="margin-top:7px"><b>SUBJECT:</b> ${esc(a.draft_response.subject)}<div class="ve-answer-email" style="margin-top:8px;white-space:pre-wrap;font-size:13px">${esc(a.draft_response.body)}</div></div></details>` : ""}
       </div>
     </section>`;
   return true;
@@ -2007,14 +2007,17 @@ function renderCategoryStrategyAnswer(pos) {
         <div><div class="ve-answer-title">${esc(a.decision || "Category strategy")}</div></div>
       </div>
       <div class="ve-answer-body">
+        ${a.category_boundary_note ? `<div class="ve-answer-section"><h4>BOUNDARY TO CONSIDER</h4><div class="ve-answer-callout">${esc(a.category_boundary_note)}</div></div>` : ""}
         ${a.category_position && a.category_position.length ? `<div class="ve-answer-section"><h4>CATEGORY POSITION</h4><ul class="ve-answer-list">${list(a.category_position)}</ul></div>` : ""}
         ${a.why && a.why.length ? `<div class="ve-answer-section"><h4>WHAT IS CHANGING</h4><ul class="ve-answer-list">${list(a.why)}</ul></div>` : ""}
+        ${(a.what_matters_now || []).filter(f => !supplierBlock.includes(esc(f.finding))).length ? `<div class="ve-answer-section"><h4>WHAT MATTERS NOW</h4>${(a.what_matters_now || []).filter(f => !supplierBlock.includes(esc(f.finding))).map(f => `<div style="margin-top:6px">${esc(f.finding)}${f.possible_action ? `<div style="font-size:11px;color:#777;margin-top:2px">${esc(f.possible_action)}</div>` : ""}</div>`).join("")}</div>` : ""}
         ${supplierBlock ? `<div class="ve-answer-section"><h4>SUPPLIER STRATEGY</h4>${supplierBlock}</div>` : ""}
         ${a.opportunities && a.opportunities.length ? `<div class="ve-answer-section"><h4>OPPORTUNITIES</h4><ul class="ve-answer-list">${list(a.opportunities)}</ul></div>` : ""}
         ${a.recommendation && a.recommendation.length ? `<div class="ve-answer-section"><h4>WHAT I WOULD DO</h4><ul class="ve-answer-list">${list(a.recommendation)}</ul></div>` : ""}
         ${roadmapBlock ? `<div class="ve-answer-section"><h4>ROADMAP</h4>${roadmapBlock}</div>` : ""}
         ${a.do_not_do_yet && a.do_not_do_yet.length ? `<div class="ve-answer-section"><h4>NOT YET</h4><ul class="ve-answer-list">${list(a.do_not_do_yet)}</ul></div>` : ""}
         ${a.what_we_need_to_find_out && a.what_we_need_to_find_out.length ? `<div class="ve-answer-section"><h4>WHAT WE NEED TO FIND OUT</h4><ul class="ve-answer-list">${list(a.what_we_need_to_find_out)}</ul></div>` : ""}
+        ${a.open_questions && a.open_questions.length ? `<div class="ve-answer-section"><h4>ONE THING THAT WOULD HELP</h4>${a.open_questions.map(q => `<div class="ve-answer-callout" style="margin-top:6px">${esc(q.question)}<div style="font-size:11px;color:#777;margin-top:3px">${esc(q.information_value)}</div></div>`).join("")}</div>` : ""}
       </div>
     </section>`;
   return true;
@@ -2031,6 +2034,47 @@ function renderCommercialSignalAnswer(pos) {
   const categoryRows = (dataSays.category || []).map(esc).join(" · ");
   const supplierRows = Object.entries(dataSays.by_supplier || {}).map(([name, facts]) => `<div style="margin-top:5px"><b>${esc(name)}</b>: ${(facts || []).map(esc).join(" · ")}</div>`).join("");
   const nextMove = a.action_plan && a.action_plan.next_7_days;
+  // R48 Signal Engine: hypotheses are the structured, evidence-graded
+  // upgrade to the plain-prose "what may explain it" -- shown instead
+  // of it, not alongside it, to avoid two overlapping explanation
+  // sections saying similar things in different registers. Each
+  // hypothesis's status is translated to plain English (never the raw
+  // SUPPORTED/UNKNOWN labels) and its evidence sits behind a details
+  // toggle -- this is the conclusion the reasoning reached, not the
+  // reasoning trace itself; nothing here narrates how the model got
+  // there, only what it found and how well-supported it is.
+  const statusLabel = { SUPPORTED: "Supported by evidence", PARTIALLY_SUPPORTED: "Partly supported", NOT_SUPPORTED: "Not supported", UNKNOWN: "Not yet established", CONTRADICTED: "Contradicted by evidence" };
+  const statusColor = { SUPPORTED: "#2f7d4f", PARTIALLY_SUPPORTED: "#8a6500", NOT_SUPPORTED: "#a33", UNKNOWN: "#777", CONTRADICTED: "#a33" };
+  const hypothesesHtml = (a.hypotheses || []).map(h => {
+    const evidenceItems = [
+      ...(h.supporting_evidence || []).map(x => `<li>${esc(x)}</li>`),
+      ...(h.contradicting_evidence || []).map(x => `<li>${esc(x)}</li>`),
+      ...(h.missing_evidence || []).map(x => `<li>${esc(x)} <i>(not yet known)</i></li>`),
+    ].join("");
+    return `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #eee">
+      <div><b>${esc(h.hypothesis)}</b></div>
+      <div style="font-size:11px;font-weight:800;color:${statusColor[h.status] || "#777"};margin-top:2px">${esc(statusLabel[h.status] || h.status)}</div>
+      ${evidenceItems ? `<details style="margin-top:4px"><summary style="cursor:pointer;font-size:11px;color:#777">Why</summary><ul class="ve-answer-list" style="margin-top:4px">${evidenceItems}</ul></details>` : ""}
+    </div>`;
+  }).join("");
+  const explainSection = hypothesesHtml
+    ? `<div class="ve-answer-section"><h4>WHAT IT MAY MEAN</h4>${hypothesesHtml}</div>`
+    : (a.what_may_explain_it && a.what_may_explain_it.length ? `<div class="ve-answer-section"><h4>WHAT IT MAY MEAN</h4><ul class="ve-answer-list">${list(a.what_may_explain_it)}</ul></div>` : "");
+  // R48 Signal Engine: contradictions kept visibly distinct from
+  // ordinary hypotheses -- a different section, a warning tone, shown
+  // ahead of "what it may mean" since a genuine conflict in the case's
+  // own evidence needs resolving before any hypothesis about it can be
+  // trusted.
+  const contradictionsSection = (a.contradictions && a.contradictions.length)
+    ? `<div class="ve-answer-section" style="border-left:3px solid #a33;padding-left:10px"><h4 style="color:#a33">EVIDENCE CONFLICT</h4>${a.contradictions.map(c => `<div style="margin-top:6px"><div>${esc(c.description)}</div><div style="font-size:11px;color:#777;margin-top:3px">${esc(c.calculated_evidence)}</div></div>`).join("")}</div>`
+    : "";
+  // first_investigation is the single, prioritised answer to "what
+  // should I investigate first" -- shown in place of the plainer,
+  // unprioritised what_to_check_next list when it exists, not
+  // alongside it.
+  const investigateSection = a.first_investigation
+    ? `<div class="ve-answer-section"><h4>WHAT I WOULD INVESTIGATE FIRST</h4><div class="ve-answer-callout">${esc(a.first_investigation)}</div></div>`
+    : (a.what_to_check_next && a.what_to_check_next.length ? `<div class="ve-answer-section"><h4>WHERE I WOULD LOOK</h4><ul class="ve-answer-list">${list(a.what_to_check_next)}</ul></div>` : "");
   el.innerHTML = `
     <section class="ve-answer">
       <div class="ve-answer-head">
@@ -2038,10 +2082,11 @@ function renderCommercialSignalAnswer(pos) {
       </div>
       <div class="ve-answer-body">
         ${(categoryRows || supplierRows) ? `<div class="ve-answer-section"><h4>WHAT CHANGED</h4>${categoryRows ? `<div>${categoryRows}</div>` : ""}${supplierRows}</div>` : ""}
-        ${a.what_may_explain_it && a.what_may_explain_it.length ? `<div class="ve-answer-section"><h4>WHAT IT MAY MEAN</h4><ul class="ve-answer-list">${list(a.what_may_explain_it)}</ul></div>` : ""}
+        ${contradictionsSection}
+        ${explainSection}
         ${a.what_we_cannot_prove && a.what_we_cannot_prove.length ? `<div class="ve-answer-section"><h4>WHAT IS NOT PROVEN</h4><ul class="ve-answer-list">${list(a.what_we_cannot_prove)}</ul></div>` : ""}
         ${a.commercial_risk && a.commercial_risk.length ? `<div class="ve-answer-section"><h4>WHY IT MATTERS</h4><ul class="ve-answer-list">${list(a.commercial_risk)}</ul></div>` : ""}
-        ${a.what_to_check_next && a.what_to_check_next.length ? `<div class="ve-answer-section"><h4>WHERE I WOULD LOOK</h4><ul class="ve-answer-list">${list(a.what_to_check_next)}</ul></div>` : ""}
+        ${investigateSection}
         ${nextMove ? `<div class="ve-answer-section"><h4>NEXT MOVE</h4><div class="ve-answer-callout">${esc(nextMove)}</div></div>` : ""}
       </div>
     </section>`;

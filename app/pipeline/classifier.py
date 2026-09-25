@@ -162,6 +162,57 @@ CLASSIFICATION_REMINDER = (
 )
 
 
+def classify_case_mode_from_observation(raw_question: str) -> str | None:
+    """R48 Signal Engine: routing fix. Replaces the previous five-word
+    keyword list with a genuine, structured LLM classification of the
+    text's actual intent -- not a bigger keyword list, a different
+    mechanism entirely. Used ONLY when the frontend supplies no
+    explicit mode (a tile click always sets mode explicitly, and an
+    explicit mode is always authoritative and never reaches this
+    function) -- so this can never affect Supplier Request's frozen,
+    explicit-mode behavior.
+
+    Returns one of "commercial_signal", "category_strategy",
+    "supplier_request", or None if the call fails for any reason. None
+    is a deliberate, honest signal to the caller -- "no reliable
+    classification available" -- rather than silently guessing; the
+    caller decides the safe fallback, this function never does.
+
+    Not independently verified against a live model in this
+    environment (no real API key exists here); the mechanism, its
+    defensive parsing, and its fail-safe return are what's proven by
+    the tests for this function, not the live judgment quality."""
+    try:
+        client = _get_client()
+        prompt = (
+            "Read the following text from a procurement professional. Determine its intent: "
+            "is the writer (a) reporting an OBSERVATION -- a pattern, trend, anomaly, or change they "
+            "noticed and want investigated (spend, volume, price, OTIF, defect rate, supplier "
+            "concentration, specification changes, market movements, etc.), (b) conveying a SUPPLIER's "
+            "own request or ask that needs a response (a price increase, a term change, something the "
+            "supplier wants), or (c) asking to build a CATEGORY STRATEGY (a broader sourcing/category "
+            "plan, not a single observation or request). "
+            "Respond with ONLY a JSON object, no other text: "
+            '{"intent": "observation" | "supplier_request" | "category_strategy"}\n\n'
+            f"Text: {raw_question}"
+        )
+        response = client.messages.create(model=CLASSIFIER_MODEL, max_tokens=100, messages=[{"role": "user", "content": prompt}])
+        raw_text = _extract_text(response)
+        if not raw_text:
+            return None
+        import json as _json
+        import re as _re
+        match = _re.search(r"\{.*\}", raw_text, _re.DOTALL)
+        if not match:
+            return None
+        parsed = _json.loads(match.group(0))
+        intent = parsed.get("intent")
+        return {"observation": "commercial_signal", "supplier_request": "supplier_request", "category_strategy": "category_strategy"}.get(intent)
+    except Exception as e:
+        print(f"Case-mode routing classification skipped (non-blocking, falls back to keyword heuristic): {type(e).__name__}: {e}")
+        return None
+
+
 def classify(raw_question: str) -> dict:
     client = _get_client()
 

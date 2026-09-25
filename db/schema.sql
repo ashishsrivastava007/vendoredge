@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS commercial_decisions (
     -- distinguishes a buyer's real selection from a fallback inference,
     -- so the system never claims an inferred mode was explicitly chosen.
     case_mode VARCHAR(30)
-        CHECK (case_mode IN ('supplier_request', 'commercial_signal', 'category_strategy')),
+        CHECK (case_mode IN ('supplier_request', 'commercial_signal', 'category_strategy', 'market_intelligence')),
     case_mode_source VARCHAR(20)
         CHECK (case_mode_source IN ('explicit', 'inferred')),
     status VARCHAR(30) NOT NULL DEFAULT 'created'
@@ -188,7 +188,19 @@ ALTER TABLE commercial_decisions ADD COLUMN IF NOT EXISTS current_stage TEXT;
 -- database; a genuinely fresh database gets these from the CREATE
 -- TABLE statement above and this is then a no-op.
 ALTER TABLE commercial_decisions ADD COLUMN IF NOT EXISTS case_mode VARCHAR(30)
-    CHECK (case_mode IN ('supplier_request', 'commercial_signal', 'category_strategy'));
+    CHECK (case_mode IN ('supplier_request', 'commercial_signal', 'category_strategy', 'market_intelligence'));
+-- Market Intelligence Phase 1: widen the CHECK constraint on an
+-- already-existing database, where the ADD COLUMN IF NOT EXISTS above
+-- is a no-op (the column already exists) and so never re-applies its
+-- own CHECK either. Explicit drop-and-recreate, using the exact
+-- constraint name PostgreSQL auto-generates for an unnamed column-
+-- level CHECK (confirmed directly against the live database's own
+-- error message before writing this). Idempotent: re-running this
+-- against a database that already has the widened constraint is safe
+-- (DROP ... IF EXISTS, then an identical ADD).
+ALTER TABLE commercial_decisions DROP CONSTRAINT IF EXISTS commercial_decisions_case_mode_check;
+ALTER TABLE commercial_decisions ADD CONSTRAINT commercial_decisions_case_mode_check
+    CHECK (case_mode IN ('supplier_request', 'commercial_signal', 'category_strategy', 'market_intelligence'));
 ALTER TABLE commercial_decisions ADD COLUMN IF NOT EXISTS case_mode_source VARCHAR(20)
     CHECK (case_mode_source IN ('explicit', 'inferred'));
 CREATE INDEX IF NOT EXISTS idx_cd_parent ON commercial_decisions(parent_decision_id);
@@ -539,3 +551,97 @@ BEGIN
             CHECK (classified_content_type IN ('price_increase', 'quote_comparison', 'problem_solving'));
     END IF;
 END $$;
+
+-- Category Memory (minimal first release): journey-neutral durable
+-- procurement memory. This is historical/contextual evidence for
+-- reasoning, never a second source of truth -- the kernel's live
+-- evidence always computes the current answer; a retrieved memory
+-- item is presented as labelled historical context only. Purely
+-- additive: no existing table or column changed, and only Category
+-- Strategy's own code paths read or write this table in this release.
+--
+-- memory_type is deliberately restricted to the two types authorized
+-- for this release (CATEGORY, DECISION) -- Supplier/Investigation/
+-- Negotiation/Outcome/Learning memory are not yet populated by any
+-- code path, so the constraint reflects only what actually exists,
+-- not the full future taxonomy.
+--
+-- fact_type is a closed vocabulary: an unrecognized candidate is
+-- rejected before it ever reaches this table (enforced in
+-- app/pipeline/memory_service.py), never force-classified into an
+-- existing type to make storage succeed.
+--
+-- evidence_state reuses the exact 9-value taxonomy already used by
+-- every other evidence object in this codebase -- no second,
+-- incompatible taxonomy.
+--
+-- temporal_status is orthogonal to evidence_state (a VERIFIED fact
+-- does not become less verified with age; it becomes HISTORICAL or
+-- SUPERSEDED while remaining VERIFIED).
+--
+-- proposition_key is what makes contradiction detection proposition-
+-- safe: two items only compare as duplicates/contradictions when this
+-- key matches exactly (entity + fact_type + scope + period + units +
+-- direction) -- a raw-material-cost claim and a quoted-price claim
+-- never collide merely because they're both about the same supplier.
+--
+-- version/supersedes_id/contradicts_ids implement append-only
+-- versioning: nothing is ever updated in place or deleted, so the
+-- full evolution of understanding stays queryable.
+CREATE TABLE IF NOT EXISTS memory_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organisation_id UUID NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+    memory_type VARCHAR(20) NOT NULL
+        CHECK (memory_type IN ('CATEGORY', 'DECISION')),
+    entity_category TEXT,
+    entity_supplier TEXT,
+    fact_type VARCHAR(60) NOT NULL,
+    proposition_key TEXT NOT NULL,
+    value JSONB NOT NULL,
+    -- Width derived from the actual canonical evidence-state taxonomy
+    -- (9 values; longest is EXTERNAL_MARKET_EVIDENCE at 24 characters),
+    -- not from any single value. VARCHAR(30) gives headroom above that
+    -- longest value without being arbitrarily large, matching this
+    -- table's other bounded-vocabulary columns (memory_type,
+    -- temporal_status at VARCHAR(20) -- fine for their own, shorter
+    -- value sets -- vs. the genuinely open fact_type at VARCHAR(60)).
+    evidence_state VARCHAR(30) NOT NULL
+        CHECK (evidence_state IN ('VERIFIED', 'CALCULATED', 'SUPPLIER_CLAIM', 'STAKEHOLDER_VIEW',
+                                   'EXTERNAL_MARKET_EVIDENCE', 'INFERRED', 'ASSUMED', 'UNKNOWN', 'CONTRADICTED')),
+    temporal_status VARCHAR(20) NOT NULL DEFAULT 'CURRENT'
+        CHECK (temporal_status IN ('CURRENT', 'HISTORICAL', 'SUPERSEDED', 'EXPIRED', 'UNKNOWN')),
+    event_date TIMESTAMPTZ,
+    evidence_date TIMESTAMPTZ,
+    decision_date TIMESTAMPTZ,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    valid_from TIMESTAMPTZ,
+    valid_to TIMESTAMPTZ,
+    source_case_id UUID REFERENCES commercial_decisions(id),
+    source_journey VARCHAR(30),
+    provenance JSONB NOT NULL,
+    version INT NOT NULL DEFAULT 1,
+    supersedes_id UUID REFERENCES memory_items(id),
+    contradicts_ids UUID[] NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_memory_items_org ON memory_items(organisation_id);
+CREATE INDEX IF NOT EXISTS idx_memory_items_proposition ON memory_items(organisation_id, proposition_key);
+CREATE INDEX IF NOT EXISTS idx_memory_items_entity ON memory_items(organisation_id, entity_category, entity_supplier);
+
+ALTER TABLE memory_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE memory_items FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_isolation_memory_items ON memory_items;
+CREATE POLICY org_isolation_memory_items ON memory_items
+    USING (organisation_id = current_setting('app.current_org_id', true)::UUID)
+    WITH CHECK (organisation_id = current_setting('app.current_org_id', true)::UUID);
+
+-- M1.3: widen evidence_state on existing databases where memory_items
+-- was already created under the old VARCHAR(20) definition. The
+-- CREATE TABLE IF NOT EXISTS above only takes effect for a fresh
+-- database; this ALTER is what fixes an already-existing table.
+-- ALTER COLUMN ... TYPE only changes the column's width -- it does
+-- not touch the CHECK constraint already attached to the column
+-- (independent of width), so the existing 9-value taxonomy and its
+-- semantics are unaffected. Idempotent: re-running this against a
+-- column already at VARCHAR(30) or wider is a safe no-op.
+ALTER TABLE memory_items ALTER COLUMN evidence_state TYPE VARCHAR(30);

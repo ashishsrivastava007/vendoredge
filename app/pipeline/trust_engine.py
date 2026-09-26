@@ -12,7 +12,12 @@ from typing import Any
 from app.pipeline.normalized_evidence import NormalizedEvidence
 from app.models import CommercialPosition
 
-STATES = {"VERIFIED", "CALCULATED", "ASSUMED", "INFERRED", "UNKNOWN"}
+# EXTERNAL_MARKET_EVIDENCE is already part of VendorEdge's evidence
+# taxonomy; the ledger previously filed external market context under
+# VERIFIED, counting it alongside the buyer's own verified facts --
+# exactly the "market context presented as supplier evidence" conflation
+# found in a live test. It is now its own state and its own count.
+STATES = {"VERIFIED", "CALCULATED", "ASSUMED", "INFERRED", "UNKNOWN", "EXTERNAL_MARKET_EVIDENCE"}
 
 
 def _value_present(v: Any) -> bool:
@@ -35,16 +40,52 @@ def _provenance_state(source: str | None) -> str:
     return "UNKNOWN"
 
 
+_ABSENCE_MARKERS = {
+    "not stated", "not provided", "not specified", "not available", "not given",
+    "unknown", "n/a", "na", "none", "none stated", "none provided", "not determined",
+    "not determinable", "not disclosed", "not supplied", "not established", "unclear",
+    "no information", "no data", "no information provided", "not mentioned",
+}
+
+
+def _is_absence_marker(v: Any) -> bool:
+    """A value can be technically "present" (a non-empty string) while
+    still being an explicit statement of absence -- "Not stated" is a
+    string, not None, so _value_present alone would wrongly treat it
+    as a real value. Both checks are needed: raw emptiness AND known
+    absence phrasing, case-insensitive and punctuation-tolerant."""
+    if not _value_present(v):
+        return True
+    if isinstance(v, str):
+        normalized = v.strip().lower().rstrip(".")
+        return normalized in _ABSENCE_MARKERS
+    return False
+
+
 def build_trust_engine(normalized: NormalizedEvidence, position: CommercialPosition) -> dict[str, Any]:
     """Build a buyer-readable, deterministic evidence ledger."""
     entries: list[dict[str, Any]] = []
     for field, prov in normalized.provenance.items():
-        state = "VERIFIED" if prov.source != "derived_calculation" else "CALCULATED"
-        if prov.conflicting:
+        actual_value = _field_value(normalized, field, prov.supplier_name)
+        # The bug this fixes: a field having a provenance record at
+        # all (meaning the pipeline looked for it and recorded
+        # something about the attempt) previously determined VERIFIED
+        # vs CALCULATED purely from prov.source, without ever checking
+        # whether the value the extraction actually landed on was a
+        # real fact or an explicit statement of absence ("Not
+        # stated"). Absence is checked FIRST and unconditionally wins
+        # over source, since a "verified absence of information" is
+        # still UNKNOWN, not VERIFIED -- VendorEdge did not verify a
+        # fact, it verified that no fact was given.
+        if _is_absence_marker(actual_value):
             state = "UNKNOWN"
+        elif prov.conflicting:
+            state = "UNKNOWN"
+        else:
+            state = "VERIFIED" if prov.source != "derived_calculation" else "CALCULATED"
         entries.append({
             "field": field,
-            "value": _display(_field_value(normalized, field, prov.supplier_name)),
+            "value": _display(actual_value),
             "state": state,
             "source": prov.source,
             "supplier": prov.supplier_name,
@@ -58,7 +99,7 @@ def build_trust_engine(normalized: NormalizedEvidence, position: CommercialPosit
         entries.append({
             "field": "external_market_context",
             "value": _display(mv.get("verified_note") or mv.get("finding")),
-            "state": "VERIFIED",
+            "state": "EXTERNAL_MARKET_EVIDENCE",
             "source": "external_market_search",
             "supplier": None,
             "conflicting": False,
@@ -111,12 +152,17 @@ def build_trust_engine(normalized: NormalizedEvidence, position: CommercialPosit
                 "conflicting": False,
             })
 
+    # Counts are computed over exactly the entries returned, so the
+    # displayed counts always match the ledger the buyer can see
+    # (previously counted over all entries, then truncated to 100).
+    entries = entries[:100]
     counts = {s: sum(1 for e in entries if e["state"] == s) for s in STATES}
     unresolved = [e for e in entries if e["conflicting"] or e["state"] == "UNKNOWN"]
     return {
         "title": "VendorEdge Trust Engine",
         "version": "R29.1",
-        "entries": entries[:100],
+        "entries": entries,
+        "entry_count": len(entries),
         "counts": counts,
         "unresolved_count": len(unresolved),
         "unresolved": unresolved[:12],
@@ -126,6 +172,8 @@ def build_trust_engine(normalized: NormalizedEvidence, position: CommercialPosit
             "ASSUMED means the value is an explicit assumption and is not presented as fact.",
             "INFERRED means the recommendation or interpretation comes from reasoning and is not itself evidence.",
             "UNKNOWN means the evidence is missing or conflicting; silence is never converted into a negative fact.",
+            "UNKNOWN also covers values recorded only as an explicit absence such as \"Not stated\" -- VendorEdge verified that no fact was given, not a fact.",
+            "EXTERNAL_MARKET_EVIDENCE is contextual market information only; it does not establish a specific supplier's cost movement or entitlement.",
         ],
         "decision_integrity": "PASS" if not any(e["conflicting"] for e in entries) else "REVIEW_REQUIRED",
     }

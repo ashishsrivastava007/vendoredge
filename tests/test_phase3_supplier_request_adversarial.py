@@ -82,8 +82,11 @@ def test_B_and_C_invented_target_and_walkaway_never_reach_the_answer():
     pos2.negotiation_intelligence = build_negotiation_intelligence(pos2)
     ca2 = build_commercial_answer(n, pos2, "raw text")
     answer2 = build_supplier_request_answer(build_kernel(n, pos2).model_dump(), ca2)
-    assert answer2["target"] is None, "a hedge phrase must never surface as an established target"
-    assert answer2["walk_away"] is None
+    # Bug fix: a hedge phrase must never surface as if established, AND
+    # must never become a bare blank -- it becomes an explicit,
+    # evidence-honest message instead.
+    assert answer2["target"] is not None and "not determinable" in answer2["target"].lower(), "a hedge phrase must never surface as an established target, nor as a bare blank"
+    assert answer2["walk_away"] is not None and "not determinable" in answer2["walk_away"].lower()
 
 
 # D. Model treats supplier claim as verified -> kernel must keep it SUPPLIER_CLAIM regardless

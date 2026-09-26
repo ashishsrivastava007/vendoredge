@@ -153,5 +153,10 @@ def test_r38_answer_withholds_unsupported_numeric_strategy():
     }
     answer = build_commercial_answer(n, p, raw)
     assert answer["strategy_integrity"] == "REVIEW_REQUIRED"
-    assert answer["negotiation"]["target"] is None
-    assert answer["negotiation"]["walk_away"] is None
+    # Bug fix: withheld numbers become an explicit, evidence-honest
+    # message, never a bare None/blank the buyer could mistake for a
+    # data-loss bug.
+    assert answer["negotiation"]["target"] is not None and "not determinable" in answer["negotiation"]["target"].lower()
+    assert answer["negotiation"]["walk_away"] is not None and "not determinable" in answer["negotiation"]["walk_away"].lower()
+    assert "4-5%" not in answer["negotiation"]["target"]
+    assert "6-7%" not in answer["negotiation"]["walk_away"]

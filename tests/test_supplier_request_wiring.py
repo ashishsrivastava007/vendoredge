@@ -89,5 +89,11 @@ def test_unsupported_negotiation_numbers_never_surface_as_target_or_walkaway():
         negotiation_dimensions=[NegotiationDimension(dimension="Price", opening_ask="0%", target_outcome="No more than 3%", walk_away="5%")])
     cp = _run(classify, pos_kwargs, 4)
     sra = cp["supplier_request_answer"]
-    assert sra["target"] is None
-    assert sra["walk_away"] is None
+    # Bug fix: target/walk_away must never be a bare blank/None when an
+    # unsupported number was stripped -- an explicit, evidence-honest
+    # message replaces it instead, so the buyer sees WHY there is no
+    # number rather than an ambiguous empty field.
+    assert sra["target"] is not None and "not determinable" in sra["target"].lower()
+    assert sra["walk_away"] is not None and "not determinable" in sra["walk_away"].lower()
+    assert "3%" not in sra["target"]
+    assert "5%" not in sra["walk_away"]

@@ -71,10 +71,14 @@ def test_all_eight_situations_produce_genuinely_distinct_drafts():
             [{"supplier_name": "S7", "is_incumbent": True}, {"supplier_name": "Alt A", "qualification_time_estimate": "already qualified"}, {"supplier_name": "Alt B", "qualification_time_estimate": "already qualified"}], 7),
         "strategic": _run("General cost pressures.", "critical, sole-source, 12-month switching time, no qualified alternatives", "Protect continuity of supply while improving commercial terms -- do not threaten competition you cannot credibly run.", 10.0, [{"supplier_name": "S8", "is_incumbent": True}], 8),
     }
-    assert cases["investigate"] is None
-    non_null = {k: v for k, v in cases.items() if v is not None}
-    bodies = [v["body"] for v in non_null.values()]
-    subjects = [v["subject"] for v in non_null.values()]
+    # Live-test bug report: investigate now produces an evidence-request
+    # draft instead of None (previously left the draft section empty).
+    # It must still be distinct from every other situation's draft.
+    assert cases["investigate"] is not None
+    assert "breakdown" in cases["investigate"]["body"].lower()
+    assert all(v is not None for v in cases.values())
+    bodies = [v["body"] for v in cases.values()]
+    subjects = [v["subject"] for v in cases.values()]
     assert len(set(bodies)) == len(bodies), "duplicate draft body across materially different situations"
     assert len(set(subjects)) == len(subjects), "duplicate draft subject across materially different situations"
 

@@ -47,7 +47,7 @@ from app.pipeline.methodology_consistency import (
     claims_kraljic_methodology, check_kraljic_reasoning_coverage,
 )
 from app.pipeline.contradiction_check import check_all_contradictions
-from app.pipeline.claim_integrity import check_all_claim_overstatements, sanitize_unsupported_strategy_numbers
+from app.pipeline.claim_integrity import check_all_claim_overstatements, sanitize_unsupported_strategy_numbers, check_unsupported_strategy_numbers
 from app.pipeline.confidence_gate import apply_confidence_ceiling
 from app.pipeline.decision_integrity import (
     compute_pre_reasoning_confidence, build_stakeholder_decision_protocol,
@@ -70,7 +70,7 @@ from app.pipeline.outcome_intelligence import build_outcome_intelligence
 from app.pipeline.commercial_dna import build_commercial_dna
 from app.pipeline.negotiation_playbook import build_negotiation_playbook
 from app.pipeline.negotiation_intelligence import build_negotiation_intelligence
-from app.pipeline.model_orchestration import build_model_orchestration, run_challenger, challenge_trigger
+from app.pipeline.model_orchestration import build_model_orchestration, run_challenger, challenge_trigger, apply_challenger_outcome
 from app.pipeline.commercial_reasoning import build_commercial_reasoning_loop
 from app.pipeline.agentic_workflow import build_agentic_workflow
 from app.pipeline.supplier_memory import build_supplier_memory
@@ -2267,6 +2267,28 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
         except Exception as e:
             print(f"Claim-integrity retry skipped (non-blocking): {type(e).__name__}: {e}")
 
+    # Unconditional safety net for invented negotiation numbers. Found
+    # during a live-test audit: sanitize_unsupported_strategy_numbers
+    # was previously only ever invoked as a side-effect of the
+    # UNRELATED overstatements retry above failing twice -- if
+    # check_all_claim_overstatements never flagged anything (a
+    # separate check, for a different class of issue: claims of
+    # verification/certainty, not invented numbers), an unsupported
+    # negotiation target could reach the buyer-facing answer with
+    # nothing ever having checked it at all. This runs independently,
+    # directly against check_unsupported_strategy_numbers's own
+    # findings, every time, regardless of what the overstatements
+    # check above did or didn't find.
+    strategy_number_issues: list[str] = []
+    try:
+        strategy_number_issues = check_unsupported_strategy_numbers(position, normalized, raw_question)
+        if strategy_number_issues:
+            changed_fields = sanitize_unsupported_strategy_numbers(position, raw_question)
+            if changed_fields:
+                print(f"Sanitized unsupported strategy numbers (unconditional check): {changed_fields}")
+    except Exception as e:
+        print(f"Unconditional strategy-number sanitization skipped (non-blocking): {type(e).__name__}: {e}")
+
     if market_verification is not None:
         position.market_verification_scope = market_verification.get("scope")
         position.market_verification = market_verification
@@ -2325,26 +2347,35 @@ def _run_reasoning(org_id, decision_id, attempt_id: str, normalized: NormalizedE
     # challenger cannot rewrite the primary recommendation; its job is to
     # expose weaknesses and force human review when warranted.
     try:
-        should_challenge, challenge_reasons = challenge_trigger(normalized, position)
+        should_challenge, challenge_reasons = challenge_trigger(normalized, position, strategy_number_issues=strategy_number_issues)
         if should_challenge:
             try:
                 challenger_opinion = run_challenger(normalized, position)
                 position.model_orchestration = build_model_orchestration(
                     normalized, position, opinion=challenger_opinion,
-                    trigger_reasons=challenge_reasons,
+                    trigger_reasons=challenge_reasons, strategy_number_issues=strategy_number_issues,
                 )
             except Exception as e:
                 print(f"Challenger review unavailable (non-blocking but review-required): {type(e).__name__}: {e}")
                 position.model_orchestration = build_model_orchestration(
                     normalized, position, trigger_reasons=challenge_reasons,
-                    provider_error=type(e).__name__,
+                    provider_error=type(e).__name__, strategy_number_issues=strategy_number_issues,
                 )
         else:
             position.model_orchestration = build_model_orchestration(
-                normalized, position, trigger_reasons=[]
+                normalized, position, trigger_reasons=[], strategy_number_issues=strategy_number_issues,
             )
     except Exception as e:
         print(f"Model orchestration skipped (non-blocking): {type(e).__name__}: {e}")
+
+    # Live-test audit: the challenger's findings must actually change the
+    # answer, not just a display label. Deterministic, downgrade-only.
+    try:
+        challenger_actions = apply_challenger_outcome(position, raw_question)
+        if challenger_actions:
+            print(f"Challenger outcome applied: {challenger_actions}")
+    except Exception as e:
+        print(f"Challenger outcome application skipped (non-blocking): {type(e).__name__}: {e}")
 
     # R38: single buyer-facing Commercial Answer. Built after the full
     # deterministic/validated decision stack so it can compress the result

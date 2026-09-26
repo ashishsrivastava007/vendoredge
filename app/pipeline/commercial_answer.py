@@ -154,6 +154,22 @@ def _classify_situation_type(normalized: NormalizedEvidence | None, position: An
     return stance
 
 
+_NON_QUOTABLE_OPENING_MARKERS = (
+    "no defensible", "not safely determined", "not determinable", "not established",
+    "not safely quantified", "insufficient evidence", "cannot be determined",
+)
+
+
+def _is_supplier_quotable(text: str | None) -> bool:
+    """True only for an opening line that is a genuine negotiating
+    statement suitable to quote to the supplier -- not an internal note
+    recording that no position could be established."""
+    if not text:
+        return False
+    lowered = text.lower()
+    return not any(m in lowered for m in _NON_QUOTABLE_OPENING_MARKERS)
+
+
 def _build_response_draft(normalized: NormalizedEvidence | None, position: Any) -> dict[str, str] | None:
     """Create a conservative, editable supplier draft tailored to the
     actual situation -- not a single generic template reused
@@ -170,14 +186,38 @@ def _build_response_draft(normalized: NormalizedEvidence | None, position: Any) 
     case = normalized.case
     assert isinstance(case, PriceIncreaseEvidence)
     situation = _classify_situation_type(normalized, position)
-    if situation == "investigate":
-        return None
 
     supplier = _supplier_name(normalized) or "Supplier"
     requested = _pct(case.requested_increase_percent) or "the requested increase"
     justification = (case.suppliers_stated_justification or "the stated cost drivers").strip()
     opening = (position.opening_position or "").strip()
+    # An opening_position that is an internal, buyer-side statement
+    # (e.g. the sanitizer's "No defensible counter-price can be
+    # established ...") must never be pasted into a message addressed
+    # to the supplier -- only a genuine negotiating line may be quoted.
+    if not _is_supplier_quotable(opening):
+        opening = ""
     closing = "Best regards,\nProcurement"
+
+    if situation == "investigate":
+        # Live-test fix: this previously returned None, leaving the
+        # "Draft response to the supplier" section empty even though the
+        # right next step was supplier-facing -- asking the supplier for
+        # the evidence needed to evaluate the request. The draft asks
+        # only for evidence; it proposes no price, range or counter-offer,
+        # and uses only facts stated in the case.
+        body = (
+            f"Dear {supplier},\n\n"
+            f"Thank you for your proposal regarding the {requested} price adjustment, "
+            f"with the stated basis: {justification}\n\n"
+            "Before we can evaluate the request, please provide the supporting evidence, including:\n"
+            "- a breakdown of the unit cost affected, showing the share attributable to each cited cost driver;\n"
+            "- the actual movement in each cited cost driver over the period, with the index or source used;\n"
+            "- the methodology used to arrive at the requested percentage.\n\n"
+            "We will review the request once this information is available.\n\n"
+            f"{closing}"
+        )
+        return {"subject": f"{supplier} – information needed to evaluate the proposed price adjustment", "body": body, "status": "DRAFT — requires buyer review before sending"}
 
     if situation == "accept":
         body = (
@@ -451,8 +491,23 @@ def build_commercial_answer(
             strategy_integrity_issues = []
     strategy_integrity_issues.extend(_unsupported_strategy_numbers_in_answer(raw_question, target, walk_away))
     if strategy_integrity_issues:
-        target = None
-        walk_away = None
+        # Bug fix: this previously cleared to None, which a later layer
+        # rendered as a blank/empty string in the buyer-facing answer --
+        # an ambiguous "" that looks like a data-loss bug rather than a
+        # deliberate, evidence-honest refusal to invent a number. Every
+        # clearing path below states plainly WHY there is no number,
+        # never leaving a bare blank for the buyer to puzzle over.
+        target = "Not determinable from current evidence: no supplier-specific cost basis, index, or comparable data supports a numeric target."
+        walk_away = "Not determinable from current evidence: no supplier-specific cost basis, index, or comparable data supports a numeric walk-away threshold."
+    else:
+        # Catch-all: even when nothing was flagged as an unsupported
+        # invented number, the model may simply never have provided a
+        # target/walk-away at all (a distinct case from stripping one
+        # out) -- still not left blank, for the same reason.
+        if not target or not str(target).strip():
+            target = "Not determinable from current evidence."
+        if not walk_away or not str(walk_away).strip():
+            walk_away = "Not determinable from current evidence."
 
     counter = None
     orchestration = getattr(position, "model_orchestration", None)

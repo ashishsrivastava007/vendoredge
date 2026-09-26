@@ -685,6 +685,14 @@ def check_unsupported_strategy_numbers(
     deterministic exposure figures are also allowed elsewhere. This check is
     intentionally limited to negotiation strategy fields, where invented
     numbers can directly steer a buyer's commercial decision.
+
+    Also catches VERBAL number-range idioms ("mid-single digits", "low
+    double digits", "a few percent") that carry a specific implied numeric
+    range without containing any digit character -- a gap found during a
+    live-test audit: a model that avoids a literal digit (e.g. "5%") but
+    still writes "negotiate down toward mid-single digits" conveys an
+    equally specific, equally unsupported numeric target, and a purely
+    digit-based regex has no way to see it.
     """
     source = (raw_question or "").lower()
     fields = [position.opening_position, position.walk_away_threshold]
@@ -718,16 +726,63 @@ def check_unsupported_strategy_numbers(
         issues.append(f"Unsupported negotiation duration '{m.group(0).strip()}' is not present in the supplied case evidence.")
         break
 
+    verbal_match = _VERBAL_NUMBER_RANGE_PATTERN.search(text.lower())
+    if verbal_match:
+        issues.append(
+            f"Unsupported verbal negotiation range '{verbal_match.group(0).strip()}' implies a specific "
+            "numeric target that is not present in, or calculated from, the supplied case evidence."
+        )
+
     return issues
 
 
-def sanitize_unsupported_strategy_numbers(position: CommercialPosition, raw_question: str = "") -> list[str]:
-    """Last-resort deterministic guard for negotiation strategy fields.
+# General-purpose (not case-specific) lexicon of verbal phrases that carry
+# a specific implied numeric range in ordinary business/negotiation
+# language, even though they contain no digit character themselves. Kept
+# deliberately narrow to phrases that genuinely imply a NUMBER, not
+# ordinary qualitative language ("materially lower", "a significant
+# increase") which makes no implicit numeric claim and is not restricted
+# here.
+_VERBAL_NUMBER_RANGE_PATTERN = re.compile(
+    r"\b(?:low|mid|mid-|high)?[\s-]?(?:single|double|triple)[\s-]digit(?:s)?\b"
+    r"|\b(?:a\s+few|a\s+couple\s+of|several|a\s+handful\s+of)\s+percent(?:age\s+points?)?\b",
+    re.I,
+)
 
-    If a model still returns a new numeric target/range after the correction
-    retry, replace only the affected strategy field with an evidence-honest
-    non-numeric position. We never rewrite the recommendation itself and we
-    never alter user-supplied or deterministic financial numbers.
+
+def _has_unsupported_negotiation_number(text: str | None, source_pcts: set[str], source_durations: set[str]) -> bool:
+    """Shared detection used by both the reporting check above and the
+    sanitizer below, so the two never drift out of sync on what counts
+    as "unsupported": literal percentages/durations not present in the
+    case, OR a verbal range idiom implying a specific number."""
+    if not text:
+        return False
+    for m in re.finditer(r"\b\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?\s*%", text):
+        if not all((ep + "%") in source_pcts for ep in re.findall(r"\d+(?:\.\d+)?", m.group(0))):
+            return True
+    for m in re.finditer(r"\b\d+(?:\s*-\s*\d+)?\s*(?:years?|yrs?|months?|mos?)\b", text.lower()):
+        if m.group(0).replace(" ", "") not in source_durations:
+            return True
+    if _VERBAL_NUMBER_RANGE_PATTERN.search(text.lower()):
+        return True
+    return False
+
+
+def sanitize_unsupported_strategy_numbers(position: CommercialPosition, raw_question: str = "") -> list[str]:
+    """Deterministic guard for negotiation strategy fields -- replaces
+    an unsupported numeric target/range (literal or verbal) with an
+    evidence-honest non-numeric position. We never rewrite the
+    recommendation itself and we never alter user-supplied or
+    deterministic financial numbers.
+
+    Covers opening_position, walk_away_threshold, disconfirming_condition,
+    and negotiation_dimensions -- opening_position was a confirmed gap
+    (found during a live-test audit): it is the single most likely home
+    for a quotable negotiation line like "negotiate down toward
+    mid-single digits", yet it was never included in this function's
+    coverage, even though the detection function above already checked
+    it -- detecting an issue without a matching fix path for that field
+    meant the detected issue could never actually be corrected there.
     """
     source = (raw_question or "").lower()
     source_pcts = {m.group(0).replace(" ", "") for m in re.finditer(r"\b\d+(?:\.\d+)?\s*%", source)}
@@ -735,16 +790,11 @@ def sanitize_unsupported_strategy_numbers(position: CommercialPosition, raw_ques
     changed: list[str] = []
 
     def bad(text: str | None) -> bool:
-        if not text:
-            return False
-        for m in re.finditer(r"\b\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?\s*%", text):
-            if not all((ep + "%") in source_pcts for ep in re.findall(r"\d+(?:\.\d+)?", m.group(0))):
-                return True
-        for m in re.finditer(r"\b\d+(?:\s*-\s*\d+)?\s*(?:years?|yrs?|months?|mos?)\b", text.lower()):
-            if m.group(0).replace(" ", "") not in source_durations:
-                return True
-        return False
+        return _has_unsupported_negotiation_number(text, source_pcts, source_durations)
 
+    if bad(position.opening_position):
+        position.opening_position = "No defensible counter-price can be established from the evidence currently available."
+        changed.append("opening_position")
     if bad(position.walk_away_threshold):
         position.walk_away_threshold = "Do not cross a commercial boundary that has not been established by the current evidence; exact numeric walk-away is not safely determined."
         changed.append("walk_away_threshold")

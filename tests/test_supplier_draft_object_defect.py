@@ -100,12 +100,21 @@ def test_valid_supplier_draft_renders_as_readable_text_not_an_object():
     assert "{'label'" not in full  # the earlier raw-dict-repr class of bug, re-checked here too
 
 
-def test_draft_suppressed_when_investigation_needed_first():
-    """Case A from the audit: user needs to investigate first -- no
-    draft should be produced, since nothing useful can be sent to the
-    supplier before the buyer's own position is established."""
+def test_draft_when_investigation_needed_first_is_an_evidence_request():
+    """Updated per a live-test bug report: an investigate recommendation
+    previously suppressed the draft entirely, leaving the "Draft response
+    to the supplier" section empty even though the right next step was
+    supplier-facing. It now produces an evidence-request draft that asks
+    for the cost basis and proposes no price, range or counter-offer."""
     cp = _run("Investigate the supplier's cost claims before forming a position.", {}, 2)
-    assert cp["supplier_request_answer"]["draft_response"] is None
+    draft = cp["supplier_request_answer"]["draft_response"]
+    assert draft is not None
+    body = draft["body"].lower()
+    assert "breakdown" in body and "methodology" in body
+    import re
+    assert set(re.findall(r"\d+(?:\.\d+)?%", draft["body"])) <= {"8%"}
+    for phrase in ("counter", "we propose", "we can accept", "single digit", "single-digit"):
+        assert phrase not in body
 
 
 def test_draft_content_differs_between_accept_and_challenge_cases():

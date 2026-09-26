@@ -45,14 +45,41 @@ class ChallengerOpinion(BaseModel):
     alternative_frame: str = ""
     verdict: Literal["supports_primary", "supports_with_caveat", "requires_human_review"]
     evidence_basis: list[str] = Field(default_factory=list, max_length=5)
+    # Structured answers to the specific challenger responsibilities
+    # (live-test audit). All default to "nothing found" so an older or
+    # terse challenger response still parses -- but each one, when
+    # populated, drives a DETERMINISTIC downgrade in
+    # apply_challenger_outcome rather than being display-only text.
+    unsupported_conclusions: list[str] = Field(default_factory=list, max_length=5)
+    unsupported_numeric_targets: list[str] = Field(default_factory=list, max_length=5)
+    market_context_treated_as_supplier_evidence: bool = False
+    missing_information: list[str] = Field(default_factory=list, max_length=6)
+    alternative_decision_possible: bool = False
 
 
 def _safe_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, default=str)[:24000]
 
 
-def challenge_trigger(normalized: NormalizedEvidence, position: CommercialPosition) -> tuple[bool, list[str]]:
-    """Return a deterministic reason list for invoking the second opinion."""
+def challenge_trigger(
+    normalized: NormalizedEvidence, position: CommercialPosition,
+    strategy_number_issues: list[str] | None = None,
+) -> tuple[bool, list[str]]:
+    """Return a deterministic reason list for invoking the second opinion.
+
+    strategy_number_issues (added per a live-test audit): the caller's
+    own check_unsupported_strategy_numbers findings, passed through
+    rather than recomputed here, so this function stays a pure
+    aggregator of signals computed elsewhere. A numeric negotiation
+    target/range that isn't supported by the evidence is exactly the
+    kind of material uncertainty a second, independent opinion should
+    see -- previously nothing in this deterministic gate looked at
+    evidence SUFFICIENCY for the specific claim being made, only at
+    case-level complexity signals (multiple suppliers, financial size),
+    which is why the bug-report case (a single supplier, sub-threshold
+    exposure, one vague justification, and an invented "mid-single
+    digits" target) triggered none of the existing conditions at all.
+    """
     reasons: list[str] = []
     if normalized.normalization_warnings:
         reasons.append("normalization warnings are present")
@@ -62,6 +89,46 @@ def challenge_trigger(normalized: NormalizedEvidence, position: CommercialPositi
         reasons.append("multiple stakeholder views are explicitly captured")
     if position.confidence.level == "low":
         reasons.append("primary confidence is low")
+    if strategy_number_issues:
+        reasons.append(
+            "the primary position proposed a numeric negotiation target/range not directly "
+            "supported by the supplied case evidence"
+        )
+    # Material-uncertainty signal from the (already-built) Trust Engine
+    # ledger: a case resting on several UNKNOWN key inputs is exactly
+    # the "material uncertainty ... missing information that could
+    # materially change the recommendation" condition -- checked here
+    # via the ledger's own counts rather than re-deriving uncertainty
+    # from scratch, so this stays consistent with whatever the buyer
+    # actually sees in the Trust Engine panel.
+    trust_engine = getattr(position, "trust_engine", None)
+    if isinstance(trust_engine, dict):
+        unknown_count = (trust_engine.get("counts") or {}).get("UNKNOWN", 0)
+        if unknown_count >= 2:
+            reasons.append(f"{unknown_count} key commercial inputs are UNKNOWN in the evidence ledger")
+    # Unverified supplier justification: a price-increase justification is
+    # treated as substantiated only when at least one cited cost driver has
+    # BOTH a stated share of the supplier's cost and a stated movement --
+    # the minimum needed to compute a weighted impact. A general evidence-
+    # shape test, not a category or keyword rule.
+    if normalized.content_type == "price_increase":
+        case = normalized.case
+        if getattr(case, "suppliers_stated_justification", None):
+            drivers = getattr(case, "market_driver_claims", None) or []
+            substantiated = any(
+                getattr(d, "stated_cost_share_percent", None) is not None and getattr(d, "magnitude", None)
+                for d in drivers
+            )
+            if not substantiated:
+                reasons.append(
+                    "the supplier's stated justification is unverified: no cost driver has both a stated "
+                    "cost share and a stated movement"
+                )
+    # External market context in play: it may inform the recommendation,
+    # which is exactly when an independent check that it was not treated
+    # as supplier-specific evidence is warranted.
+    if getattr(position, "market_verification", None):
+        reasons.append("external market context is present and may influence the recommendation")
     # Currency-safe threshold comparison. Per explicit instruction: never
     # compare a financial figure against a currency-specific threshold
     # constant unless the figure is genuinely in that same currency, and
@@ -121,6 +188,29 @@ INDEPENDENCE RULE:
 Do not agree merely because the primary position sounds plausible. Try to
 falsify it first. If it survives, say why briefly.
 
+MANDATORY CHECKS -- answer each one explicitly in the structured fields:
+1. What evidence actually supports the recommendation? Classify each material
+   input as VERIFIED, CALCULATED, ASSUMED, INFERRED or UNKNOWN. A value such as
+   "Not stated" is UNKNOWN, never VERIFIED.
+2. Has generic external market or commodity information been treated as proof
+   of THIS supplier's own cost movement? Market data is context only; it does
+   not establish a specific supplier's cost increase or entitlement. If this
+   conversion occurred, set market_context_treated_as_supplier_evidence=true.
+3. Does the primary position contain ANY numeric target, counter-offer, range
+   or walk-away -- including verbal forms such as "mid-single digits" or "a few
+   percent" -- that is not supported by explicit supplier evidence, a relevant
+   validated index for the specific cost driver, historical pricing, a
+   contractual mechanism, or a documented calculation? List each one in
+   unsupported_numeric_targets.
+4. Which conclusions go further than the evidence? List them in
+   unsupported_conclusions.
+5. What important information is missing that could change the decision? List
+   it in missing_information.
+6. Could another reasonable commercial interpretation of the same evidence
+   produce a different decision? If so, set alternative_decision_possible=true
+   and state it in alternative_frame.
+If any of checks 2-4 finds a problem, challenge_level must be at least "material".
+
 OUTPUT RULE:
 Return ONLY the JSON object matching the requested schema.
 """
@@ -155,6 +245,11 @@ def run_challenger(normalized: NormalizedEvidence, position: CommercialPosition)
             "alternative_frame": "one concise alternative way to frame the decision, or empty string",
             "verdict": "supports_primary|supports_with_caveat|requires_human_review",
             "evidence_basis": ["specific evidence supporting the critique or support"],
+            "unsupported_conclusions": ["conclusion that goes beyond the evidence"],
+            "unsupported_numeric_targets": ["numeric or verbal target/range not supported by evidence"],
+            "market_context_treated_as_supplier_evidence": False,
+            "missing_information": ["missing input that could change the decision"],
+            "alternative_decision_possible": False,
         })
     )
     response = client.messages.create(
@@ -181,8 +276,9 @@ def build_model_orchestration(
     opinion: ChallengerOpinion | None = None,
     trigger_reasons: list[str] | None = None,
     provider_error: str | None = None,
+    strategy_number_issues: list[str] | None = None,
 ) -> dict[str, Any]:
-    should_run, reasons = challenge_trigger(normalized, position)
+    should_run, reasons = challenge_trigger(normalized, position, strategy_number_issues=strategy_number_issues)
     trigger_reasons = trigger_reasons if trigger_reasons is not None else reasons
     if not should_run and opinion is None:
         return {
@@ -226,6 +322,100 @@ def build_model_orchestration(
         "alternative_frame": data["alternative_frame"],
         "verdict": data["verdict"],
         "evidence_basis": data["evidence_basis"],
+        "unsupported_conclusions": data.get("unsupported_conclusions") or [],
+        "unsupported_numeric_targets": data.get("unsupported_numeric_targets") or [],
+        "market_context_treated_as_supplier_evidence": bool(data.get("market_context_treated_as_supplier_evidence")),
+        "missing_information": data.get("missing_information") or [],
+        "alternative_decision_possible": bool(data.get("alternative_decision_possible")),
         "honesty_note": "The challenger is an independent second opinion, not evidence. It cannot rewrite the primary recommendation.",
         "method": "Deterministic complexity gate followed by a separate structured challenger pass; recommendation remains owned by the primary validated position.",
     }
+
+
+_CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2}
+
+
+def apply_challenger_outcome(position: CommercialPosition, raw_question: str = "") -> list[str]:
+    """Deterministically act on the challenger's findings (live-test audit).
+
+    Previously the challenger's verdict only changed a display label in the
+    reasoning loop: the buyer-facing confidence was never downgraded and
+    nothing the challenger identified as unsupported was ever removed. This
+    closes that gap without letting the challenger author anything: it can
+    only LOWER confidence and trigger the existing deterministic sanitizer
+    -- it never raises confidence, never rewrites the recommendation, and
+    never introduces a new fact or number.
+
+    Rules (applied to whatever is in position.model_orchestration):
+    - critical / requires_human_review, or any unsupported numeric target,
+      or market context treated as supplier evidence -> confidence capped at LOW
+    - material challenge or any unsupported conclusion -> capped at MEDIUM
+    - challenger warranted but unavailable -> capped at MEDIUM (a second
+      opinion was needed and could not be obtained; high confidence is not
+      defensible without it)
+    Returns a list of the actions taken, for logging and tests.
+    """
+    orch = getattr(position, "model_orchestration", None)
+    if not isinstance(orch, dict) or not orch.get("challenger_invoked"):
+        return []
+    actions: list[str] = []
+    cap: str | None = None
+    reasons: list[str] = []
+
+    if orch.get("mode") == "CHALLENGER_UNAVAILABLE":
+        cap, reasons = "medium", ["an independent second opinion was warranted but unavailable"]
+    else:
+        level = orch.get("challenge_level")
+        verdict = orch.get("verdict")
+        numeric = orch.get("unsupported_numeric_targets") or []
+        market_misuse = bool(orch.get("market_context_treated_as_supplier_evidence"))
+        unsupported = orch.get("unsupported_conclusions") or []
+        if level == "critical" or verdict == "requires_human_review" or numeric or market_misuse:
+            cap = "low"
+            if numeric:
+                reasons.append("the independent challenger found a numeric target not supported by the evidence")
+            if market_misuse:
+                reasons.append("the independent challenger found external market data treated as supplier-specific evidence")
+            if level == "critical" or verdict == "requires_human_review":
+                reasons.append("the independent challenger requires human review")
+        elif level == "material" or unsupported:
+            cap = "medium"
+            reasons.append("the independent challenger found a material challenge or an unsupported conclusion")
+
+    if cap and _CONFIDENCE_RANK.get(position.confidence.level, 2) > _CONFIDENCE_RANK[cap]:
+        from app.models import ConfidenceFactor
+        previous = position.confidence.level
+        position.confidence.level = cap
+        position.confidence.factors.append(ConfidenceFactor(
+            factor="Independent challenger review",
+            value="; ".join(reasons),
+            weight="decreases confidence",
+        ))
+        position.confidence.derivation_note = (
+            f"{position.confidence.derivation_note} Downgraded from {previous} to {cap} after independent challenger review."
+        ).strip()
+        actions.append(f"confidence:{previous}->{cap}")
+
+    # Removal of the unsupported conclusion itself: the challenger names it,
+    # but the deterministic sanitizer (never the challenger) removes it. Run
+    # whenever the challenger flagged a numeric target, even if the earlier
+    # unconditional pass already ran -- idempotent, and the challenger may
+    # have caught a phrasing the pattern check alone did not.
+    if orch.get("unsupported_numeric_targets"):
+        from app.pipeline.claim_integrity import sanitize_unsupported_strategy_numbers
+        changed = sanitize_unsupported_strategy_numbers(position, raw_question)
+        actions.extend(f"sanitized:{c}" for c in changed)
+        # Locator-based removal: if the challenger quoted a phrase the
+        # pattern check does not recognise, its quoted text is used only
+        # to FIND the offending field, never as replacement content.
+        flagged = [str(t).strip().lower() for t in orch["unsupported_numeric_targets"] if str(t).strip()]
+        replacements = {
+            "opening_position": "No defensible counter-price can be established from the evidence currently available.",
+            "walk_away_threshold": "Do not cross a commercial boundary that has not been established by the current evidence; exact numeric walk-away is not safely determined.",
+        }
+        for field, safe_text in replacements.items():
+            current = getattr(position, field, None)
+            if current and current != safe_text and any(f in current.lower() for f in flagged):
+                setattr(position, field, safe_text)
+                actions.append(f"challenger_located:{field}")
+    return actions
